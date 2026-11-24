@@ -602,25 +602,24 @@ function exampleList(examples: CommandExample | CommandExample[] | undefined): C
  * @returns The block.
  */
 function exampleSection(examples: CommandExample[], list: ListOptions): Element {
-  return box(
-    { 'flex-direction': 'column' },
-    heading(__`Examples:`),
-    // a blank line between two examples and none inside one, which is what a
-    // `row-gap` over a box per example says
-    box(
-      { 'flex-direction': 'column', 'row-gap': 1 },
-      ...examples.map((example) =>
-        box(
-          { 'flex-direction': 'column' },
-          ...(example.label ? [verbatim(example.label, list.indent)] : []),
-          // a `text` rather than a paragraph, because a command line is what
-          // somebody copies: a paragraph is words with one space between them,
-          // and the two spaces lining up a flag in an example are the author's
-          verbatim(example.text, list.indent * (example.label ? 2 : 1))
-        )
+  // a blank line between two examples and none inside one, which is what a
+  // `row-gap` over a box per example says; appended one at a time rather than
+  // spread into `box()` (SIG-417)
+  const shown = box({ 'flex-direction': 'column', 'row-gap': 1 });
+  for (const example of examples) {
+    shown.append(
+      box(
+        { 'flex-direction': 'column' },
+        ...(example.label ? [verbatim(example.label, list.indent)] : []),
+        // a `text` rather than a paragraph, because a command line is what
+        // somebody copies: a paragraph is words with one space between them,
+        // and the two spaces lining up a flag in an example are the author's
+        verbatim(example.text, list.indent * (example.label ? 2 : 1))
       )
-    )
-  );
+    );
+  }
+
+  return box({ 'flex-direction': 'column' }, heading(__`Examples:`), shown);
 }
 
 /**

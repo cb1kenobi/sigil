@@ -113,9 +113,12 @@ function headed<T>(groups: [string, readonly (Choice<T> | string)[]][]): ChoiceE
           : offered === 1
             ? `${label} (${first})`
             : `${label} (${first}-${numbered})`
-      ),
-      ...choices
+      )
     );
+    // one at a time: a group is as long as the caller's data (SIG-417)
+    for (const choice of choices) {
+      entries.push(choice);
+    }
   }
   return entries;
 }

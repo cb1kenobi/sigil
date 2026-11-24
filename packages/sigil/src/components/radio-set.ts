@@ -185,7 +185,10 @@ export function RadioSet<T = string>(props: RadioSetProps<T>): Element {
     ...(direction === 'row' ? { 'column-gap': 2 } : {}),
   });
   host.addClass('sigil-radio-set');
-  host.append(...rows.map((r) => r.row));
+  // one at a time rather than spread: a set has an option for each of the caller's (SIG-417)
+  for (const { row } of rows) {
+    host.append(row);
+  }
   SETS.set(host, direction);
   // nothing in it can be chosen, so it is no stop for the ring either
   const inert = offered.includes(true) ? disabled : new State(true);

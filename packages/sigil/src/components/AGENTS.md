@@ -15433,18 +15433,37 @@ was never read. No error, and a derivation that did nothing at all.
   length the component decides -- a font's height, a mask's slots, a command's
   options -- is fine and is left alone, which is why the rule is about the
   caller's data rather than about spreads.
-- **This is a rule about a min or a max, not yet about every spread, and the
-  `box(props, ...rows)` sites are the reason.** Spreading children into `box()`
-  fails the same way, and SIG-363 appended them one at a time only where its own
-  subjects needed it: `chart.ts`'s `viewOf()` and live rows, `tableView()`, and
-  the layout engine's per-line measures that a long `table()` or bar chart
-  reaches. Several more remain, each throwing at 200,000 entries on a main thread
-  -- `outlineView()`, `logView()`, a markdown list, a markdown table, a document
-  of 200,000 paragraphs, and `diff()` -- including where this ticket moved the
-  component's width measurement onto `maxOf()`. That move is correct and keeps the
-  answer exactly, and it does not make those components safe at that size: their
-  `box(...children)` throws first. Whether `box()` should take an array, or every
-  such site should append, is SIG-417's decision.
+- **A box's children are appended one at a time wherever there is a child per
+  row of the caller's data (SIG-417).** `box(props, ...children)` is
+  `new Element('box', props).append(...children)`, so a component that wrote
+  `box(props, ...rows)` put every row on the call stack and failed the way
+  `Math.max(...values)` does. SIG-363 appended them only where its own subjects
+  needed it -- `chart.ts`, `tableView()` and the layout engine -- and SIG-417 did
+  the rest: `markdownView()` (a document's blocks, a list's items, a table's rows
+  and rule cells, the footnotes, a paragraph's words and a word's pieces),
+  `diffView()` and `diff()`, `codeView()`, `logView()` over a message's lines,
+  `treeView()`, `outlineView()`, a menu's and a palette's rows, `radioSet()`, the
+  key-select prompt's rows, `groupMultiselect()`'s entries, `paragraph()` over its
+  lines and words, `definitions()` and the examples in help, and a failed task's
+  subtree in `tasks.ts`. Each is a `for` loop over `append()`, which is what
+  SIG-363 did and what was decided over the alternative: `box()` takes no array,
+  and the element factories gained no API for it. `test/components/box-children.test.ts`
+  is the regression test, at 200,000 entries in a spawned node for the reason the
+  bullet below gives, and every case there failed with `RangeError` before the
+  change.
+- **What is left is a spread over one line's worth, and is a limit rather than a
+  fix.** One log line that wraps to more than about 125,000 rows is not data in
+  the sense above, and Chris decided on 2026-11-24 that it is recorded and not
+  fixed: `log-stream.ts` pushes the rows of one wrapped line
+  (`out.push(...finish(line))`). The same reading holds for the other places that
+  spread the pieces of a single line -- `diff.ts`'s runs of one source line, a
+  menu item's label parts, the pager's cells for one line -- which were left on
+  that reading and not separately decided: a source line of more than 125,000
+  tokens still throws `RangeError` on a main thread. The children of a component
+  that are the **caller's own arguments** -- `panel(props, ...children)`,
+  `button(...buttons)` and the like -- are left too: a caller that spread more
+  than a call has room for into the component would have overflowed at its own
+  call.
 - **`maxOf(values, floor)` is exactly `Math.max(floor, ...values)`, odd inputs
   included.** It is `Math.max` asked one element at a time, and `Math.max` is
   associative and commutative over every number: a `NaN` anywhere is `NaN`, `-0`

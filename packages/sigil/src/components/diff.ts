@@ -1750,8 +1750,15 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffTree {
     }
   }
 
+  // appended one at a time: a diff has a row per line and `box()` takes its
+  // children as arguments, which a long enough one cannot (SIG-417)
+  const element = box({ class: 'sigil-diff', 'flex-direction': 'column' });
+  for (const row of rows) {
+    element.append(row);
+  }
+
   return {
-    element: box({ class: 'sigil-diff', 'flex-direction': 'column' }, ...rows),
+    element,
     hunks,
     layout,
     overflow,

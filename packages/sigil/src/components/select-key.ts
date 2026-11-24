@@ -299,7 +299,11 @@ export function selectKey<T = string>(opts: SelectKeyOptions<T>): Promise<T> {
       );
     });
 
-    const list = box({ 'flex-direction': 'column', display: shown ? 'flex' : 'none' }, ...rows);
+    // one at a time rather than spread into `box()`: a row for each choice (SIG-417)
+    const list = box({ 'flex-direction': 'column', display: shown ? 'flex' : 'none' });
+    for (const row of rows) {
+      list.append(row);
+    }
     const view = box(
       { class: 'sigil-prompt', 'flex-direction': 'column' },
       line,

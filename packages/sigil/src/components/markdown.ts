@@ -284,17 +284,20 @@ function column(
   spaced: boolean,
   classes: string
 ): Element {
-  return box(
-    {
-      class: classes,
-      'flex-direction': 'column',
-      'flex-grow': 1,
-      'flex-shrink': 1,
-      'min-width': 0,
-      'row-gap': spaced ? 1 : 0,
-    },
-    ...blocks.map((block) => blockView(block, ctx))
-  );
+  // appended one at a time rather than spread into `box()`: a document has a
+  // block for each paragraph, however many that is (SIG-417)
+  const host = box({
+    class: classes,
+    'flex-direction': 'column',
+    'flex-grow': 1,
+    'flex-shrink': 1,
+    'min-width': 0,
+    'row-gap': spaced ? 1 : 0,
+  });
+  for (const block of blocks) {
+    host.append(blockView(block, ctx));
+  }
+  return host;
 }
 
 /**
@@ -540,85 +543,87 @@ function list(block: Extract<MarkdownBlock, { type: 'list' }>, ctx: Context): El
   const inner: Context = { ...ctx, depth: ctx.depth + 1, room: flat ? ctx.room : indented };
   const fixed = { 'white-space': 'pre' } as const;
 
-  return box(
-    {
-      class: `sigil-markdown-list ${block.ordered ? 'sigil-markdown-ol' : 'sigil-markdown-ul'}`,
-      'flex-direction': 'column',
-      'row-gap': block.tight ? 0 : 1,
-    },
-    ...block.items.map((item, index) => {
-      const state = task(index);
-      const marker =
-        state === undefined || block.ordered
-          ? 'sigil-markdown-marker sigil-muted'
-          : `sigil-markdown-marker ${taskClasses(state)}`;
-      const head = [
-        // numbers line up on their right; a bullet and a box on their left, which
-        // only differs where an ASCII box is three columns and a bullet one
-        textNode(markers[index], {
-          ...fixed,
-          ...hung(0),
-          class: marker,
-          'text-align': block.ordered ? 'right' : 'left',
-          width: markerWidth,
-        }),
-        ...(boxed
-          ? [
-              state === undefined
-                ? textNode('', { ...fixed, ...hung(markerWidth + 1), width: boxWidth })
-                : textNode(glyph(index), {
-                    ...fixed,
-                    ...hung(markerWidth + 1),
-                    class: taskClasses(state),
-                    width: boxWidth,
-                  }),
-            ]
-          : []),
-      ];
+  // appended one at a time rather than spread into `box()`: an item for each
+  // entry of the list, however many that is (SIG-417)
+  const items = block.items.map((item, index) => {
+    const state = task(index);
+    const marker =
+      state === undefined || block.ordered
+        ? 'sigil-markdown-marker sigil-muted'
+        : `sigil-markdown-marker ${taskClasses(state)}`;
+    const head = [
+      // numbers line up on their right; a bullet and a box on their left, which
+      // only differs where an ASCII box is three columns and a bullet one
+      textNode(markers[index], {
+        ...fixed,
+        ...hung(0),
+        class: marker,
+        'text-align': block.ordered ? 'right' : 'left',
+        width: markerWidth,
+      }),
+      ...(boxed
+        ? [
+            state === undefined
+              ? textNode('', { ...fixed, ...hung(markerWidth + 1), width: boxWidth })
+              : textNode(glyph(index), {
+                  ...fixed,
+                  ...hung(markerWidth + 1),
+                  class: taskClasses(state),
+                  width: boxWidth,
+                }),
+          ]
+        : []),
+    ];
 
-      if (!flat) {
-        return hanging(
-          'sigil-markdown-item',
-          inset,
-          head,
-          column(item, inner, !block.tight, 'sigil-markdown-item-body')
-        );
-      }
-
-      // a list or a quote beside the marker would indent again, which is what
-      // this item cannot afford; what comes before the first of them is as wide
-      // as it is going to get, and keeps its place while each block still has
-      // the room it needs to draw any of itself, and the run as a whole half
-      // the floor. The first block that does not goes under the marker, with
-      // everything after it, so the order is kept
-      const split =
-        indented < ctx.floor / 2
-          ? 0
-          : item.findIndex(
-              (it) => it.type === 'list' || it.type === 'quote' || narrowest(it) > indented
-            );
-      const beside = split === -1 ? item : item.slice(0, split);
-      const under = split === -1 ? [] : item.slice(split);
-      return box(
-        {
-          class: 'sigil-markdown-item',
-          'flex-direction': 'column',
-          'row-gap': block.tight ? 0 : 1,
-        },
-        hanging(
-          undefined,
-          inset,
-          head,
-          beside.length > 0
-            ? column(beside, { ...inner, room: indented }, !block.tight, 'sigil-markdown-item-body')
-            : undefined
-        ),
-        ...(under.length > 0
-          ? [column(under, inner, !block.tight, 'sigil-markdown-item-body')]
-          : [])
+    if (!flat) {
+      return hanging(
+        'sigil-markdown-item',
+        inset,
+        head,
+        column(item, inner, !block.tight, 'sigil-markdown-item-body')
       );
-    })
-  );
+    }
+
+    // a list or a quote beside the marker would indent again, which is what
+    // this item cannot afford; what comes before the first of them is as wide
+    // as it is going to get, and keeps its place while each block still has
+    // the room it needs to draw any of itself, and the run as a whole half
+    // the floor. The first block that does not goes under the marker, with
+    // everything after it, so the order is kept
+    const split =
+      indented < ctx.floor / 2
+        ? 0
+        : item.findIndex(
+            (it) => it.type === 'list' || it.type === 'quote' || narrowest(it) > indented
+          );
+    const beside = split === -1 ? item : item.slice(0, split);
+    const under = split === -1 ? [] : item.slice(split);
+    return box(
+      {
+        class: 'sigil-markdown-item',
+        'flex-direction': 'column',
+        'row-gap': block.tight ? 0 : 1,
+      },
+      hanging(
+        undefined,
+        inset,
+        head,
+        beside.length > 0
+          ? column(beside, { ...inner, room: indented }, !block.tight, 'sigil-markdown-item-body')
+          : undefined
+      ),
+      ...(under.length > 0 ? [column(under, inner, !block.tight, 'sigil-markdown-item-body')] : [])
+    );
+  });
+  const list = box({
+    class: `sigil-markdown-list ${block.ordered ? 'sigil-markdown-ol' : 'sigil-markdown-ul'}`,
+    'flex-direction': 'column',
+    'row-gap': block.tight ? 0 : 1,
+  });
+  for (const item of items) {
+    list.append(item);
+  }
+  return list;
 }
 
 /**
@@ -676,25 +681,29 @@ function footnotes(block: Extract<MarkdownBlock, { type: 'footnotes' }>, ctx: Co
   // one block, or a two-paragraph note would read as two notes
   const loose = block.notes.some((note) => note.children.length > 1);
 
+  // appended one at a time rather than spread into `box()`: a note for each
+  // footnote of the document (SIG-417)
+  const notes = box({ 'flex-direction': 'column', 'row-gap': loose ? 1 : 0 });
+  block.notes.forEach((note, index) => {
+    notes.append(
+      box(
+        { class: 'sigil-markdown-footnote', 'column-gap': 1, 'flex-direction': 'row' },
+        textNode(markers[index], {
+          class: 'sigil-markdown-footnote-marker sigil-muted',
+          'flex-shrink': 0,
+          'text-align': 'right',
+          'white-space': 'pre',
+          width: markerWidth,
+        }),
+        column(note.children, inner, true, 'sigil-markdown-footnote-body')
+      )
+    );
+  });
+
   return box(
     { class: 'sigil-markdown-footnotes', 'flex-direction': 'column' },
     ruleView({ env: ctx.env, platform: ctx.platform, width: ctx.room }).element,
-    box(
-      { 'flex-direction': 'column', 'row-gap': loose ? 1 : 0 },
-      ...block.notes.map((note, index) =>
-        box(
-          { class: 'sigil-markdown-footnote', 'column-gap': 1, 'flex-direction': 'row' },
-          textNode(markers[index], {
-            class: 'sigil-markdown-footnote-marker sigil-muted',
-            'flex-shrink': 0,
-            'text-align': 'right',
-            'white-space': 'pre',
-            width: markerWidth,
-          }),
-          column(note.children, inner, true, 'sigil-markdown-footnote-body')
-        )
-      )
-    )
+    notes
   );
 }
 
@@ -754,22 +763,28 @@ function tableBlock(block: Extract<MarkdownBlock, { type: 'table' }>, ctx: Conte
       classes
     );
 
-  return box(
+  // appended one at a time rather than spread into `box()`: a row for each row
+  // of the table, and a rule cell for each column (SIG-417)
+  const rule = box({ class: 'sigil-table-row', 'column-gap': TABLE_GAP, 'flex-shrink': 0 });
+  for (const w of widths) {
+    rule.append(
+      textNode(line.repeat(w), {
+        class: 'sigil-markdown-table-rule sigil-muted',
+        'flex-shrink': 0,
+        'white-space': 'pre',
+        width: w,
+      })
+    );
+  }
+  const table = box(
     { class: 'sigil-table sigil-markdown-table', 'flex-direction': 'column' },
     row(lines[0], 'sigil-table-cell sigil-table-head sigil-heading'),
-    box(
-      { class: 'sigil-table-row', 'column-gap': TABLE_GAP, 'flex-shrink': 0 },
-      ...widths.map((w) =>
-        textNode(line.repeat(w), {
-          class: 'sigil-markdown-table-rule sigil-muted',
-          'flex-shrink': 0,
-          'white-space': 'pre',
-          width: w,
-        })
-      )
-    ),
-    ...lines.slice(1).map((cells) => row(cells, 'sigil-table-cell sigil-markdown-cell'))
+    rule
   );
+  for (let i = 1; i < lines.length; i++) {
+    table.append(row(lines[i], 'sigil-table-cell sigil-markdown-cell'));
+  }
+  return table;
 }
 
 /**
@@ -805,15 +820,15 @@ function fit(natural: readonly number[], room: number): number[] {
 
 /** How wide a run of words is on one line: the words, and a space between each. */
 function lineWidth(lines: Word[][]): number {
-  return Math.max(
-    0,
-    ...lines.map(
+  return maxOf(
+    lines.map(
       (line) =>
         line.reduce(
           (sum, word) => sum + word.reduce((w, piece) => w + stringWidth(piece.text), 0),
           0
         ) + Math.max(0, line.length - 1)
-    )
+    ),
+    0
   );
 }
 
@@ -1063,19 +1078,25 @@ function flow(
   justify: string | undefined,
   room: number
 ): Element {
-  const rows = lines.map((line) =>
-    box(
-      {
-        'column-gap': 1,
-        'flex-direction': 'row',
-        'flex-wrap': 'wrap',
-        ...(justify === undefined ? {} : { 'justify-content': justify }),
-      },
-      ...line.flatMap((word) => wordViews(word, room))
-    )
-  );
+  // appended one at a time rather than spread into `box()`: a line has a word
+  // for each word of a paragraph, and a block a line for each hard break (SIG-417)
+  const block = box({ class: classes, 'flex-direction': 'column', 'min-width': 0 });
+  for (const line of lines) {
+    const row = box({
+      'column-gap': 1,
+      'flex-direction': 'row',
+      'flex-wrap': 'wrap',
+      ...(justify === undefined ? {} : { 'justify-content': justify }),
+    });
+    for (const word of line) {
+      for (const view of wordViews(word, room)) {
+        row.append(view);
+      }
+    }
+    block.append(row);
+  }
 
-  return box({ class: classes, 'flex-direction': 'column', 'min-width': 0 }, ...rows);
+  return block;
 }
 
 /**
@@ -1165,19 +1186,28 @@ function wordView(word: Word, room: number): Element {
       ...(it.href === '' ? {} : { href: it.href }),
     });
 
+  // a word is as many pieces as it has changes of style, appended one at a time
+  // rather than spread into `box()` (SIG-417)
+  const pieces = (host: Element): Element => {
+    for (const it of word) {
+      host.append(piece(it));
+    }
+    return host;
+  };
+
   if (word.length === 1) {
     return piece(word[0]);
   }
 
   const widths = word.map((it) => stringWidth(it.text));
   if (widths.reduce((sum, w) => sum + w, 0) <= room) {
-    return box({ 'flex-direction': 'row', 'flex-shrink': 0 }, ...word.map(piece));
+    return pieces(box({ 'flex-direction': 'row', 'flex-shrink': 0 }));
   }
 
-  const widest = Math.max(...widths);
+  const widest = maxOf(widths);
   if (widest > room && word.every((it) => it.href === word[0].href)) {
     const longest = word[widths.indexOf(widest)];
     return piece({ ...longest, text: word.map((it) => it.text).join('') });
   }
-  return box({ 'flex-direction': 'row', 'flex-wrap': 'wrap', 'min-width': 0 }, ...word.map(piece));
+  return pieces(box({ 'flex-direction': 'row', 'flex-wrap': 'wrap', 'min-width': 0 }));
 }
