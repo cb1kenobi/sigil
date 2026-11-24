@@ -18,6 +18,7 @@ import {
 import { Cascade, parseStylesheet, Restyler } from '../../src/style/index.js';
 import { createTerminal, type Terminal } from '../../src/terminal/index.js';
 import { createTestTerminal, tick } from '../../src/testing/index.js';
+import { growthOf } from '../growth.js';
 import { describe, expect, it, vi } from 'vitest';
 
 /**
@@ -1718,29 +1719,37 @@ describe('paste', () => {
       stop();
     });
 
-    it('should hold a large paste in time linear in its size', () => {
+    // a ratio and not a budget (SIG-657): `took < 1000` sat an order of magnitude
+    // from both costs below, which no loaded machine was meant to cross, and said
+    // nothing of how the cost grows. Eight times the reads must cost less than
+    // three times eight, where linear is eight and the join below is sixty-four
+    describe('a large paste', () => {
+      const chunk = 'x'.repeat(1022);
+
+      /** Pastes `reads` reads of `chunk`, then Ctrl-C, and says what arrived. */
+      function paste(reads: number): { keys: string[]; lengths: number[] } {
+        const { feed, keys, pasted, stop } = recording();
+        feed(start);
+        for (let i = 0; i < reads; i++) {
+          feed(chunk);
+        }
+        feed(end);
+        feed('\u0003');
+        stop();
+        return { keys, lengths: pasted.map((text) => text.length) };
+      }
+
+      it('should be held whole, and end, however many reads it came in', () => {
+        const reads = 4000;
+        expect(paste(reads)).toEqual({ keys: ['ctrl-c'], lengths: [reads * chunk.length] });
+      });
+
       // joining what was held to each read and searching the result made V8
       // flatten the whole paste every time, so 16 MB in a macOS pty's 1022-byte
-      // reads took about 9s; searching the held tail takes about 5ms. The budget
-      // sits an order of magnitude from both, so neither a loaded machine nor a
-      // quadratic search lands on the wrong side of it
-      const { feed, keys, pasted, stop } = recording();
-      const chunk = 'x'.repeat(1022);
-      const reads = 16_000;
-
-      const began = performance.now();
-      feed(start);
-      for (let i = 0; i < reads; i++) {
-        feed(chunk);
-      }
-      feed(end);
-      const took = performance.now() - began;
-
-      expect(pasted.map((text) => text.length)).toEqual([reads * chunk.length]);
-      expect(took).toBeLessThan(1000);
-      feed('\u0003');
-      expect(keys).toEqual(['ctrl-c']);
-      stop();
+      // reads took about 9s; searching the held tail takes about 5ms
+      it('should be held in time linear in its size', () => {
+        expect(growthOf(paste, 250, 2000, 8, 'paste')).toBeLessThan(24);
+      });
     });
   });
 

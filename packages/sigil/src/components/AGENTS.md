@@ -12607,6 +12607,29 @@ there is the bars, which are drawn on every line.
   times its 110 ms to reach the budget where the old one took about 110 times its
   91 ms to reach ten seconds, and 430 times for the slowest test, the emphasis one.
 
+- **The timing checks outside `growthOf()` joined it, or say why they did not
+  (SIG-657).** SIG-649 listed the five that measured some other way and none had
+  failed; each was a wall clock a loaded runner moves. `growthOfAsync()` sits
+  beside `growthOf()` in `test/growth.ts` and shares its clock probe, span, read
+  counts and ratio -- the loops differ only in an `await` -- and both take any
+  input rather than a string, since a count and a prepared fixture are things a
+  linear-time check reads at two sizes as well. `choice-window.test.ts` opens a
+  `groupMultiselect()` through it, and a read is the open _and_ the cancel, which
+  is not what the old check timed (the synchronous call alone): a read carries a
+  screen and two ticks that do not grow with the list, so linear reads about 2
+  rather than 8, and the sizes were found by planting the old quadratic -- 28 at
+  2,000 choices, 51 at 3,000, and at 8,000 the planted side took long enough to
+  time the test out rather than fail it. The 2,000 ms bound on `*a ` in
+  `markdown.test.ts` is a ratio now, over both `*a ` and `a* `: `*a ` has no closer
+  and cannot go quadratic at all, so the old check could not have failed on the
+  shape its comment is about. The paste check in `input.test.ts` and the
+  re-match check in `style/invalidate.test.ts` are ratios too. The inflate bomb in
+  `png/decode.test.ts` keeps its 1,000 ms, as a hang guard with the reason beside
+  it: the whole bomb inflates in about 20 ms and stopping early is under one, so
+  no deadline and no ratio tells them apart, and the message -- "more than the 2
+  bytes" -- is what says the inflate stopped. Each was checked by planting the
+  defect it names.
+
 - **The ticket's other lazy figure, 0.54 s for 128 KB, was the parser, and is
   left.** `parseMarkdown()` of 64,000 lazy lines took 8 ms unquoted and 493 ms
   under 99 quotes, on both builds. Every level of quote asks `interrupts()` of

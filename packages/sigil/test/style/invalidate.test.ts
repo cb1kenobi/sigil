@@ -8,6 +8,7 @@ import {
   Restyler,
   type StyleTarget,
 } from '../../src/style/index.js';
+import { growthOf } from '../growth.js';
 import { describe, expect, it } from 'vitest';
 
 /** A mutable element, since invalidation is about things changing. */
@@ -481,10 +482,10 @@ describe('the terminal changing', () => {
 });
 
 describe('the size of the naive answer', () => {
-  /** A tree of about two hundred elements, which is a large terminal UI. */
-  function tree(): Node {
+  /** A tree of about two hundred elements at forty rows, which is a large terminal UI. */
+  function tree(count = 40): Node {
     const rows: Node[] = [];
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < count; i++) {
       rows.push(
         el(`box.row${i % 7 === 0 ? '.odd' : ''}`, [
           el('text.label'),
@@ -507,41 +508,40 @@ describe('the size of the naive answer', () => {
     return out.join('\n');
   }
 
-  it('should re-match the whole tree in well under a millisecond', () => {
-    // the ticket's central claim, measured rather than asserted. Browsers
-    // build invalidation sets because they have two orders of magnitude more
-    // elements and rules than this; what must not happen is an architecture
-    // where that optimization could not be added if this measurement ever
-    // surprises us
-    const root = tree();
-    const cascade = new Cascade([parseStylesheet(rules())]);
-    const restyler = new Restyler(cascade);
-
-    const count = (node: Node): number =>
-      1 + node.children.reduce((total, child) => total + count(child), 0);
-    expect(count(root)).toBeGreaterThan(150);
-
+  /** A tree of `count` rows, a stylesheet over it, and the restyler that has seen it once. */
+  function fixture(count: number): { restyler: Restyler; root: Node; size: number } {
+    const root = tree(count);
+    const restyler = new Restyler(new Cascade([parseStylesheet(rules())]));
+    const size = (node: Node): number =>
+      1 + node.children.reduce((total, child) => total + size(child), 0);
     restyler.update(as(root));
+    return { restyler, root, size: size(root) };
+  }
 
-    const took: number[] = [];
-    for (let i = 0; i < 20; i++) {
-      restyler.touchSheets();
-      const started = performance.now();
-      const update = restyler.update(as(root));
-      took.push(performance.now() - started);
-      expect(update.restyled).toBe(count(root));
-    }
+  // the ticket's central claim, measured rather than asserted. Browsers
+  // build invalidation sets because they have two orders of magnitude more
+  // elements and rules than this; what must not happen is an architecture
+  // where that optimization could not be added if this measurement ever
+  // surprises us.
+  //
+  // It was the median of twenty wall-clock passes against 50 ms, which is fifty
+  // times the cost it guarded and sat on a clock a loaded runner moves
+  // (SIG-657). Growth is what a re-match that had gone quadratic changes and
+  // what a slow machine does not: eight times the rows must cost less than three
+  // times eight, where linear is eight and a re-match that reads every element
+  // for each one is sixty-four. `growthOf()` reads CPU time where it can, over a
+  // span, and takes the best of seven.
+  it('should re-match the whole tree in time linear in its size', () => {
+    const small = fixture(5);
+    const large = fixture(40);
+    expect(large.size).toBeGreaterThan(150);
 
-    // the median rather than the slowest, which is a statement about what
-    // this is guarding. A re-match that had gone quadratic is slow on every
-    // pass, so the median catches it with the same 50x headroom the samples
-    // have -- while one pass out of twenty stalling says only that something
-    // else on the machine wanted the CPU. It took a macOS runner reporting
-    // 59ms for a single iteration, against a median of 1.0ms and a slowest
-    // of 1.7ms locally, to make that the difference between a red build and
-    // a green one.
-    const median = [...took].sort((a, b) => a - b)[Math.floor(took.length / 2)] as number;
-    expect(median).toBeLessThan(50);
+    const rematch = (it: ReturnType<typeof fixture>): void => {
+      it.restyler.touchSheets();
+      expect(it.restyler.update(as(it.root)).restyled).toBe(it.size);
+    };
+
+    expect(growthOf(rematch, small, large, 8, 'rematch')).toBeLessThan(24);
   });
 });
 
