@@ -1421,6 +1421,99 @@ describe('LineChart, with a crosshair from the keyboard (SIG-516)', () => {
         expect(m.screen().join('\n')).toContain('▼');
         expect(m.screen().join('\n')).not.toContain('▲');
       });
+
+      describe('the readout beside it, with no axis row to fall back on (SIG-636)', () => {
+        const words = 'a readout wide';
+        /** A chart with no axis, whose readout is as wide as `words` says. */
+        const mountBare = (say = words, more: Partial<{ maxWidth: number; side: 'top' }> = {}) =>
+          mount((input) => ({
+            axis: false,
+            crosshair: { input, ...more, text: () => say },
+            props: { height: 6, width: 30 },
+          }));
+
+        it('should put the bubble past a pin it would cover, so the marker shows', async () => {
+          const m = await mountBare();
+          // the pin is the second sample, in column 10, and the rule goes back to the first
+          await m.key(KEYS.tab, KEYS.home, KEYS.right, KEYS.enter, KEYS.home);
+          expect(tick(m.screen())).toBe(-1);
+          const top = m.screen()[0] ?? '';
+          expect(top.indexOf('▼')).toBe(10);
+          // and the bubble starts in the next column, rather than beside the rule
+          expect(top.indexOf('╭')).toBe(11);
+        });
+
+        it('should put it past the rule where it flips, so a pin on the far side shows', async () => {
+          const m = await mountBare();
+          // the newest sample is the rule, with 10 columns to its right on the screen
+          // and a bubble of 18, so it goes to its left -- over the pin at column 19
+          await m.key(KEYS.tab, KEYS.left, KEYS.enter, KEYS.end);
+          const top = m.screen()[0] ?? '';
+          expect(top.indexOf('▼')).toBe(19);
+          // the bubble ends before the pin, with the rule on the other side of it
+          expect(top.indexOf('╮')).toBeLessThan(19);
+          expect(top.indexOf('╮')).toBeGreaterThan(-1);
+        });
+
+        it('should leave the bubble against the rule where the pin is out of its reach', async () => {
+          // a bubble of 6 ends at column 6, and the pin is in column 19
+          const m = await mountBare('ab');
+          await m.key(KEYS.tab, KEYS.home, KEYS.right, KEYS.right, KEYS.enter, KEYS.home);
+          const top = m.screen()[0] ?? '';
+          expect(top.indexOf('▼')).toBe(19);
+          expect(top.indexOf('╭')).toBe(1);
+        });
+
+        /** Pins the third sample (column 19) with the rule at the first, and returns the top row. */
+        const farPin = async (m: Awaited<ReturnType<typeof mountBare>>) => {
+          await m.key(KEYS.tab, KEYS.home, KEYS.right, KEYS.right, KEYS.enter, KEYS.home);
+          return m.screen();
+        };
+
+        it('should reach exactly as far as the bubble is wide, and no further', async () => {
+          // 15 words make a bubble of 19, which ends in column 19, the pin's; 14 end in 18
+          const wide = await farPin(await mountBare('a readout wide!'));
+          expect((wide[0] ?? '').indexOf('▼')).toBe(19);
+          expect((wide[0] ?? '').indexOf('╭')).toBe(20);
+          const narrow = await farPin(await mountBare('a readout wide'));
+          expect((narrow[0] ?? '').indexOf('╭')).toBe(1);
+        });
+
+        it('should reach as far as the widest line of a readout of several', async () => {
+          // the whole string is 17 wide and the widest line 14, which does not reach column 19
+          const screen = await farPin(await mountBare('a readout wide\nab'));
+          expect((screen[0] ?? '').indexOf('╭')).toBe(1);
+        });
+
+        it('should reach no further than the maxWidth it wraps at', async () => {
+          // the words are 30 wide and the bubble 12, so the pin 19 columns off is clear of it
+          const screen = await farPin(
+            await mountBare('aaaa bbbb cccc dddd eeee ffff g', { maxWidth: 12 })
+          );
+          expect((screen[0] ?? '').indexOf('▼')).toBe(19);
+          expect((screen[0] ?? '').indexOf('╭')).toBe(1);
+        });
+
+        it('should leave a bubble above or below the plot where it was', async () => {
+          const m = await mountBare(words, { side: 'top' });
+          await m.key(KEYS.tab, KEYS.home, KEYS.enter, KEYS.right);
+          // the pin is in column 0 and the rule in column 10, where the bubble starts
+          expect(m.screen().map((line) => line.indexOf('╭'))).toContain(10);
+        });
+
+        it('should keep the bubble against the rule where a line has the pin cell, which draws no marker', async () => {
+          // the newest sample is the highest, so its top cell is the line's: nothing to cover
+          const m = await mountBare('a readout wide');
+          await m.key(KEYS.tab, KEYS.enter, KEYS.left);
+          expect((m.screen()[0] ?? '').indexOf('╮')).toBeGreaterThan(19);
+        });
+
+        it('should leave the bubble where it was with no pin to keep clear of', async () => {
+          const m = await mountBare();
+          await m.key(KEYS.tab, KEYS.home);
+          expect((m.screen()[0] ?? '').indexOf('╭')).toBe(1);
+        });
+      });
     });
 
     it('should claim Enter, Home and End while it has the focus', async () => {

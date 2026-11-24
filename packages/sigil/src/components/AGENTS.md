@@ -7896,11 +7896,36 @@ have.
 - **A line beats it on the plot, as it beats the rule.** The top cell of the
   pinned column is the highest value's wherever the pinned sample is the highest, so
   there the plot's marker is not drawn and the axis one is the answer. A chart with
-  `axis: false` has only the plot's, and loses it under a line there -- and under
-  the readout's bubble, which sits beside the rule over the plot's top rows, so a pin
-  within about nine columns of the rule is covered while the readout is shown. A
-  limit, recorded rather than fixed, since moving the marker off the plot's top row
-  would make it a thing that wanders with the data.
+  `axis: false` has only the plot's, and loses it under a line there, which is a
+  limit: moving the marker off the plot's top row would make it a thing that wanders
+  with the data. The readout's bubble is not a second one -- see the next entry.
+- **The readout's bubble keeps clear of the pin (SIG-636).** The bubble sits beside
+  the rule over the plot's top rows, so a pin within its width of the rule was under
+  it while the readout showed, and with no axis row nothing else said where the pin
+  was. The tooltip's `area` is the rule's cell, and `follow()` widens it to take in
+  the pin's cell when the pin is within the bubble's reach: the readout's widest
+  line plus the border and padding, capped at the crosshair's `maxWidth` or, where
+  there is none, at 40 -- the tooltip's default, repeated because a chart is
+  ejectable and cannot import the constant, and needed because a longer readout
+  wraps to a bubble no wider than that. A bubble placed on the right then starts
+  past the pin, and one that flips to the left ends before it, because the tooltip
+  places it beside the area and the area runs from the one to the other. Nothing
+  moves when the pin is out of reach, so a pin far from the rule leaves the bubble
+  flush against it as it was. It is not asked of `side: 'top'` or `'bottom'`, where
+  the bubble is above or below the plot and covers none of its cells, nor of a pin
+  where a line has the top cell, since no marker is drawn there for it to cover
+  (`drawing.pinned` is `undefined` for both, and where the rule is in the pin's
+  cell). It applies with an axis too, since the top cell is the marker's there as
+  well.
+  **A limit, recorded rather than fixed:** where neither side of the widened area
+  has room for the bubble, `placeTooltip()` clamps it inside the screen, which
+  covers the pin, or the rule, again -- a narrow terminal with a wide readout. That
+  is the tooltip's own rule that covering the anchor beats being cut off, and
+  changing it would change every tooltip. The reach is an estimate from the words, so
+  a bubble the screen squeezes is narrower than it says, which only keeps it a few
+  cells further out. The SIG-636 tests in `test/components/chart-live.test.ts` pin the reach exactly,
+  the widest line, `maxWidth`, a line under the pin, and `side: 'top'`; each fails
+  with its rule taken out.
 - **The marker and Enter can disagree under `fit`.** The marker is compared by cell
   and Enter by sample (SIG-607), so with the rule on a neighbour of the pin in the
   pin's cell no marker shows and Enter moves the pin rather than clearing it. Both
