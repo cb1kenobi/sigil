@@ -13,9 +13,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  * not a timer: the clock's `format` runs from the effect that reads `clock.text`,
  * on a flush the scheduler asked for when a tick wrote a signal, and a throw there
  * is the signals layer's to report. The probe this file is the record of asked what
- * a test sees, and the answer is that it is not an uncaught exception, unless the handler it goes to throws -- an
- * effect's error is reported and not rethrown, so there is no microtask for
- * nothing to catch -- and that a test can hear it where it already could.
+ * a test sees, and the answer is that it is not an uncaught exception, unless the
+ * handler it goes to throws -- an effect's error is reported and not rethrown, so
+ * there is no microtask for nothing to catch -- and that a test can hear it where it
+ * already could.
  */
 
 const apps: App[] = [];
