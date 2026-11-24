@@ -523,10 +523,9 @@ what they mean on a placeholder declared by hand:
   wins once it has. A package's `package.json` description beats it.
 - `hidden` hides the command; the module cannot un-hide it.
 - `alias` routes — `mycli ls` runs `list` from source and after `sigil build` —
-  and stays out of help, as the `alias` property does. An alias is a plain name,
-  held to what a route's name is: one starting `!` or `@`, or holding a control
-  or format character (U+200C and U+200D excepted, as they are in a name), throws
-  naming the file.
+  and stays out of help, as the `alias` property does. An alias is a plain name:
+  one starting `!` or `@`, or holding a control or format character (U+200C and
+  U+200D excepted, as they are in a route's name), throws naming the file.
 - `default: true` runs the command when argv names none of its siblings, and it
   still routes and lists under its own name. Two entries both `default` throw.
 

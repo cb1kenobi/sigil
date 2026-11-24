@@ -479,7 +479,8 @@ export function readPackage(dir: string): PackageRoute | undefined {
  * @param entries - Its listing.
  * @returns What the file says, or `undefined` when there is none.
  * @throws If both spellings are there, if it is not JSON or JSONC, if it is not
- *   an object of objects, if a property is the wrong type, or if two entries are
+ *   an object of objects, if a property is the wrong type, if an alias starts
+ *   with `!` or `@` or holds a control or format character, or if two entries are
  *   both `default`.
  */
 export function readRouteManifest(dir: string, entries: Dirent[]): RouteManifest | undefined {

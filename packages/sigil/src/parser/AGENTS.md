@@ -2054,10 +2054,15 @@ read it by the new name.
   **U+200C and U+200D are let through**: Persian and several Indic scripts
   cannot spell some words without them, and an attack needs the bidi controls and
   the invisible spaces rather than a joiner. They are escaped wherever a name is
-  echoed, like U+3164. **A `commands.json` alias is held to the same rule since
-  SIG-673**, by the same function: a dropped manifest is no more the app's own
-  than a dropped file, and an alias is a spelling argv can match, so it had the one
-  guard (the escaped suggestion) where a route name has two. `readRoutes()`'s
+  echoed, like U+3164. **A `commands.json` alias is held to the same control and
+  format rule since SIG-673**, by the same function -- and to that rule alone, not
+  to the rest of `routeNameProblem()`: an alias may still hold whitespace, a `,`, a
+  `/` or a leading `<` or `[`, which a route's name may not, because the ticket
+  was about what reaches a terminal and U+2028 and the rest are escaped where an
+  alias is echoed. Whether an alias should be held to the whole of a name's rules
+  is open. The reason it is held to this one: a dropped manifest is no more the
+  app's own than a dropped file, and an alias is a spelling argv can match, so it
+  had the one guard (the escaped suggestion) where a route name has two. `readRouteManifest()`'s
   alias loop, beside the `!` and `@` check, refuses it with `hasUnsafeCharacter()`
   and the one reason string `routeNameProblem()` uses, so the runtime and `sigil
   build` and `sigil check` -- which all read the file through `readRouteManifest()`

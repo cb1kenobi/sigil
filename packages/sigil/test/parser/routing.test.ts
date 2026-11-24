@@ -464,7 +464,7 @@ describe('filesystem routing', () => {
         }
       });
 
-      it('should refuse the same characters in an alias that it refuses in a route name', () => {
+      it('should refuse the same control and format characters in an alias as in a route name', () => {
         // one definition: every code point of the two classes, plus the characters
         // either one lets through, answers the same for a name and for an alias
         const dir = app({});
