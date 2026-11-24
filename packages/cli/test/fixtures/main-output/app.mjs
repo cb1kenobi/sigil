@@ -42,6 +42,15 @@ await main({
           );
         },
       },
+      // a document handed to `page()`, which with no terminal on the other end
+      // writes it out as it was given (`output.test.ts`, SIG-672)
+      page: {
+        desc: 'Page a long document, which is written out when output is a file',
+        run: async () => {
+          const { page } = await import('@ttylabs/sigil/components/pager');
+          await page('a line of a document that is longer than one block\n'.repeat(60));
+        },
+      },
       lines: {
         desc: 'Write a long listing, a line at a time',
         run: () => {

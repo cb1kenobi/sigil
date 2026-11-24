@@ -2712,12 +2712,13 @@ app that had somebody looking. Chris decided on 2026-11-24 that both are
   (SIG-663). `app completion bash > file` was `completion.ts`'s own
   `process.stdout.write()` of a document and is `writeOut()` now, so a cut-off is
   the same `The output was cut off` error and exit 1 as `--help`. `errorHandler()`
-  writes the message through `writeTo()` when the stream is the process's own
-  `stderr`, which is the same loop for a real `2> log`. A stream passed as
-  `opts.stderr` is `write()` as it always was, whatever it is: an `fs.WriteStream`
-  has a descriptor and a queue of its own, and `writeTo()` on it wrote round the
-  queue -- ahead of what it held, and at offset 0 for one opened with `start` --
-  which the review of this entry measured. A capture or a test's sink was never
+  writes the message through `writeTo()`, which is the same loop for a real
+  `2> log`. A stream passed as `opts.stderr` is `write()` as it always was,
+  whatever it is: an `fs.WriteStream` has a descriptor and a queue of its own,
+  and `writeTo()` used to write round the queue -- ahead of what it held, and at
+  offset 0 for one opened with `start` -- which the review of this entry
+  measured. It was avoided here by an identity check, and is `writeTo()`'s own
+  rule since SIG-671 (the entry below). A capture or a test's sink was never
   affected. What cannot be done is _report_ a
   cut-off message: stderr is the thing that failed, so the handler catches what
   `writeTo()` throws, logs it for `DEBUG=sigil:error`, and **does not throw out of
@@ -2733,13 +2734,72 @@ app that had somebody looking. Chris decided on 2026-11-24 that both are
   lost that anyone could read. The spawned tests are in
   `packages/cli/test/output.test.ts` against `fixtures/main-output/app.mjs`, with
   the descriptor under `ulimit -f` as `2>` for the error and `>` for the script.
-- **What is not covered.** An update notice and a prompt have `write`s of their
-  own, and neither is one of the writers the tickets named. The Windows `EOF` is
-  reasoned and not measured, and a write racing the close is untested -- both
-  carried over from SIG-537. The spawned size-limit tests are POSIX only, since
-  Windows has no `ulimit`; the in-process ones in `test/output.test.ts` and
-  `test/output-main.test.ts` run on every platform and replace `writeSync()` for
-  the short write itself.
+- **`writeTo()` takes the descriptor only for the process's own stdout and
+  stderr** (SIG-671). `fileDescriptor()` accepted any stream with an `fd`, so a
+  caller's `fs.WriteStream` was written round its own queue: output already
+  queued reached the file after what `writeTo()` wrote, and a stream opened with
+  `start` was written at offset 0, over the head of the file. The descriptor of
+  `process.stdout` and `process.stderr` is the process's and nobody else's, which
+  is what makes writing to it directly safe; any other stream owns a queue and a
+  position, and is `stream.write()`. Compared by identity and read at call time,
+  since `process.stdout` is a getter -- which is also what lets the in-process
+  tests stand a file in for it with `vi.spyOn(process, 'stderr', 'get')`.
+  What a caller's stream does about a short write is its own and is **not** a
+  throw from `writeTo()`: measured under `ulimit -f` with a bare `fs.WriteStream`,
+  Node retries the remainder and the stream emits `error` with `EFBIG`, so the
+  failure arrives where the stream's owner already listens for it. `errorHandler()`
+  lost its `stderr === process.stderr` branch and calls `writeTo()` for every
+  stream; it still keeps `own` for the exit-code rule, because a supplied
+  stream's failure is its owner's. Tests: the two `fs.WriteStream` cases in
+  `test/output.test.ts`, which fail with the check removed.
+- **The remaining direct writers, decided one at a time** (SIG-672). The rule is
+  the one the entries above already follow, said once: **output the user asked
+  for, and the error that explains a failure, is a document, and goes through
+  `writeTo()` or `writeOut()`; a diagnostic, or output drawn for a person at a
+  terminal, where a lost line costs nothing the exit code does not already say,
+  stays a stream write.** What a cut-off changes is the verdict: a document that
+  exits 0 over half of itself is the defect, and a line next to an exit code that
+  already says failure, or a report of something already done, loses nothing a
+  caller could act on. A throw out of a diagnostic would also be a new way for it
+  to fail, in places chosen because they must not. Per writer:
+  - **`page()`'s non-terminal branch (`components/pager.ts`): changed.** With no
+    terminal on the other end it writes the document as it was given -- `mycli log
+    > out.txt`-- which is a document by any reading, and one`write()`of it
+    > exited 0 over a cut-off file. It is`writeTo(terminal.stdout, ...)`now, a
+    > **rejection** rather than a sync throw because`page()`returns a promise, and
+    > a terminal over a stream of the caller's is still`write()`. The key-driven
+    > half is a screen and is untouched. Spawned test `page`in`packages/cli/test/output.test.ts`, which fails with the write put back.
+  - **The default effect report (`signals/effect.ts`): left.** It runs in a
+    microtask with no one to catch a throw -- the reason it writes a message
+    rather than rethrowing -- and it sets `process.exitCode` to non-zero itself,
+    so a lost message cannot turn a failure into a success. `runApp()` replaces it with the real handler, which
+    does go through `writeTo()`.
+  - **`completion/interactive.ts`'s plan, result, `Cancelled` and by-hand text:
+    left.** Interactive output beside a prompt on a terminal. The by-hand text
+    and `Cancelled` accompany an exit code of 1, and the result lines report a
+    file that was already written; a cut-off there loses a sentence, and a throw
+    would turn a completed install into an error. The script itself, which is the
+    document, is `writeOut()` since SIG-663.
+  - **The update notice (`updates/auto.ts`): left, and cannot be a file.**
+    `skipReason()` refuses a stderr that is not a terminal before anything is
+    fetched, so the one `write` it makes is to a TTY, and it is wrapped in a
+    `catch` that only logs: a notice is the last thing that may fail an app.
+  - **The prompts and the live region (`components/`, `terminal/`): left.** They
+    are drawn to a terminal through `createTerminal()`, whose own guard and
+    best-effort writes are decided in `terminal/AGENTS.md`. A `writeSync` loop
+    there could block against a full pty and reorder against the stream's queue,
+    which is the SIG-671 defect again on the one stream where it would be seen.
+  - **`debug/` and the console replay in `renderer/app.ts`: left.** A `DEBUG` line
+    is a diagnostic by definition, and the replay is written once at exit by a loop
+    of its own that gives up quietly on purpose, since an exit handler must not throw.
+  - **The update worker (`updates/worker.ts`): left.** Its stdout is a pipe to the
+    parent that spawned it, never the user's file, and a failure is already
+    `console.error` and exit 1.
+- **What is not covered.** The Windows `EOF` is reasoned and not measured, and a
+  write racing the close is untested -- both carried over from SIG-537. The
+  spawned size-limit tests are POSIX only, since Windows has no `ulimit`; the
+  in-process ones in `test/output.test.ts` and `test/output-main.test.ts` run on
+  every platform and replace `writeSync()` for the short write itself.
 
 ### Type inference
 

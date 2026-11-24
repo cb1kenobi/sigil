@@ -61,6 +61,7 @@ import {
   isAbort,
   type KeyEvent,
 } from '../input/index.js';
+import { writeTo } from '../output.js';
 import { render, type Renderer } from '../renderer/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
@@ -1182,7 +1183,14 @@ export function page(content: string | readonly string[], opts: PageOptions = {}
   if (!canReadKeys({ stdin, terminal })) {
     const body = typeof content === 'string' ? content : content.join('\n');
     if (body !== '') {
-      terminal.stdout.write(body.endsWith('\n') ? body : `${body}\n`);
+      // a document, and `mycli log > out.txt` is the case: through `writeTo()` so a
+      // file that took only part of it is a rejection rather than an exit 0 over a
+      // cut-off one (SIG-672). A rejection and not a throw, since this returns a promise
+      try {
+        writeTo(terminal.stdout, body.endsWith('\n') ? body : `${body}\n`);
+      } catch (err) {
+        return Promise.reject(err);
+      }
     }
     return Promise.resolve();
   }
