@@ -1249,6 +1249,7 @@ describe('the scripts as shell programs', () => {
   let bashSpawns = 0;
 
   const CASE_END = '@@sigil-case-end@@';
+  const SETUP_END = '@@sigil-setup-end@@';
 
   /**
    * Runs the generated bash function once per case, in **one** bash.
@@ -1262,9 +1263,9 @@ describe('the scripts as shell programs', () => {
    * -- a subshell was the first answer and is refused, because on MSYS2 a
    * `fork` is itself a new Windows process. What keeps the cases apart is that
    * `COMP_WORDS`, `COMP_CWORD` and `COMPREPLY` are set afresh for each and
-   * `COMP_WORDBREAKS` is put back to the shell's own before each, which are the
-   * only three things the driver sets and so the only ones that could carry
-   * from one to the next; what the script itself leaves behind is what a real
+   * `COMP_WORDBREAKS` is put back to the shell's own before each, which are
+   * the only things the driver sets that a case reads, and so the only ones
+   * that could carry from one to the next; what the script itself leaves behind is what a real
    * session's second Tab meets too. `-u` is on, because a user's shell may have
    * it and bash 3.2 errors on `"${empty[@]}"`; a case that trips it, or whose
    * breaks assertion fails, ends the shell non-zero and fails the call, naming
@@ -1286,6 +1287,7 @@ describe('the scripts as shell programs', () => {
     const program = [
       `source ${bashQuote(script)}`,
       'shell_breaks=$COMP_WORDBREAKS',
+      `echo ${SETUP_END}`,
       ...cases.flatMap(({ breaks, words }) => [
         'COMP_WORDBREAKS=$shell_breaks',
         ...(breaks === 'default' ? assertBreaks : []),
@@ -1304,23 +1306,31 @@ describe('the scripts as shell programs', () => {
 
     let out: string;
     try {
-      out = execFileSync(bash!, ['-u', file], { encoding: 'utf8' });
+      // stderr is piped rather than inherited: a failure carries it in the
+      // message below, and one that is asserted on should not also print
+      out = execFileSync(bash!, ['-u', file], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
     } catch (error) {
       // the markers already printed say how far it got, which is the case
-      // that failed -- one call for all of them would otherwise say only that
+      // that failed -- one call for every case would otherwise say only that
       // something did
-      const done = String((error as { stdout?: unknown }).stdout ?? '').split(CASE_END).length - 1;
+      const printed = String((error as { stdout?: unknown }).stdout ?? '');
+      const done = printed.split(CASE_END).length - 1;
       const failed = cases[done];
+      const where = !printed.includes(SETUP_END)
+        ? 'before the first case'
+        : `on case ${done}${failed ? ` (${failed.words.join(' ')})` : ''}`;
       throw new Error(
-        `bash failed on case ${done}${failed ? ` (${failed.words.join(' ')})` : ''}: ${String(
-          (error as { stderr?: unknown }).stderr ?? error
-        )}`,
+        `bash failed ${where}: ${String((error as { stderr?: unknown }).stderr ?? error)}`,
         { cause: error }
       );
     }
 
     // a trailing newline leaves one empty piece after the last end marker
     return out
+      .replace(`${SETUP_END}\n`, '')
       .split(`${CASE_END}\n`)
       .slice(0, cases.length)
       .map((piece) => piece.split('\n').filter((line) => line !== ''));
@@ -1360,7 +1370,12 @@ describe('the scripts as shell programs', () => {
         { words: ['mycli', 'boom'] },
         { words: ['mycli', 'c'] },
       ])
-    ).toThrow(/case 2 \(mycli boom\).*never_set/su);
+    ).toThrow(/on case 2 \(mycli boom\).*never_set/su);
+
+    // and a script that dies while it is sourced is not blamed on a case
+    const dead = join(dir, 'dead.bash');
+    writeFileSync(dead, 'echo "${never_set}"\n');
+    expect(() => driveBash(dead, [{ words: ['mycli', 'a'] }])).toThrow(/before the first case/u);
   });
 
   it.skipIf(!bash)(

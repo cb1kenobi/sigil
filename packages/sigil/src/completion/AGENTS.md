@@ -875,7 +875,7 @@ command, wired beside `registerHelp()` and `registerVersion()`.
   which is why this was never seen on a Mac: a stand-in `bash` on `PATH` that
   sleeps 0.4 s before it execs the real one reproduced the failure on the old
   file (10.5 s and 9.4 s) and ran the new one in 0.4 s each, with 17 `bash`
-  starts for the file against 62.
+  starts for the file against 62, each counted by the stand-in's own log.
 
   `driveBash()` in `test/completion.test.ts` sources the script once and runs
   every case in that shell, which starts no process. **Not a subshell per
