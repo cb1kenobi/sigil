@@ -24,7 +24,6 @@ import {
   renderToString,
   text as textNode,
 } from '../element/index.js';
-import { __ } from '../i18n/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { maxOf, stringWidth } from '../width/index.js';
 import { isBreakSpace, terminalWidth } from '../wrap/index.js';
@@ -204,7 +203,7 @@ function buildView(
   live: boolean
 ): MarkdownView {
   if (typeof source !== 'string' && !Array.isArray(source)) {
-    throw new TypeError(__`Expected markdown to be a string or parsed blocks`);
+    throw new TypeError(`Expected markdown to be a string or parsed blocks`);
   }
 
   const document = typeof source === 'string' ? parseMarkdown(source) : source;

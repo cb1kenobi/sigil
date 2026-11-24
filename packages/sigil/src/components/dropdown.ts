@@ -27,7 +27,6 @@
  */
 
 import { box, type Element, type ElementPropsWithout, text as textNode } from '../element/index.js';
-import { __ } from '../i18n/index.js';
 import type { InputRouter, MouseEvent } from '../input/index.js';
 import { createEffect, onCleanup } from '../renderer/index.js';
 import { State } from '../signals/index.js';
@@ -116,20 +115,20 @@ export function Dropdown<T = unknown>(props: DropdownProps<T>): Element {
   refuseOwnedHooks('Dropdown', props?.props, ['onFocusChange', 'onKey', 'onMouse']);
   const input = props.input;
   if (typeof input?.bind !== 'function' || typeof input.onResize !== 'function') {
-    throw new TypeError(__`Expected a dropdown input to be a router`);
+    throw new TypeError(`Expected a dropdown input to be a router`);
   }
   if (!Array.isArray(props.options)) {
-    throw new TypeError(__`Expected dropdown options to be an array`);
+    throw new TypeError(`Expected dropdown options to be an array`);
   }
   const disabled = controlCondition(
     props.disabled,
-    __`Expected dropdown disabled to be a boolean, a State, a Computed or a function`
+    `Expected dropdown disabled to be a boolean, a State, a Computed or a function`
   );
   if (props.placeholder !== undefined && typeof props.placeholder !== 'string') {
-    throw new TypeError(__`Expected a dropdown placeholder to be a string`);
+    throw new TypeError(`Expected a dropdown placeholder to be a string`);
   }
   if (props.width !== undefined && !(Number.isInteger(props.width) && props.width > CHROME)) {
-    throw new TypeError(__`Expected a dropdown width of more than four cells`);
+    throw new TypeError(`Expected a dropdown width of more than four cells`);
   }
   menuClasses(props.menuClass);
 
@@ -141,7 +140,7 @@ export function Dropdown<T = unknown>(props: DropdownProps<T>): Element {
     // an empty label is refused here, where the app built the field, rather than by
     // the menu when a key opens it -- the check every other menu entry point makes
     if (typeof choice?.label !== 'string' || choice.label === '') {
-      throw new TypeError(__`Expected a dropdown option to be a string or a choice with a label`);
+      throw new TypeError(`Expected a dropdown option to be a string or a choice with a label`);
     }
     const disabled = choice.disabled !== undefined && choice.disabled !== false;
     // a choice's label is words, not a menu label: an ampersand in it is one
@@ -156,12 +155,12 @@ export function Dropdown<T = unknown>(props: DropdownProps<T>): Element {
 
   const value = controlState<T | undefined>(
     props.value,
-    __`Expected a dropdown value to be a value or a State, not a Computed, since the dropdown writes it`
+    `Expected a dropdown value to be a value or a State, not a Computed, since the dropdown writes it`
   );
   refuseUnheldFunction(
     props.value,
     options.filter((option) => !option.separator).map((option) => option.value),
-    __`Expected a dropdown value to be a value or a State, not a function no choice holds, since a function is taken as the value and never called`
+    `Expected a dropdown value to be a value or a State, not a function no choice holds, since a function is taken as the value and never called`
   );
   const placeholder = props.placeholder ?? '';
   const glyph = (props.ascii ?? !unicodeSupported()) ? 'v' : '▾';

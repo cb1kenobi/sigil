@@ -101,18 +101,18 @@ const SETS = new WeakMap<Element, 'column' | 'row'>();
 export function RadioSet<T = string>(props: RadioSetProps<T>): Element {
   refuseOwnedHooks('RadioSet', props?.props, ['onKey', 'onFocusChange']);
   if (!Array.isArray(props?.options) || props.options.length === 0) {
-    throw new TypeError(__`Expected radio set options to be a non-empty array`);
+    throw new TypeError(`Expected radio set options to be a non-empty array`);
   }
   for (const option of props.options) {
     if (typeof option !== 'string' && typeof option?.label !== 'string') {
-      throw new TypeError(__`Expected every radio option to be a string or have a label`);
+      throw new TypeError(`Expected every radio option to be a string or have a label`);
     }
   }
   if (props.direction !== undefined && props.direction !== 'column' && props.direction !== 'row') {
-    throw new TypeError(__`Expected a radio set direction to be column or row`);
+    throw new TypeError(`Expected a radio set direction to be column or row`);
   }
   if (props.onChange !== undefined && typeof props.onChange !== 'function') {
-    throw new TypeError(__`Expected a radio set onChange to be a function`);
+    throw new TypeError(`Expected a radio set onChange to be a function`);
   }
 
   const options = props.options.map((option) => promptChoice<T>(option as Choice<T> | string));
@@ -120,21 +120,21 @@ export function RadioSet<T = string>(props: RadioSetProps<T>): Element {
   // two options holding one value would both be selected, and a key that picked
   // either would be a guess about which was meant
   if (values.some((v, i) => values.findIndex((w) => promptSameValue(v, w)) !== i)) {
-    throw new TypeError(__`Expected every radio option to have a different value`);
+    throw new TypeError(`Expected every radio option to have a different value`);
   }
   const offered = options.map((option) => !option.disabled);
   const value = controlState<T | undefined>(
     props.value as State<T | undefined> | T | undefined,
-    __`Expected a radio set value to be a value or a State, not a Computed, since the set writes it`
+    `Expected a radio set value to be a value or a State, not a Computed, since the set writes it`
   );
   refuseUnheldFunction(
     props.value,
     values,
-    __`Expected a radio set value to be a value or a State, not a function no option holds, since a function is taken as the value and never called`
+    `Expected a radio set value to be a value or a State, not a function no option holds, since a function is taken as the value and never called`
   );
   const disabled = controlCondition(
     props.disabled,
-    __`Expected radio set disabled to be a boolean, a State, a Computed or a function`
+    `Expected radio set disabled to be a boolean, a State, a Computed or a function`
   );
   const direction = props.direction ?? 'column';
   const { onChange } = props;
@@ -344,6 +344,6 @@ export function describeRadioSet(
         { description: __`select`, keys: 'space', priority: 1 },
       ];
     },
-    __`Expected an element that RadioSet() returned`
+    `Expected an element that RadioSet() returned`
   );
 }

@@ -53,7 +53,7 @@ export async function trash(path: string): Promise<string> {
   // `resolve('')` is the working directory, which is not what an empty string
   // asked for and is the last thing to move by accident
   if (typeof path !== 'string' || path === '') {
-    throw new TypeError(__`Expected a path to move to the trash`);
+    throw new TypeError(`Expected a path to move to the trash`);
   }
   const absolute = resolve(path);
   try {

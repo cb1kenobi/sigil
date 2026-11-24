@@ -50,7 +50,6 @@ import {
   raw,
   type RawPainter,
 } from '../element/index.js';
-import { __ } from '../i18n/index.js';
 import type { MouseEvent } from '../input/index.js';
 import { createEffect } from '../renderer/index.js';
 import { State, untrack } from '../signals/index.js';
@@ -242,21 +241,21 @@ export function TextArea(props: TextAreaProps = {}): Element {
     typeof props.value !== 'string' &&
     !(props.value instanceof State)
   ) {
-    throw new TypeError(__`Expected a text area value to be a string or a State`);
+    throw new TypeError(`Expected a text area value to be a string or a State`);
   }
   const disabled = controlCondition(
     props.disabled,
-    __`Expected text area disabled to be a boolean, a State, a Computed or a function`
+    `Expected text area disabled to be a boolean, a State, a Computed or a function`
   );
   if (props.placeholder !== undefined && typeof props.placeholder !== 'string') {
-    throw new TypeError(__`Expected a text area placeholder to be a string`);
+    throw new TypeError(`Expected a text area placeholder to be a string`);
   }
   // a mark is drawn on every row, and the grid throws on a control character
   if (
     props.gutter !== undefined &&
     (typeof props.gutter !== 'string' || CONTROL.test(props.gutter))
   ) {
-    throw new TypeError(__`Expected a text area gutter to be a string with no control character`);
+    throw new TypeError(`Expected a text area gutter to be a string with no control character`);
   }
   // what Tab types goes into the value, so it keeps to what a paste is allowed
   // to leave there: a tab, and no line break or other control character
@@ -267,19 +266,19 @@ export function TextArea(props: TextAreaProps = {}): Element {
       pastedBlock(props.tab) !== props.tab ||
       props.tab.includes('\n'))
   ) {
-    throw new TypeError(__`Expected a text area tab to be a non-empty string with no line break`);
+    throw new TypeError(`Expected a text area tab to be a non-empty string with no line break`);
   }
   if (props.rows !== undefined && !(Number.isInteger(props.rows) && props.rows > 0)) {
-    throw new TypeError(__`Expected text area rows to be a positive whole number`);
+    throw new TypeError(`Expected text area rows to be a positive whole number`);
   }
   if (props.width !== undefined && !(Number.isInteger(props.width) && props.width > 0)) {
-    throw new TypeError(__`Expected a text area width to be a positive whole number`);
+    throw new TypeError(`Expected a text area width to be a positive whole number`);
   }
   if (props.highlight !== undefined && typeof props.highlight !== 'function') {
-    throw new TypeError(__`Expected a text area highlight to be a function`);
+    throw new TypeError(`Expected a text area highlight to be a function`);
   }
   if (props.lang !== undefined && typeof props.lang !== 'string') {
-    throw new TypeError(__`Expected a text area lang to be a string`);
+    throw new TypeError(`Expected a text area lang to be a string`);
   }
   if (
     props.caret !== undefined &&
@@ -289,7 +288,7 @@ export function TextArea(props: TextAreaProps = {}): Element {
       typeof props.caret.line !== 'number' ||
       typeof props.caret.col !== 'number')
   ) {
-    throw new TypeError(__`Expected a text area caret to be a line and a column, or a State`);
+    throw new TypeError(`Expected a text area caret to be a line and a column, or a State`);
   }
 
   const value = props.value instanceof State ? props.value : new State(props.value ?? '');

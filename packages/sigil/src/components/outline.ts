@@ -234,14 +234,14 @@ export interface OutlineEntry {
  */
 export function outlineEntries(items: readonly OutlineItem[]): OutlineEntry[] {
   if (!Array.isArray(items)) {
-    throw new TypeError(__`Expected items to be an array`);
+    throw new TypeError(`Expected items to be an array`);
   }
   return items.map((item) => {
     if (typeof item === 'string') {
       return { items: [], text: strip(item) };
     }
     if (item === null || typeof item !== 'object' || typeof item.text !== 'string') {
-      throw new TypeError(__`Expected each item to be a string or an object with a text string`);
+      throw new TypeError(`Expected each item to be a string or an object with a text string`);
     }
     return {
       items: item.items === undefined ? [] : outlineEntries(item.items),
@@ -264,7 +264,7 @@ function enumeratorAt(opts: OutlineMarkerOptions, depth: number): OutlineEnumera
   }
   if (Array.isArray(given)) {
     if (given.length === 0) {
-      throw new TypeError(__`Expected enumerator to hold at least one entry`);
+      throw new TypeError(`Expected enumerator to hold at least one entry`);
     }
     return given[depth % given.length];
   }
@@ -302,7 +302,7 @@ export function outlineMarkers(
         ? enumerator({ count: entries.length, depth, index, item: entry.text })
         : styled(enumerator, start + index, ascii);
     if (typeof marker !== 'string') {
-      throw new TypeError(__`Expected an enumerator to return a string`);
+      throw new TypeError(`Expected an enumerator to return a string`);
     }
     return strip(marker).replaceAll(/\s*[\n\r]+\s*/g, ' ');
   });

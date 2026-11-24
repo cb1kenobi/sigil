@@ -295,7 +295,7 @@ function isSeparator<T>(entry: MenuEntry<T>): entry is Separator {
  */
 export function checkMenuEntries(items: unknown): void {
   if (!Array.isArray(items)) {
-    throw new TypeError(__`Expected menu items to be an array`);
+    throw new TypeError(`Expected menu items to be an array`);
   }
   for (const entry of items as unknown[]) {
     if (typeof entry === 'object' && entry !== null && 'separator' in entry) {
@@ -303,27 +303,27 @@ export function checkMenuEntries(items: unknown): void {
     }
     const item = entry as MenuItem | undefined;
     if (typeof item?.label !== 'string' || item.label === '') {
-      throw new TypeError(__`Expected a menu item to have a label`);
+      throw new TypeError(`Expected a menu item to have a label`);
     }
     if (item.items !== undefined) {
       checkMenuEntries(item.items);
     }
     if (item.check !== undefined || item.radio !== undefined) {
       if (item.check !== undefined && item.radio !== undefined) {
-        throw new TypeError(__`Expected a menu item to be a check or a radio, not both`);
+        throw new TypeError(`Expected a menu item to be a check or a radio, not both`);
       }
       if (item.items !== undefined) {
-        throw new TypeError(__`Expected a menu item with a submenu not to be a check or a radio`);
+        throw new TypeError(`Expected a menu item with a submenu not to be a check or a radio`);
       }
       if (!isMark(item.check ?? item.radio)) {
         throw new TypeError(
-          __`Expected a menu item check or radio to be a boolean, a state or a function`
+          `Expected a menu item check or radio to be a boolean, a state or a function`
         );
       }
     }
     if (item.initial !== undefined) {
       if (item.items === undefined) {
-        throw new TypeError(__`Expected a menu item with an initial to have a submenu`);
+        throw new TypeError(`Expected a menu item with an initial to have a submenu`);
       }
       checkMenuInitial(item.initial, item.items.length);
     }
@@ -344,7 +344,7 @@ export function checkMenuInitial(initial: unknown, count: number): void {
     typeof initial !== 'function' &&
     !(typeof initial === 'number' && Number.isInteger(initial) && initial >= 0 && initial < count)
   ) {
-    throw new TypeError(__`Expected menu initial to be the position of an item`);
+    throw new TypeError(`Expected menu initial to be the position of an item`);
   }
 }
 
@@ -436,7 +436,7 @@ export function menuClasses(value: unknown): string[] {
     return [];
   }
   if (typeof value !== 'string') {
-    throw new TypeError(__`Expected a menuClass to be a string of class names`);
+    throw new TypeError(`Expected a menuClass to be a string of class names`);
   }
   return value.split(/\s+/).filter((name) => name !== '');
 }
@@ -601,11 +601,11 @@ export function openMenuSession<T>(opts: MenuSessionOptions<T>): MenuSession<T> 
   const host = opts.host;
   const root = host instanceof Element ? host : host?.root;
   if (!(root instanceof Element)) {
-    throw new TypeError(__`Expected a menu host to be an element or a renderer`);
+    throw new TypeError(`Expected a menu host to be an element or a renderer`);
   }
   const input = opts.input;
   if (typeof input?.bind !== 'function' || typeof input.onResize !== 'function') {
-    throw new TypeError(__`Expected a menu input to be a router`);
+    throw new TypeError(`Expected a menu input to be a router`);
   }
   const glyphs = (opts.ascii ?? !unicodeSupported()) ? GLYPHS.ascii : GLYPHS.unicode;
   const extraClasses = menuClasses(opts.menuClass);
@@ -1220,14 +1220,14 @@ export function openMenu<T = unknown>(host: MenuHost, opts: MenuOptions<T>): Men
     !isElement(at) &&
     !(typeof at?.x === 'number' && Number.isFinite(at.x) && Number.isFinite(at.y))
   ) {
-    throw new TypeError(__`Expected a menu to be at an element or a cell`);
+    throw new TypeError(`Expected a menu to be at an element or a cell`);
   }
   const side = opts.side ?? 'bottom';
   if (!SIDES.includes(side)) {
-    throw new TypeError(__`Expected a menu side to be top, bottom, left or right`);
+    throw new TypeError(`Expected a menu side to be top, bottom, left or right`);
   }
   if (opts.minWidth !== undefined && !(Number.isInteger(opts.minWidth) && opts.minWidth >= 0)) {
-    throw new TypeError(__`Expected a menu minWidth to be a whole number of cells`);
+    throw new TypeError(`Expected a menu minWidth to be a whole number of cells`);
   }
   checkMenuInitial(opts.initial, opts.items.length);
 
@@ -1306,11 +1306,11 @@ export function attachContextMenu<T = unknown>(
   opts: ContextMenuOptions<T>
 ): ContextMenuHandle<T> {
   if (!isElement(target)) {
-    throw new TypeError(__`Expected a context menu target to be an element`);
+    throw new TypeError(`Expected a context menu target to be an element`);
   }
   const input = opts?.input;
   if (typeof input?.bind !== 'function' || typeof input.onMouse !== 'function') {
-    throw new TypeError(__`Expected a context menu input to be a router`);
+    throw new TypeError(`Expected a context menu input to be a router`);
   }
   if (typeof opts.items !== 'function') {
     checkMenuEntries(opts.items);

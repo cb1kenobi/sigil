@@ -2539,7 +2539,7 @@ export function describeLineChart(
 ): () => void {
   for (const chart of charts) {
     if (!CHARTS.has(chart)) {
-      throw new TypeError(__`Expected an element that LineChart() returned with a crosshair`);
+      throw new TypeError(`Expected an element that LineChart() returned with a crosshair`);
     }
   }
   const off: Array<() => void> = [];

@@ -61,14 +61,14 @@ export function Button(props: ButtonProps): Element {
   if (typeof props?.label !== 'string' || labelLine(props.label) === '') {
     // a button with no words cannot be read, and at colour level 0 a focused one
     // would be a pair of brackets around nothing
-    throw new TypeError(__`Expected a button label to be a non-empty string`);
+    throw new TypeError(`Expected a button label to be a non-empty string`);
   }
   if (props.onPress !== undefined && typeof props.onPress !== 'function') {
-    throw new TypeError(__`Expected a button onPress to be a function`);
+    throw new TypeError(`Expected a button onPress to be a function`);
   }
   const disabled = controlCondition(
     props.disabled,
-    __`Expected button disabled to be a boolean, a State, a Computed or a function`
+    `Expected button disabled to be a boolean, a State, a Computed or a function`
   );
   const { onPress } = props;
 
@@ -149,6 +149,6 @@ export function describeButton(
       { description: __`press`, keys: 'enter', priority: 1 },
       { description: __`press`, keys: 'space' },
     ],
-    __`Expected an element that Button() returned`
+    `Expected an element that Button() returned`
   );
 }

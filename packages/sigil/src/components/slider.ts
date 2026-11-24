@@ -161,30 +161,30 @@ export function Slider(props: SliderProps = {}): Element {
     typeof props.value !== 'number' &&
     !(props.value instanceof State)
   ) {
-    throw new TypeError(__`Expected a slider value to be a number or a State`);
+    throw new TypeError(`Expected a slider value to be a number or a State`);
   }
   const disabled = controlCondition(
     props.disabled,
-    __`Expected slider disabled to be a boolean, a State, a Computed or a function`
+    `Expected slider disabled to be a boolean, a State, a Computed or a function`
   );
-  finite(props.min, __`Expected a slider min and max to be finite numbers, min below max`);
-  finite(props.max, __`Expected a slider min and max to be finite numbers, min below max`);
+  finite(props.min, `Expected a slider min and max to be finite numbers, min below max`);
+  finite(props.max, `Expected a slider min and max to be finite numbers, min below max`);
   const min = props.min ?? 0;
   const max = props.max ?? 100;
   if (!(min < max)) {
-    throw new TypeError(__`Expected a slider min and max to be finite numbers, min below max`);
+    throw new TypeError(`Expected a slider min and max to be finite numbers, min below max`);
   }
   if (props.step !== undefined && !(Number.isFinite(props.step) && props.step > 0)) {
-    throw new TypeError(__`Expected a slider step to be a positive number`);
+    throw new TypeError(`Expected a slider step to be a positive number`);
   }
   if (props.page !== undefined && !(Number.isFinite(props.page) && props.page > 0)) {
-    throw new TypeError(__`Expected a slider page to be a positive number`);
+    throw new TypeError(`Expected a slider page to be a positive number`);
   }
   if (props.format !== undefined && typeof props.format !== 'function') {
-    throw new TypeError(__`Expected a slider format to be a function`);
+    throw new TypeError(`Expected a slider format to be a function`);
   }
   if (props.width !== undefined && !(Number.isInteger(props.width) && props.width > 0)) {
-    throw new TypeError(__`Expected a slider width to be a positive whole number`);
+    throw new TypeError(`Expected a slider width to be a positive whole number`);
   }
 
   const step = props.step ?? 1;
@@ -194,7 +194,7 @@ export function Slider(props: SliderProps = {}): Element {
   // of 1 putting the value at 1; asked of `last`, with its tolerance, rather than
   // as `step > max - min`, so 0.1 to 0.3 in 0.2s is not refused over a float
   if (last < 1) {
-    throw new TypeError(__`Expected a slider step no larger than max minus min`);
+    throw new TypeError(`Expected a slider step no larger than max minus min`);
   }
   const pageSteps = Math.max(1, Math.round((props.page ?? (max - min) / 10) / step));
   const places = Math.max(decimalPlaces(min), decimalPlaces(step));
@@ -524,7 +524,7 @@ export function describeSlider(
 ): () => void {
   for (const host of sliders) {
     if (!SLIDERS.has(host)) {
-      throw new TypeError(__`Expected an element that Slider() returned`);
+      throw new TypeError(`Expected an element that Slider() returned`);
     }
   }
 

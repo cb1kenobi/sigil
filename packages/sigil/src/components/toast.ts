@@ -24,7 +24,6 @@
 
 import { strip } from '../ansi/index.js';
 import { box, Element, type ElementPropsWithout, text as textNode } from '../element/index.js';
-import { __ } from '../i18n/index.js';
 import type { MouseEvent } from '../input/index.js';
 import { MAX_TIMER_DELAY, onCleanup, timed } from '../renderer/index.js';
 import type { Terminal } from '../terminal/index.js';
@@ -236,21 +235,21 @@ export function showToast(host: ToastHost, opts: ToastOptions): ToastHandle {
   refuseOwnedHooks('showToast', opts?.props, ['onMouse']);
   const root = host instanceof Element ? host : host?.root;
   if (!(root instanceof Element)) {
-    throw new TypeError(__`Expected a toast host to be an element or a renderer`);
+    throw new TypeError(`Expected a toast host to be an element or a renderer`);
   }
   if (typeof opts?.message !== 'string') {
-    throw new TypeError(__`Expected a toast message to be a string`);
+    throw new TypeError(`Expected a toast message to be a string`);
   }
   if (opts.title !== undefined && typeof opts.title !== 'string') {
-    throw new TypeError(__`Expected a toast title to be a string`);
+    throw new TypeError(`Expected a toast title to be a string`);
   }
   const variant = opts.variant ?? 'note';
   if (variant !== 'note' && !Object.hasOwn(ROLES, variant)) {
-    throw new TypeError(__`Expected a toast variant to be note, info, success, warning or error`);
+    throw new TypeError(`Expected a toast variant to be note, info, success, warning or error`);
   }
   const position = opts.position ?? 'bottom-right';
   if (!POSITIONS.includes(position)) {
-    throw new TypeError(__`Expected a toast position to be a corner of the screen`);
+    throw new TypeError(`Expected a toast position to be a corner of the screen`);
   }
   const timeout = opts.timeout ?? TIMEOUT;
   if (
@@ -258,11 +257,11 @@ export function showToast(host: ToastHost, opts: ToastOptions): ToastHandle {
     !(timeout > 0) ||
     (timeout !== Infinity && timeout > MAX_TIMER_DELAY)
   ) {
-    throw new TypeError(__`Expected a toast timeout to be a number of milliseconds`);
+    throw new TypeError(`Expected a toast timeout to be a number of milliseconds`);
   }
   const max = opts.max ?? MAX;
   if (!Number.isInteger(max) || max < 1) {
-    throw new TypeError(__`Expected toast max to be a whole number of at least 1`);
+    throw new TypeError(`Expected toast max to be a whole number of at least 1`);
   }
 
   // -- the tree -------------------------------------------------------------

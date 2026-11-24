@@ -234,7 +234,7 @@ function readConfig(opts: CalendarGridOptions): GridConfig {
     opts.weekStart !== undefined &&
     !(Number.isInteger(opts.weekStart) && opts.weekStart >= 0 && opts.weekStart <= 6)
   ) {
-    throw new RangeError(__`Expected weekStart to be an integer from 0 to 6`);
+    throw new RangeError(`Expected weekStart to be an integer from 0 to 6`);
   }
 
   const tag = opts.locale ?? i18nLocale();
@@ -258,7 +258,7 @@ function readConfig(opts: CalendarGridOptions): GridConfig {
       weekday: 'short',
     });
   } catch {
-    throw new TypeError(__`Expected locale to be a valid language tag`);
+    throw new TypeError(`Expected locale to be a valid language tag`);
   }
 
   const weekStart = opts.weekStart ?? localeWeekStart(tag);
@@ -285,7 +285,7 @@ function readConfig(opts: CalendarGridOptions): GridConfig {
 /** Throws unless a value is a `Date` that is a time. */
 function checkDate(name: string, value: unknown): asserts value is Date {
   if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
-    throw new TypeError(__`Expected ${name} to be a valid Date`);
+    throw new TypeError(`Expected ${name} to be a valid Date`);
   }
 }
 
@@ -741,7 +741,7 @@ export function pickDate(opts: PickDateOptions): Promise<Date> {
   const max = maxDay && dayKey(maxDay);
 
   if (min !== undefined && max !== undefined && min > max) {
-    return Promise.reject(new RangeError(__`Expected min to be no later than max`));
+    return Promise.reject(new RangeError(`Expected min to be no later than max`));
   }
 
   /** Pulls a day into the range, to the bound it went past. */
