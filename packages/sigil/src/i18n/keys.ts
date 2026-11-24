@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 476 keys, which is what a catalog has to carry to translate sigil's own
+ * 480 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -159,6 +159,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected a tooltip anchor to be an element',
   'Expected a tooltip area to be a function',
   'Expected a tooltip delay in milliseconds',
+  'Expected a tooltip hold to be a function',
   'Expected a tooltip input to be a router',
   'Expected a tooltip maxWidth of at least 4 cells',
   'Expected a tooltip side to be top, bottom, left or right',
@@ -422,6 +423,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'move',
   'much less',
   'much more',
+  'newest',
   'next',
   'next hunk',
   'next match',
@@ -429,6 +431,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'no',
   'none',
   'off',
+  'oldest',
   'on',
   'open',
   'option {0}',
@@ -440,6 +443,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'pgdn',
   'pgup',
   'pick',
+  'pin',
   'press',
   'previous',
   'previous hunk',

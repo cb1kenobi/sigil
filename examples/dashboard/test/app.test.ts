@@ -278,7 +278,9 @@ describe('the chart, from the keyboard (SIG-516)', () => {
     await s.press(KEYS.tab, KEYS.tab, KEYS.tab, KEYS.tab);
     const focused = footer();
     expect(unfocused).not.toContain('←/→ move');
-    expect(focused).toContain('tab next · ←/→ move · / search');
+    // the chart's keys come before the app's (SIG-607); at this width the footer fits
+    // Home and Enter and leaves End to the right
+    expect(focused).toContain('tab next · ←/→ move · home oldest · enter pin · / search');
   });
 });
 

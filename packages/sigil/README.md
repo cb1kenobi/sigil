@@ -2766,7 +2766,7 @@ for a hook it owns, at run time as well as in the type, rather than replace it
 without a word. `TextField` owns `onKey`, `onPaste`, `onFocusChange` and
 `onResize`; `TextArea` `onKey`, `onMouse`, `onPaste` and `onFocusChange`; `ScrollBox` `onKey` and `onMouse`; `createPager` `onKey`;
 `tabRowView` `onKey`, `onFocusChange` and `onResize`; `openModal` `onPaste`;
-`showToast` `onMouse`; `attachTooltip` `onLayout`; `Dropdown` `onKey`, `onMouse`
+`showToast` `onMouse`; `attachTooltip` `onLayout`; `LineChart` with a `crosshair` `onKey`; `Dropdown` `onKey`, `onMouse`
 and `onFocusChange`. Put a handler for those on an
 element around the component -- except `onFocusChange`, which is told only to
 the element whose own focus changed, so one around the component never hears
@@ -4927,7 +4927,9 @@ picks every line of the hunk, or none where all are; `v` begins a range, and up 
 down then pick every added and removed line from where it began to the cursor, over
 what was picked before, until `v`, `x` or `a` ends it; Enter or Escape leaves the lines
 and drops the picks, as moving to another hunk or new content does; a click on a line
-of the current hunk moves the cursor to it. The view is drawn unified whatever
+of the current hunk moves the cursor to it, and pressing on a line and dragging to
+another picks the range `v` would, which releasing keeps (a pointer past the view's edge
+reads as the last row in view, so the wheel or `v` goes further). The view is drawn unified whatever
 `layout` says, since side by side a removed line and the added line beside it share a
 row. `selected` is positions in the current hunk's `lines`, which is what
 `hunkLinesPatch()` takes:
@@ -5430,7 +5432,8 @@ theme hooks, each with `-row` and `-part` classes inside; a line chart's series 
 `.sigil-chart-series-1` and up, its legend `.sigil-chart-legend`, a shade
 `.sigil-chart-area` beside its series' classes, and a crosshair
 `.sigil-chart-crosshair`, with `.sigil-chart-crosshair-focus` and `.sigil-accent`
-beside it while the chart has the focus. A bar takes
+beside it while the chart has the focus, and the marker of a pinned sample the rule is
+elsewhere from `.sigil-chart-pin` beside `.sigil-warn`. A bar takes
 a `role` of its own in `{ label, value, role }`, over the chart's.
 
 ##### Live charts
@@ -5509,7 +5512,25 @@ picture.
   and an arrow with Shift, Ctrl or Alt are left to what is around the chart.
   `describeLineChart(input, chart)` describes the keys to a router for
   `keyHelp()`, scoped to the chart; `focusable: false` in `props` takes the focus
-  and the keys back, and `props` may not carry an `onKey`, which the chart owns.
+  and the keys back, and `props` may not carry an `onKey`, which the chart owns --
+  the type leaves it out of a chart that has a `crosshair`, and only of that one.
+- **The keys of a chart with a `crosshair`:**
+
+  | Key         | What it does                                                         |
+  | ----------- | -------------------------------------------------------------------- |
+  | Left, Right | step the rule to the sample before and after                         |
+  | `h`, `l`    | the same, with `vim: true`; off by default, as the treemap's is      |
+  | Home, End   | the oldest sample the plot draws, and the newest                     |
+  | Enter       | pin the sample the rule is on, or unpin it where it is already there |
+
+  A pinned sample keeps its rule and readout on the chart while the focus is
+  elsewhere and the pointer is not over it, in the muted role; a refocus starts
+  from it and the pointer still takes the rule while it moves. While the rule is on
+  another sample the pin is marked with a `▼` on the plot and a `▲` on the axis
+  (`v` and `^` in ASCII). One pin per chart, and Enter at another sample moves it. `vim` without a `crosshair` throws, and
+  `describeLineChart()` lists Home and End as `oldest` and `newest` and Enter as
+  `pin`, and `h` and `l` after the arrows where the chart takes them.
+
 - **`BarChart({ data, direction, ... })`** gives horizontal bars the width the
   labels and the values leave; vertical bars share the width out between them
   and take the rows the values and the labels leave.
@@ -6836,6 +6857,11 @@ hidden while the anchor is scrolled out of view, coming back when it does.
 `maxWidth`
 (40) is where the words wrap. `placeTooltip(anchor, size, screen, side)` is the
 same arithmetic on its own, for anything else that wants to sit beside a box.
+
+**`hold` is a third reason to show it**, beside the pointer and the focus: a
+function that returns `true` while the bubble should stand with neither, read in
+an effect so that a signal it reads shows or hides it the moment it is set. A line
+chart's pinned sample keeps its readout through it.
 
 **`area` points it at a rectangle inside the anchor** rather than at the whole of
 it: a function returning `{ x, y, width, height }` in cells from the anchor's

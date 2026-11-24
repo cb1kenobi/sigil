@@ -221,6 +221,8 @@ export const FRAMEWORK_CSS = `
  *   .sigil-chart-area, a line chart's shade, beside its series' classes
  *   .sigil-chart-crosshair, the rule at the sample under the pointer, with
  *   .sigil-chart-crosshair-focus and .sigil-accent beside it while the chart has the focus
+ *   .sigil-chart-pin and .sigil-warn, the marker on the plot and the axis at a pinned
+ *   sample the rule is not on
  *   .sigil-rule  .sigil-rule-line  .sigil-rule-label
  *   .sigil-diff  .sigil-diff-file  .sigil-diff-hunk  .sigil-diff-row
  *   .sigil-diff-number  .sigil-diff-marker  .sigil-diff-text  .sigil-diff-change

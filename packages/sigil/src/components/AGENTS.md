@@ -7860,10 +7860,121 @@ took the focus and the arrows in SIG-491.
 - **The dashboard's traffic chart has it,** a Tab stop after the range row: the
   search, the menu, the range, the chart, then the table, which is one more Tab
   than before and why that test helper counts five.
-- **Not done:** `h` and `l` with a `vim` option as the treemap has (SIG-499); Home
-  and End for the oldest and newest sample, which would need two more words in the
-  footer; and a way to pin a sample so the readout stays while the focus is
-  elsewhere.
+- **Not done here, and done by SIG-607 below:** `h` and `l` with a `vim` option as
+  the treemap has (SIG-499); Home and End for the oldest and newest sample; and a
+  way to pin a sample so the readout stays while the focus is elsewhere.
+
+### A line chart's letters, ends and pin: `vim`, Home and End, and Enter (SIG-607)
+
+SIG-516's four named gaps, closed in the shape the treemap and the list already
+have.
+
+- **`vim: true` takes `h` and `l` as Left and Right, and nothing else.** The
+  treemap's option under the treemap's name, off by default for its reason: a
+  letter a focused component claims outranks every binding the app has for it.
+  The treemap's `j` and `k` are not here because a chart has no up and down, and
+  no `g`/`G`: Home and End are always on, so the letters would be a second spelling
+  of keys nobody has to opt into. The letters are the arrows' in every other rule --
+  claimed at an end, `H` and `L` are not them (the decoder names a capital as
+  itself), Ctrl and Alt leave them to the app. Asked for with no `crosshair` the
+  chart throws, since it owns no key to take a letter with, as does a `vim` that
+  is not a boolean; the type is the first refusal, `vim?: undefined` on a plain chart.
+- **Home and End are the oldest sample the plot draws and the newest.** `first`
+  and `count - 1` of `Drawing.samples`, so on a scrolling chart Home is the left
+  edge of the plot rather than the start of the history, for the reason Left stops
+  there. Always on with a crosshair, as a list's are; claimed even where the rule
+  is already there. `lineDrawing()` is unchanged: they set `back` as the arrows do.
+- **A pin is one sample, set and cleared by Enter, and the rule rests on it.** The
+  smallest API that satisfies the ticket: no prop and no callback, just a state the
+  chart keeps, counted back from the newest like `back` and for the same reason (a
+  pushed series keeps it where it is on screen). Enter pins the sample the rule is
+  on, or unpins it where it is already pinned there -- compared after the clamp to
+  the oldest drawn, so a pin that scrolled off the left and is now drawn on the
+  oldest sample toggles off from there. Enter at another sample moves the pin; it
+  is not a list of them. Space was left unclaimed, since a chart has no selection
+  for it to mean and Enter is what a treemap and a list activate with.
+- **The pin is where the rule rests when the keyboard is not on the chart.** Drawn
+  with no focus and no pointer it is the muted rule, the pointer's colour, rather
+  than the accent the focus is shown in -- the accent still says "keys go here".
+  A refocus starts from the pin and not the newest, and blur forgets the
+  keyboard's sample and returns to the pin, so the effect that forgot it still does
+  and `pinned` is the one fallback beneath it. The pointer wins while it moves, as
+  it does over the keyboard, and gives the rule back to the pin when it leaves.
+  The limit this recorded -- while the chart is focused and the rule has moved off
+  the pin, nothing shows where the pin is -- is closed by SIG-620 below.
+- **The readout stands through the tooltip's new `hold`.** The bubble was shown by
+  the pointer or the focus and nothing else, so a pin had no readout once the focus
+  went. `TooltipOptions.hold` is a function that returns `true` for a third reason
+  to show, asked in the effect that already reads the focus so a signal it reads is
+  tracked -- read first and unconditionally, since a short-circuit on hover or focus
+  left it unread and a `hold` set later waiting for the next mouse report -- and
+  `delay` still applies to it. **Escape and `hide()` do nothing while it holds**:
+  `dismissed` clears only when the pointer, the focus and the hold have all gone,
+  so a pin that outlasted the other two made one Escape -- the dashboard's search
+  field clearing, a menu closing -- kill the readout until unpinned. The app asked
+  for the bubble to stay, and Enter again is how a reader takes it away. The other
+  order had the same stuck state: an Escape pressed **before** a pin set
+  `dismissed` while nothing held, and the pin then kept it set, so the pinned
+  readout never showed. A hold that starts is a new reason to show the bubble, so
+  `update()` clears `dismissed` when the hold goes from off to on
+  (`should show a pinned readout after an Escape pressed before the pin`). It is the
+  one change outside the chart;
+  the chart sets it (`LineChartCrosshair` omits it, as it omits `area`), and no
+  other component does.
+- **`props` leaves `onKey` out of a chart with a crosshair, in the type.** The
+  "props type leaves it out" convention SIG-516 recorded as its one departure is
+  followed now: `LineChartProps` is a union of `PlainLineChartProps` and
+  `CrosshairLineChartProps`, told apart by `crosshair` being absent or required,
+  and the second's `props` is `ElementPropsWithout<'onKey' | 'onResize'>`. A plain
+  chart owns no key and still takes an `onKey`, so a literal that compiled before
+  stops compiling only if it passed an `onKey` the chart refused at run time anyway.
+  A union does narrow what generic code can do with the type, which review round 1
+  measured rather than assumed: `Omit<LineChartProps, 'data'>` collapses it and
+  assigning `.crosshair` onto a plain-typed value fails, where `crosshair: maybe`
+  and a conditional crosshair still compile. No consumer in the repository does
+  either. `vim?: false` rather than `undefined` on the plain chart, so a flag
+  `vim: false` beside a conditional crosshair still type-checks.
+  `chart-live.test.ts` pins both halves with `@ts-expect-error`, one on `props`
+  and one on `vim`, which `packages/sigil`'s tsconfig includes `./test` for.
+- **`describeLineChart()` lists them:** `left`, `right`, `h` and `l` where the chart
+  is `vim`, `home` as `oldest`, `end` as `newest`, and `enter` as `pin`, three new
+  words in `SIGIL_KEYS`. The arrows are priority 1 as before, Home and End 1 and
+  Enter 2 as a list's Enter is -- a higher priority survives -- so a narrow
+  footer keeps the pin over the movement keys. The
+  dashboard's chart footer is therefore longer by those words; its tests are
+  re-read for it rather than assumed.
+
+### A pinned sample is marked where the rule is not (SIG-620)
+
+- **The marker is a cell on the plot's top row and a tick on the axis, both in the
+  pinned sample's column, and drawn only where the rule is in another one.** `▼` on
+  the plot and `▲` in the axis row, `v` and `^` in ASCII, so it needs no colour to
+  be seen. Where the rule stands on the pin's cell it already marks it -- with the
+  `┴` tick and the rule -- and a second glyph there would only hide that, so the
+  marker is the answer to "where is the pin" and goes the moment the answer is "under
+  the rule". It is compared by cell column rather than by sample, because under
+  `step: 'fit'` two samples can share one cell and the rule in it is the pin's.
+  The pin is clamped to the oldest drawn as the rule is, so one that scrolled off the
+  left is marked on the left edge.
+- **A line beats it on the plot, as it beats the rule.** The top cell of the
+  pinned column is the highest value's wherever the pinned sample is the highest, so
+  there the plot's marker is not drawn and the axis one is the answer. A chart with
+  `axis: false` has only the plot's, and loses it under a line there -- and under
+  the readout's bubble, which sits beside the rule over the plot's top rows, so a pin
+  within about nine columns of the rule is covered while the readout is shown. A
+  limit, recorded rather than fixed, since moving the marker off the plot's top row
+  would make it a thing that wanders with the data.
+- **The marker and Enter can disagree under `fit`.** The marker is compared by cell
+  and Enter by sample (SIG-607), so with the rule on a neighbour of the pin in the
+  pin's cell no marker shows and Enter moves the pin rather than clearing it. Both
+  rules stand on their own; the cell is the finest thing a reader can see.
+- **`sigil-chart-pin`, with `sigil-warn` beside it,** is the theme hook: the warn role
+  because the rule is already the muted and the accent roles, and it is a colour
+  nobody reads as "the keys go here". It is a segment of its own, not a run the
+  blanks beside it join, so a theme that gives it a background paints one cell.
+  `LineLayout.pinned` carries it, and the draw reads the pin unconditionally: the
+  rule's `back ?? pinned` short-circuits, so without the marker's own read a pin
+  cleared while the keyboard sample already said where the rule was would not redraw.
 
 ### An image: a picture fitted to the box it got, in half blocks (SIG-326)
 
@@ -10392,6 +10503,56 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   spelling: a terminal reports no key release, so there is nothing to say when a
   shift range ends, and `v` is lazygit's too. The line keys reject a modified key
   as they did, so Shift and an arrow reaches the scroll box.
+
+  **A drag over lines is the same range, and the view's own (SIG-623).** A press on
+  an added or removed line of the current hunk, while the cursor is on the lines,
+  records the line and nothing else: it is not stopped, so it still focuses the
+  view, and a plain click is still only the click that moves the cursor. The
+  pointer leaving that line is what begins the range -- the anchor is the line
+  pressed, the base is what was picked, and each move after it is `pickRange()` to
+  the line under the pointer, which is `v` and a step, so there is no second way to
+  compute a range. The handler is on the rows, where the click's already is: a press
+  captures the pointer, so the moves and the release reach the row it landed on
+  wherever the pointer has got to, and `mouseOn()` routes by kind. Once the range
+  has begun the moves and the release are stopped, and **so is the click that
+  follows**, which is the trap `05-drag.js` found -- a release on the row pressed
+  lands the click on that row, and `clicked()` swallows one click after a drag
+  began. A release that makes no click (off the canvas) would leave that flag
+  armed, so every press clears it. Release closes the range and keeps the picks,
+  as the second `v` does.
+
+  **It clamps rather than scrolls, which was the ticket's to choose.** The pointer's
+  row is read against the viewport's content box and its scroll, clamped to the
+  rows in view, and then to the hunk's first and last line; a context line under
+  the pointer is the changed line nearest it on the anchor's side, so dragging down
+  over `three` ends on the line above it and dragging up ends on the line below,
+  which is where `v` and the arrows would stop. A captured drag reports rows off
+  the canvas, so the clamp is what makes a drag off the edge pick as far as the
+  view shows. Scrolling would take a timer for a pointer held still off the edge,
+  motion reports arriving only when it moves. A hunk taller than the view is
+  dragged as far as it shows and `v` or the wheel does the rest. A wheel turn
+  mid-drag takes the pressed row out of the tree, which keeps its parent and its
+  handler (measured), so the moves still reach it and are read against the scroll
+  as it now is -- and a context line under the pointer then resolves toward an
+  anchor that may be off screen, so the cursor can land on a changed line out of
+  view and the cursor's own reveal scrolls to it. That is the one place a drag
+  scrolls, and it is left alone: it needs a wheel in the middle of a drag.
+
+  **Whatever takes the drag away closes the range it opened, and whatever closes the
+  range takes the drag away.** `endDrag()` is asked when a new drawing replaces the
+  rows, when the cursor leaves the lines (`resetLines()` clears the drag with the
+  anchor), on a press, and on motion with nothing held -- what an app reporting
+  hover is sent when the release never came -- because the release that would
+  close the range finds no drag to close. The other direction is `closeRange()`,
+  which `v`, `x`, `a`, a click and an app's write all use: a drag whose release was
+  lost would otherwise still be remembered, and its `endDrag()` would close the
+  range `v` opened after it. Another button's press or motion is neither the
+  drag's to end nor to continue. What is not covered is a lost release with
+  nothing after it: no report reaches the view until the pointer is over a stop
+  row with motion reported, so the range stays open for the keys until something
+  above does happen. Each of the rest is pinned by a test that fails without it,
+  bar the `endDrag()` in the cursor-left branch of `moved()`, which is reached
+  only after something else has already closed the range.
 
   **The line state belongs to one hunk and is emptied whenever the subject
   changes**: the current stop changes (`]`, `[`, a click, the app writing it), the
