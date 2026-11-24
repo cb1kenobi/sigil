@@ -1175,7 +1175,8 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   i18n: [10, 5_094],
   // 9,446 B at 305 keys when SIG-328 set a ceiling of 18 KiB, 18,518 B at 480
   // once the components' `Expected ...` errors had been tagged with `__`, and
-  // 8,610 B at 305 when SIG-658 took them back out -- see "src/i18n/keys.ts is
+  // 8,610 B at 305 when SIG-658 took them back out, and 8,251 B at 300 when
+  // SIG-668 took five more -- see "src/i18n/keys.ts is
   // generated" in `src/i18n/AGENTS.md`. `the i18n-keys entry` below is what
   // says the figure is the key table and not something pulled in beside it
   'i18n-keys': [18, 8_610],

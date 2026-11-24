@@ -1037,7 +1037,7 @@ command, wired beside `registerHelp()` and `registerVersion()`.
   would put shell instructions in a catalog where no translator could check them,
   and it is the same line this file already draws around a command name being the
   API the user types. The refusal over a program name that is not one word stays
-  English too, for the reason the 139 developer-facing errors do: it is a bug
+  English too, for the reason the developer-facing errors (139 as of SIG-53) do: it is a bug
   report in the app.
 
 - **What is deliberately out.** A **value completer** on `Option`, which is the
