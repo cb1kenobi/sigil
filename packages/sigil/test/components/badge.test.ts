@@ -1,7 +1,13 @@
 import { strip } from '../../src/ansi/index.js';
 import { Badge, badge, badgeView } from '../../src/components/badge.js';
 import { table } from '../../src/components/table.js';
-import { box, type Element, renderToLines, text as textNode } from '../../src/element/index.js';
+import {
+  box,
+  type Element,
+  renderToLines,
+  renderToString,
+  text as textNode,
+} from '../../src/element/index.js';
 import { createRoot, render } from '../../src/renderer/index.js';
 import { Computed, flush, State } from '../../src/signals/index.js';
 import { createTestTerminal } from '../../src/testing/index.js';
@@ -318,6 +324,53 @@ describe('Badge()', () => {
 // SIG-644. A badge's form is the level the renderer draws at, not the one it was
 // built at: both forms are in the tree and the framework's sheet shows one by
 // `@media (color-level: 0)`.
+describe('a badge given an href in its props', () => {
+  const url = 'https://example.com/build/1';
+  const open = (to: string): string => `${ESC}]8;;${to}${ESC}\\`;
+
+  // before SIG-656 the prop went on the row, which is a box and paints no link, so
+  // the badge built without a throw and drew plain text
+  it('should draw its label as a link', () => {
+    const out = renderToString(Badge({ label: 'PASS', props: { href: url } }), {
+      cascade: themedCascade(),
+      colorLevel: 3,
+      width: 20,
+    });
+
+    expect(out).to.contain(`${open(url)} PASS ${open('')}`);
+  });
+
+  it('should put the link on both forms, so it holds at whichever level draws', () => {
+    const el = Badge({ label: 'PASS', props: { href: url } });
+
+    expect(formsOf(el).map((form) => form.href)).to.deep.equal([url, url]);
+    expect(el.href).to.equal('');
+  });
+
+  it('should keep the rest of its props on the row', () => {
+    const el = Badge({ label: 'PASS', props: { href: url, 'flex-shrink': 1 } });
+
+    expect(el.props['flex-shrink']).to.equal(1);
+    expect(el.props.href).to.equal(undefined);
+  });
+
+  it('should draw no link when it is given none', () => {
+    const out = renderToString(Badge({ label: 'PASS' }), {
+      cascade: themedCascade(),
+      colorLevel: 3,
+      width: 20,
+    });
+
+    expect(out).to.not.contain(`${ESC}]8`);
+  });
+
+  it('should refuse a URL with a control character, as a text does', () => {
+    expect(() => Badge({ label: 'PASS', props: { href: `https://x${ESC}\\` } })).to.throw(
+      /Invalid href/
+    );
+  });
+});
+
 describe('a badge built at one level and shown at another', () => {
   /** What a renderer drawing at `shownAt` shows of a badge made by `make`. */
   function shown(make: () => Element, shownAt: 0 | 3): string {

@@ -4209,9 +4209,21 @@ whole of it: the encoder, `qrLines()`, `qrcodeView()` and the facade.
   wider than the label, so the width does not depend on the level. `Badge` is the
   row, so its `class` and `props` are the row's (with `overflow: hidden` under them,
   so a `width` or a shrink on the row clips the label as it did when the props were
-  on the one text; a prop that is about the _text_ -- `href`, `text-overflow`,
+  on the one text; a style prop that is about the _text_ -- `text-overflow`,
   `text-align`, `inverse`, `white-space` -- no longer reaches the label, and
-  nothing forwards it: it is a limit, and a theme class on the variant is the way) and its variant classes are on the two texts inside -- a caller who read `el.classes` for `sigil-success` reads a child
+  nothing forwards it: it is a limit, and a theme class on the variant is the way.
+  **`href` is the exception, and `Badge` forwards it (SIG-656).** It is not a style
+  property but content, read by a `text` alone and not inherited, so on the row it
+  was accepted at build and painted nothing -- `Badge({ props: { href } })` drew a
+  link before SIG-644 and silently stopped after. `Badge` takes it out of the props
+  it puts on the row and gives it to both texts, so the link holds whichever form
+  the sheet shows, and an `href` holding a control character throws where the badge
+  is built, as it does on a text. Forwarded rather than refused because `<text href>`
+  is a real prop today and the label is exactly the text a link belongs on; if
+  SIG-633 removes it from `text`, this becomes a refusal naming `href`, and the
+  forwarding is the one `const { href, ...boxProps }` line in `Badge()` and the
+  second argument of `formText()`. The test is `a badge given an href in its props`
+  in `test/components/badge.test.ts`) and its variant classes are on the two texts inside -- a caller who read `el.classes` for `sigil-success` reads a child
   now. `colorLevel` on `Badge` is accepted and not read. `badge()` the string is
   unchanged: it renders the same tree at `colorLevelOf(opts)` under the sheet.
   The rejected alternative was one `text` that picked its content at paint, which
