@@ -7,7 +7,12 @@
  * terminal.
  */
 
-import { codeLanguage, type TextAreaCaret } from '@ttylabs/sigil/components';
+import {
+  codeLanguage,
+  pastedBlock,
+  type TextAreaCaret,
+  type TextAreaSelection,
+} from '@ttylabs/sigil/components';
 import { Computed, State } from '@ttylabs/sigil/signals';
 import { basename, extname, isAbsolute, relative, sep } from 'node:path';
 
@@ -43,6 +48,11 @@ export interface Doc {
    * file and is what the status line reads.
    */
   readonly caret: State<TextAreaCaret>;
+  /**
+   * What is selected: the text area's `selection`, collapsed on the caret while
+   * nothing is, and what the status line reads as `(5 selected)`.
+   */
+  readonly selection: State<TextAreaSelection>;
 }
 
 /**
@@ -69,8 +79,50 @@ export function createDoc(path: string, text: string): Doc {
     name: basename(path),
     path,
     saved,
+    selection: new State<TextAreaSelection>({
+      anchor: { col: 0, line: 0 },
+      caret: { col: 0, line: 0 },
+    }),
     value,
   };
+}
+
+/**
+ * How many characters a selection holds, a line break counting one.
+ *
+ * Code points rather than the code units the places are in, which is what the
+ * "Copied" message counts too. The places are into the text as the area holds it,
+ * which is `pastedBlock()` of the value: a control character the file came with is
+ * not in it, and an unedited value still is.
+ *
+ * @param text - The text, as the document holds it.
+ * @param selection - What is selected, its ends in either order.
+ * @returns The count, or 0 while the two ends are one place.
+ */
+export function selectedCharacters(text: string, selection: TextAreaSelection): number {
+  const lines = pastedBlock(text).split('\n');
+  // a place the text no longer has is the nearest one, as the area reads it
+  const near = (at: TextAreaCaret): TextAreaCaret => {
+    const line = Math.max(0, Math.min(at.line, lines.length - 1));
+    return { col: Math.max(0, Math.min(at.col, lines[line].length)), line };
+  };
+  const [anchor, caret] = [near(selection.anchor), near(selection.caret)];
+  if (anchor.line === caret.line && anchor.col === caret.col) {
+    return 0;
+  }
+  const [from, to] =
+    anchor.line < caret.line || (anchor.line === caret.line && anchor.col < caret.col)
+      ? [anchor, caret]
+      : [caret, anchor];
+  const held =
+    from.line === to.line
+      ? lines[from.line].slice(from.col, to.col)
+      : [
+          lines[from.line].slice(from.col),
+          ...lines.slice(from.line + 1, to.line),
+          lines[to.line].slice(0, to.col),
+        ].join('\n');
+  return [...held].length;
 }
 
 /**

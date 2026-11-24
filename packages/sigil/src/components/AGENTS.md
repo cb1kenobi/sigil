@@ -14890,6 +14890,52 @@ was reached, the measurements and the sabotage pass are in
   ends the drag, so the next motion does not put the caret back under the
   pointer. A caret `State` is one area's: two areas handed one clamp it to their
   own lines and write it back over each other.
+- **The selection is `selection`, an anchor and a caret, and it is the caret's
+  shape again (SIG-518).** `{ anchor, caret }` as a place or a `State` of one,
+  both ends the caret's own `{ line, col }` in UTF-16 units, so the two props
+  share a type for a place and the rules above hold for each end: out of range is
+  the nearest place, inside a cluster is the end of it, nothing throws at run time
+  and a plain value that is not two places is refused at construction. It is an
+  anchor and a caret rather than a start and an end because that is what the area
+  keeps and what a Shift-arrow moves: the order the user made it in is the
+  information a range throws away, and an app that wants a range orders two
+  places. `TextField` has no selection, so there was no shape to follow; this one
+  is the area's own.
+
+  **The state always holds an answer.** Nothing selected is both ends on the
+  caret, not `undefined` -- a reader of the state would otherwise be a reader of a
+  union, and the area never has a state of no caret. The state is written from
+  `publish()` beside the caret, only when it differs, by the identity rule
+  `said` already follows: an app's write that already says what was selected is
+  kept as it is rather than written again.
+
+  **How the two states agree is three rules and no more.** A write to `caret`
+  collapses the selection, even onto the place it was, which is the caret rule
+  said once and is why the state then reads collapsed. A write to `selection`
+  selects and puts the caret at its `caret` end, and the caret state is then
+  written by the area like any move. A write to both in one turn **selects**:
+  `adopt()` takes the value, the caret and the selection in that order, so the
+  selection is applied last and wins -- the one that says more, since a selection
+  says where the caret is and a caret does not say what is selected. A write to
+  `value` clears the selection like any value write, and a selection written with
+  it is placed in the new text, which is the caret's rule. A handed-in `State` is
+  where the area starts, as a caret's is, so a selection state that is collapsed
+  somewhere other than the caret prop's place moves the caret there at the first
+  frame; an app handing both gives them the same place.
+
+  **A write that lands during a drag ends it**, the SIG-466 rule: `select()` clears
+  `dragging` as `place()` does, so the next motion does not put the end back
+  under the pointer, which is also what an app that selects a match while the
+  mouse is down wants. It is taken in before a key and from inside `onChange` by
+  the one function the caret already is, with the third argument added, rather
+  than by a second path. The editor's footer is the first reader: `Ln 3, Col 5
+  (12 selected)`, counting characters, in `examples/editor/test/selection.test.ts`.
+  Covered by `the selection` in `test/components/text-area.test.ts`.
+  Sabotage: four, none survived -- the selection applied before the caret
+  (both written in a turn then collapse), no `dragging = false` in `select()`, the
+  state never written, and an anchor taken as written rather than as the nearest
+  place.
+
 - **A write the app makes is taken in before a key, not only when the effect
   runs.** The effect runs with the frame, and a key in the same read as the
   write -- a burst, a fast typist, a "go to line" bound to a key that then types
@@ -14909,8 +14955,7 @@ was reached, the measurements and the sabotage pass are in
   claimed, the prompt's own case. Three more on `pastedBlock()`'s pattern -- a tab
   dropped, a line break dropped, nothing dropped -- each fail the prompt's tests.
 - **Not done:** undo; soft wrap; `charLimit`; select-all, a double-click word and
-  a scroll bar; indenting a selection with Tab; an incremental highlight; a handle
-  for an app to read or set the selection (the caret is `caret`, above); and
+  a scroll bar; indenting a selection with Tab; an incremental highlight; and
   `multiline()` onto the element.
 
 ### Syntax highlighting: a lexer per language, and one seam for four components (SIG-289)

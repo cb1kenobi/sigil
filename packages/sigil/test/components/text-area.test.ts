@@ -505,6 +505,210 @@ describe('TextArea()', () => {
     });
   });
 
+  describe('the selection', () => {
+    const many = Array.from({ length: 50 }, (_, i) => `line ${i + 1}`).join('\n');
+    const at = (line: number, col: number): TextAreaCaret => ({ col, line });
+    const range = (
+      anchor: TextAreaCaret,
+      caret: TextAreaCaret
+    ): { anchor: TextAreaCaret; caret: TextAreaCaret } => ({ anchor, caret });
+
+    it('should write the state on every move that selects and every one that does not', async () => {
+      const selection = new State(range(at(0, 0), at(0, 0)));
+      const s = scene({ caret: at(0, 0), selection, value: 'ab\ncd' });
+      expect(selection.get()).toEqual(range(at(0, 0), at(0, 0)));
+      await s.term.press(SHIFT_RIGHT, SHIFT_RIGHT);
+      expect(selection.get()).toEqual(range(at(0, 0), at(0, 2)));
+      // a selection made leftwards has its caret before its anchor
+      await s.term.press(KEYS.right);
+      await s.term.press(SHIFT_LEFT);
+      expect(selection.get()).toEqual(range(at(0, 2), at(0, 1)));
+      await s.term.press(SHIFT_DOWN);
+      expect(selection.get()).toEqual(range(at(0, 2), at(1, 1)));
+      // a key that collapses it, and an edit, say so
+      await s.term.press(KEYS.left);
+      expect(selection.get()).toEqual(range(at(0, 2), at(0, 2)));
+      await s.term.press(SHIFT_RIGHT, 'x');
+      expect(selection.get()).toEqual(range(at(0, 3), at(0, 3)));
+      s.area.onMouse?.(mouse('mousedown', 0, 0));
+      s.area.onMouse?.(mouse('mousemove', 3, 0));
+      expect(selection.get()).toEqual(range(at(0, 0), at(0, 3)));
+      s.area.onMouse?.(mouse('mouseup', 3, 0));
+      expect(selection.get()).toEqual(range(at(0, 0), at(0, 3)));
+    });
+
+    it('should start collapsed on the caret, and say so when nothing is selected', async () => {
+      const selection = new State(range(at(9, 9), at(9, 9)));
+      scene({ selection, value: 'one\ntwo' });
+      // a plain place past the end is the end, and the state says what the area made of it
+      expect(selection.get()).toEqual(range(at(1, 3), at(1, 3)));
+    });
+
+    it('should select where the app writes it, in either direction, and scroll it into view', async () => {
+      const selection = new State(range(at(0, 0), at(0, 0)));
+      const caret = new State(at(0, 0));
+      const value = new State(many);
+      const s = scene({ caret, selection, value }, 4);
+      selection.set(range(at(30, 0), at(30, 4)));
+      await settle();
+      expect(picture(s.root, WIDTH, 4)).toContain('line 31');
+      expect(reversed(s.root, WIDTH, 4).join('')).toBe('line');
+      // the caret is the selection's own end, and says so
+      expect(caret.get()).toEqual(at(30, 4));
+      selection.set(range(at(30, 4), at(30, 0)));
+      await settle();
+      expect(caret.get()).toEqual(at(30, 0));
+      expect(reversed(s.root, WIDTH, 4).join('')).toBe('line');
+      // typing replaces what the app selected
+      await s.term.press('!');
+      expect(value.get().split('\n')[30]).toBe('! 31');
+      expect(selection.get()).toEqual(range(at(30, 1), at(30, 1)));
+    });
+
+    it('should take a selection from a plain prop as where it starts', async () => {
+      const value = new State('hello world');
+      const s = scene({ selection: range(at(0, 6), at(0, 11)), value });
+      await settle();
+      expect(reversed(s.root).join('')).toBe('world');
+      await s.term.press('X');
+      expect(value.get()).toBe('hello X');
+    });
+
+    it('should read a place out of range as the nearest one, and say where it went', async () => {
+      const selection = new State(range(at(0, 0), at(0, 0)));
+      const s = scene({ selection, value: '👨\u200D👩\u200D👧x\nab' });
+      selection.set(range(at(0, 3), at(99, 99)));
+      await settle();
+      // inside the family is the end of it, past the end is the end
+      expect(selection.get()).toEqual(range(at(0, '👨\u200D👩\u200D👧'.length), at(1, 2)));
+      selection.set({ anchor: null, caret: { col: -4, line: Number.NaN } } as never);
+      await settle();
+      expect(selection.get()).toEqual(range(at(0, 0), at(0, 0)));
+      selection.set(null as never);
+      await settle();
+      expect(selection.get()).toEqual(range(at(0, 0), at(0, 0)));
+      expect(reversed(s.root)).not.toContain('x');
+    });
+
+    it('should keep a write that already says what was selected, rather than write it again', async () => {
+      const selection = new State(range(at(0, 0), at(0, 0)));
+      scene({ selection, value: 'ab\ncd' });
+      const written = range(at(0, 1), at(1, 1));
+      selection.set(written);
+      await settle();
+      expect(selection.get()).toBe(written);
+    });
+
+    it('should collapse the selection when the app writes the caret, and say so', async () => {
+      const caret = new State(at(0, 0));
+      const selection = new State(range(at(0, 0), at(0, 0)));
+      const value = new State('abcdef');
+      const s = scene({ caret, selection, value });
+      await s.term.press(SHIFT_RIGHT, SHIFT_RIGHT);
+      expect(selection.get()).toEqual(range(at(0, 0), at(0, 2)));
+      // even onto the place it was
+      caret.set(at(0, 2));
+      await settle();
+      expect(selection.get()).toEqual(range(at(0, 2), at(0, 2)));
+      expect(reversed(s.root).join('')).toBe('c');
+      await s.term.press('!');
+      expect(value.get()).toBe('ab!cdef');
+    });
+
+    it('should select when the app writes the caret and the selection in one turn', async () => {
+      const caret = new State(at(0, 0));
+      const selection = new State(range(at(0, 0), at(0, 0)));
+      const s = scene({ caret, selection, value: 'abcdef' });
+      caret.set(at(0, 5));
+      selection.set(range(at(0, 1), at(0, 3)));
+      await settle();
+      expect(selection.get()).toEqual(range(at(0, 1), at(0, 3)));
+      expect(caret.get()).toEqual(at(0, 3));
+      expect(reversed(s.root).join('')).toBe('bc');
+    });
+
+    it('should clear it when the app writes the value, or select in the new text when it writes both', async () => {
+      const selection = new State(range(at(0, 6), at(0, 6)));
+      const value = new State('abcdef');
+      const s = scene({ selection, value });
+      await s.term.press(SHIFT_LEFT, SHIFT_LEFT);
+      expect(selection.get()).toEqual(range(at(0, 6), at(0, 4)));
+      value.set('one\ntwo');
+      await settle();
+      expect(selection.get()).toEqual(range(at(1, 3), at(1, 3)));
+
+      value.set('three\nfour');
+      selection.set(range(at(0, 1), at(1, 2)));
+      await settle();
+      expect(selection.get()).toEqual(range(at(0, 1), at(1, 2)));
+      selection.set(range(at(0, 0), at(0, 5)));
+      value.set('five\nsix');
+      await settle();
+      expect(selection.get()).toEqual(range(at(0, 0), at(0, 4)));
+      await s.term.press('!');
+      expect(value.get()).toBe('!\nsix');
+    });
+
+    it('should take in a selection the app wrote in the same read as a key, before the key', async () => {
+      const selection = new State(range(at(0, 0), at(0, 0)));
+      const value = new State('abc\ndef');
+      const s = scene({ selection, value });
+      // no frame between the write and the key, so the effect has not run
+      selection.set(range(at(0, 1), at(1, 1)));
+      await s.term.press('!');
+      expect(value.get()).toBe('a!ef');
+    });
+
+    it('should wrap what is selected, the way an app acts on it', async () => {
+      const selection = new State(range(at(0, 0), at(0, 0)));
+      const value = new State('say hello now');
+      const s = scene({ selection, value });
+      selection.set(range(at(0, 4), at(0, 9)));
+      await settle();
+      const { anchor, caret } = selection.get();
+      const text = value.get();
+      expect(text.slice(anchor.col, caret.col)).toBe('hello');
+      value.set(
+        `${text.slice(0, anchor.col)}(${text.slice(anchor.col, caret.col)})${text.slice(caret.col)}`
+      );
+      selection.set(range(at(0, 5), at(0, 10)));
+      await settle();
+      expect(value.get()).toBe('say (hello) now');
+      expect(reversed(s.root).join('')).toBe('hello');
+    });
+
+    it('should keep a selection the app wrote from onChange, rather than write over it', async () => {
+      const selection = new State(range(at(0, 0), at(0, 0)));
+      const value = new State('abc\ndef');
+      const s = scene({
+        onChange: () => selection.set(range(at(1, 0), at(1, 3))),
+        selection,
+        value,
+      });
+      await s.term.press('!');
+      expect(selection.get()).toEqual(range(at(1, 0), at(1, 3)));
+      expect(reversed(s.root).join('')).toBe('def');
+    });
+
+    it('should end a drag when the app writes the selection in the middle of it', async () => {
+      const selection = new State(range(at(0, 0), at(0, 0)));
+      const s = scene({ selection, value: 'abcdef\nghijkl\nmnopqr' });
+      s.area.onMouse?.(mouse('mousedown', 1, 0));
+      s.area.onMouse?.(mouse('mousemove', 3, 1));
+      selection.set(range(at(2, 1), at(2, 3)));
+      await settle();
+      const move = mouse('mousemove', 4, 1);
+      s.area.onMouse?.(move);
+      expect(move.stopped).toBe(false);
+      expect(selection.get()).toEqual(range(at(2, 1), at(2, 3)));
+    });
+
+    it('should refuse a selection that is not two places, at construction', () => {
+      expect(() => TextArea({ selection: { anchor: at(0, 0) } as never })).toThrow(TypeError);
+      expect(() => TextArea({ selection: 3 as never })).toThrow(/selection/u);
+    });
+  });
+
   describe('which keys are the area’s', () => {
     it('should hand Escape, Tab, Shift-Tab and an unbound chord on to what holds it', async () => {
       const s = scene({ value: 'ab' });
