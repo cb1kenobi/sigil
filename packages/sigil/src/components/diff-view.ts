@@ -24,7 +24,7 @@
 import { box, type Element, type ElementPropsWithout, text } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import type { DescribeOptions, KeyEvent, MouseEvent } from '../input/index.js';
-import { createEffect } from '../renderer/index.js';
+import { createEffect, onCleanup } from '../renderer/index.js';
 import { State, untrack } from '../signals/index.js';
 import {
   diffBlocks,
@@ -198,6 +198,13 @@ interface Drawn {
  * enough that the reader lost their place on every press.
  */
 const SIDEWAYS_STEP = 8;
+
+/**
+ * How often a drag held past an edge of the view scrolls it a row, in
+ * milliseconds: twenty rows a second, which crosses a screenful in about a second
+ * and is slow enough to stop on a line.
+ */
+const DRAG_SCROLL_INTERVAL = 50;
 
 /** The hosts `DiffView()` built, so `describeDiffView()` can refuse anything else. */
 const HOSTS = new WeakSet<Element>();
@@ -611,6 +618,25 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
   let dragging: { line: number; began: boolean } | undefined;
   /** Whether the click a drag will be followed by is still to be swallowed. */
   let dragged = false;
+  /**
+   * The repeat that scrolls the view while a drag is held past its top or bottom
+   * edge: which way it goes, the pointer's row it follows, and the timer. `undefined`
+   * while the pointer is on the rows or no drag is open, which is every other time.
+   */
+  let scrolling: { by: -1 | 1; timer: ReturnType<typeof setInterval>; y: number } | undefined;
+
+  /**
+   * Stops the repeat. Asked wherever a drag stops being one -- a release, a drag
+   * taken away, a range closed for its own reasons, the view disposed -- so no timer
+   * outlives what it was for.
+   */
+  const stopScroll = (): void => {
+    if (scrolling) {
+      clearInterval(scrolling.timer);
+      scrolling = undefined;
+    }
+  };
+  onCleanup(stopScroll);
 
   /**
    * Ends a drag where it stands: a range it opened is closed, keeping its picks, as
@@ -623,6 +649,7 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       anchor = undefined;
     }
     dragging = undefined;
+    stopScroll();
   };
 
   /**
@@ -634,6 +661,7 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
   const closeRange = (): void => {
     anchor = undefined;
     dragging = undefined;
+    stopScroll();
   };
 
   /**
@@ -699,8 +727,8 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
     if (spans === undefined || spans.length === 0 || place === undefined || place.height <= 0) {
       return undefined;
     }
-    // clamped rather than scrolled: a drag off the view's edge picks as far as the
-    // view shows, and the wheel or `v` takes it further
+    // clamped to the rows in view: a drag off the view's edge picks as far as the
+    // view shows, and `scrollOnDrag()` is what brings the rest of the hunk into it
     const row =
       Math.floor(viewport.scroll?.y ?? 0) + Math.min(Math.max(y - place.y, 0), place.height - 1);
     let line = spans.findIndex((span) => span.last >= row);
@@ -737,16 +765,36 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       // another button's drag is not this one's to continue
       return;
     }
+    if (follow(event.y)) {
+      // once the pointer has left the line the drag is the view's, and nothing
+      // above it acts on what follows
+      event.stop();
+    }
+    scrollOnDrag(event.y);
+  };
+
+  /**
+   * Picks the range from the line a drag began on to the line under a pointer row,
+   * over what was picked before -- a move of the pointer, or a tick of the repeat
+   * that scrolls under a pointer held still.
+   *
+   * @param y - The pointer's row.
+   * @returns Whether the range has begun, which is when the drag is the view's.
+   */
+  const follow = (y: number): boolean => {
+    if (!picking || !dragging) {
+      return false;
+    }
     const spans = drawn[lit]?.lines ?? [];
     const cursor = untrack(() => picking.cursor.get());
     if (cursor === undefined || spans[dragging.line] === undefined) {
       // the cursor left the lines, or the hunk is another one: nothing to follow
       endDrag();
-      return;
+      return false;
     }
-    const to = lineAt(event.y, dragging.line);
+    const to = lineAt(y, dragging.line);
     if (to === undefined || (!dragging.began && to === dragging.line)) {
-      return;
+      return false;
     }
     const changes = [...spans.keys()].filter((line) => spans[line]!.kind !== 'context');
     if (!dragging.began) {
@@ -755,13 +803,66 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       base = untrack(() => picking.selected.get());
       dragged = true;
     }
-    // once the pointer has left the line the drag is the view's, and nothing above
-    // it acts on what follows
-    event.stop();
     if (to !== cursor) {
       picking.cursor.set(to);
     }
     pickRange(to, changes);
+    return true;
+  };
+
+  /**
+   * Starts or stops the repeat that scrolls a drag held past an edge of the view.
+   * A pointer held still sends no more reports, so the move that crossed the edge
+   * is what arms a timer, and a move back onto the rows -- or the release -- is
+   * what ends it.
+   *
+   * @param y - The pointer's row, which a captured drag reports off the canvas.
+   */
+  const scrollOnDrag = (y: number): void => {
+    const place = viewport.content ?? viewport.box;
+    if (!dragging || place === undefined || place.height <= 0) {
+      stopScroll();
+      return;
+    }
+    const by = y < place.y ? -1 : y >= place.y + place.height ? 1 : 0;
+    if (by === 0) {
+      stopScroll();
+      return;
+    }
+    if (scrolling && scrolling.by === by) {
+      scrolling.y = y;
+      return;
+    }
+    stopScroll();
+    const timer = setInterval(scrollTick, DRAG_SCROLL_INTERVAL);
+    // a drag does not keep a program alive
+    timer.unref?.();
+    scrolling = { by, timer, y };
+  };
+
+  /**
+   * One step of the repeat: a row toward the edge the pointer is past, and the
+   * range again from the pointer's row, which is now over another line. It stops
+   * where the hunk's own first or last line is in view, since the range cannot go
+   * further and the rest of the diff is no business of a drag; a move of the
+   * pointer arms it again.
+   */
+  const scrollTick = (): void => {
+    const spans = drawn[lit]?.lines;
+    const height = viewHeight();
+    if (!scrolling || !dragging || spans === undefined || spans.length === 0 || height <= 0) {
+      stopScroll();
+      return;
+    }
+    const { by, y } = scrolling;
+    const top = Math.floor(viewport.scroll?.y ?? 0);
+    const more = by < 0 ? spans[0]!.first < top : spans.at(-1)!.last >= top + height;
+    if (!more) {
+      stopScroll();
+      return;
+    }
+    viewport.scrollTo(0, top + by);
+    follow(y);
   };
 
   /** The release of a drag, which keeps what it picked. */
@@ -775,6 +876,7 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       event.stop();
     }
     dragging = undefined;
+    stopScroll();
   };
 
   /**
@@ -840,6 +942,7 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
     anchor = undefined;
     ranged = undefined;
     dragging = undefined;
+    stopScroll();
     untrack(() => {
       if (picking.cursor.get() !== undefined) {
         picking.cursor.set(undefined);

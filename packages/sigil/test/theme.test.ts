@@ -61,7 +61,7 @@ describe('the framework sheet', () => {
    * built-ins share is a role by this test's own definition. A component puts it
    * on the part that shows its focus from `onFocusChange`.
    *
-   * The fifteen exceptions are declared rather than discovered. Three are
+   * The seventeen exceptions are declared rather than discovered. Three are
    * `inverse`, the focus role's declaration, and none is the focus:
    * `.sigil-caret` is a prompt's cursor, there whether or not anything has the
    * focus; `.sigil-badge` is how a role's colour becomes a background; and
@@ -80,7 +80,9 @@ describe('the framework sheet', () => {
    * than borrowing either: neither of them is de-emphasis, a state or an accent,
    * so no role could carry them. `.sigil-qrcode-on-dark` and `.sigil-qrcode-on-light`
    * are which of a code's two polarities takes space, a layout choice made by the
-   * scheme rather than a look. `.sigil-text-field` is a background a second time, for the overlay's
+   * scheme rather than a look, and `.sigil-qrcode-borrowed` is the box that holds
+   * them in a painted code, shown at colour level 0 where the paint is dropped, and
+   * `.sigil-qrcode-painted` is the painted body that box replaces there. `.sigil-text-field` is a background a second time, for the overlay's
    * reason -- no role is one -- and because without it a field at rest is the same
    * bytes as a label: it is what says the field is there before anything focuses it.
    * `.sigil-panel` is a layout default and not a look -- it grows to fill its slot --
@@ -94,7 +96,7 @@ describe('the framework sheet', () => {
    * `.sigil-treemap:focus` is the one keyed on a state: a focused map's outline is
    * green, a colour and only a colour, and no role is a focus that is a colour.
    */
-  it('should declare on a role, bar fifteen exceptions that say why', () => {
+  it('should declare on a role, bar seventeen exceptions that say why', () => {
     const ROLES = [
       '.sigil-accent',
       '.sigil-muted',
@@ -115,8 +117,10 @@ describe('the framework sheet', () => {
       '.sigil-markdown-strong',
       '.sigil-pager-match',
       '.sigil-panel',
+      '.sigil-qrcode-borrowed',
       '.sigil-qrcode-on-dark',
       '.sigil-qrcode-on-light',
+      '.sigil-qrcode-painted',
       '.sigil-qrcode-paint',
       '.sigil-scroll-track',
       '.sigil-text-field',

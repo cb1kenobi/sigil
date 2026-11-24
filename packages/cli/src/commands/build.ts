@@ -198,6 +198,7 @@ const build: AnyCommand = command({
       printInlined(result.inlined);
     }
     warnEmptyShake(result.styles);
+    warnUnparsed(result.styles, found.app.root);
 
     writeSummary(
       [
@@ -340,6 +341,49 @@ function printInlined(inlined: readonly InlinedPackage[]): void {
       }
     )}\n`
   );
+}
+
+/**
+ * Says so, once per file, when the shake read a file without parsing it
+ * (SIG-638).
+ *
+ * A file whose brackets nest past the shake's ceiling is never handed to the
+ * parser -- `oxc-parser` segfaults on a tree that deep, and nothing catches
+ * that -- so its tokens are all read as though they could be a class name. That
+ * keeps more rules, never fewer, and it is invisible: the one file in review
+ * that did it kept 377 of 383 rules and nothing said why the build shipped almost
+ * the whole sheet. The count a summary prints is a sum and cannot name a cause.
+ *
+ * The cost named is what that file keeps **alone**, which is measured rather
+ * than guessed and is an upper bound on what it added: the rest of the app may
+ * have kept some of the same rules. `build.safelist` is not offered as a way
+ * out, since it only adds rules and this is about having too many; the two that
+ * work are making the file shallow enough to parse, or giving up the shake,
+ * which keeps every rule.
+ *
+ * Each path is the app's own text and goes through `escapeControls()`: a note
+ * is drawn on a canvas, which strips a control character, but a pipe is not,
+ * and a file can be named anything.
+ *
+ * @param styles - What shaking came to, or nothing when it did not shake.
+ * @param root - The app root, which the paths are shown relative to.
+ */
+function warnUnparsed(styles: ShakenStyles | undefined, root: string): void {
+  for (const file of styles?.unparsed ?? []) {
+    writeNote(
+      [
+        {
+          class: 'cli-warning sigil-warn',
+          text: `${escapeControls(displayPath(relative(root, file.path) || file.path))} was read without parsing,`,
+        },
+        'because its brackets nest too deep for the parser to be trusted with.',
+        `Every token in it counts as a class it might name, so on its own it keeps ${file.kept} of ${file.total} utility rules.`,
+        'Flatten the file, or move its deeply nested data out of the source tree.',
+        '--no-shake builds without the analysis and keeps every rule.',
+      ],
+      process.stderr
+    );
+  }
 }
 
 /**

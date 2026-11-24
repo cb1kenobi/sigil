@@ -585,7 +585,7 @@ command, wired beside `registerHelp()` and `registerVersion()`.
   nothing wrong with it.
 
 - **A name no shell can offer is dropped, which is `typeable()` met on a name
-  rather than on a value.** `oneLine()` and `typeable()` were applied to
+  rather than on a value (a format character joined the class in SIG-632, below).** `oneLine()` and `typeable()` were applied to
   descriptions and to `choices` and not to a command's own name or an option's
   spellings -- so a newline in a name broke the `_describe` element it was in,
   which is the thing `spec.ts` collapses descriptions for, and an escape in one
@@ -1686,20 +1686,59 @@ dispatches between the printer and the installer.
   same function and pays the same. It is not only emoji: the zero-width
   non-joiner is a letter of Persian and of several Indic scripts, so a Persian
   verb loses the U+200C inside it, which is spelling rather than decoration, and
-  a soft hyphen goes too. Not covered: a candidate **value** holding
-  one, which is dropped only for a control character -- a value is inserted into
-  the command line, so cleaning it would type a token that is not the value.
-  **A command name, an alias and a choice are not covered either, and a U+202E in
-  one still reaches both scripts** -- measured on `go` + U+202E + `x`, an alias
-  and an option's choices. They pass through `typeable()`, which drops what holds
-  a control character; extending it is a decision of its own, since a command
-  is matched by the name argv gives and dropping one removes it from the menu.
+  a soft hyphen goes too. A command name, an alias and a candidate **value** are
+  dropped rather than cleaned, and for a format character as well as a control
+  character since SIG-632: see the next entry.
   Covered by `test/completion-format-chars.test.ts`, per shell; its bash
   description case can only assert absence, since bash prints no description. The printer's
   static graph was 91,434 B over 26 modules and is 91,484 B over the same 26 as
   of SIG-610 -- `staticGraph()` over the `completion` chunk -- since
   `escape-controls.ts` was already in it and the change is one function there
   and a line in `descriptionLine()`. Well inside the ceiling `dist.test.ts` holds.
+
+- **A name, an alias and a choice holding a format character are dropped, not
+  stripped (SIG-632).** `typeable()` asked `\p{Cc}` and nothing else, so a
+  U+202E in `go` + U+202E + `x`, in an alias, or in a `choices` value reached both
+  scripts and `app completion bash` printed a reversed line -- the gap SIG-610
+  recorded and left. It now asks the class `escapeControls()` names, through
+  `withoutUnsafe(value) === value` rather than a pattern of its own, so a
+  control character and a format character are one answer and the class is
+  still defined once.
+
+  **Dropped rather than stripped, which is the call `typeable()` already made
+  for a control character and for the reason it gives.** A command is matched by
+  the name argv gives, so a menu offering `gox` for `go` + U+202E + `x` offers a
+  token that completes nothing, which is worse than offering none; and the name
+  nobody can type without the invisible character is not one a menu could usefully
+  offer anyway. This is the opposite of SIG-610's description and program name,
+  and for the same reason that entry gives for the opposite call: those are
+  _shown_ (or are the name the script registers for), these are _inserted into
+  the command line_. One rule over a name, an alias, an option's spelling and a
+  value, because `tokensFor()` and `valuesFor()` both go through `typeable()`, and
+  `segmentFor()` follows for free: a command whose name is dropped but which has a
+  typeable alias is still walked under the alias, and one with nothing left is
+  missing from the script, as it already was for a control character.
+
+  What it costs is a choice that is legitimately typeable but holds a joiner or
+  a variation selector -- a Persian value with U+200C in it, a heart with U+FE0F --
+  is not offered, though typing it still parses. Preferred to offering a
+  stripped form, which would type a different value, and it is the same price
+  SIG-610 records for a description, paid by omission rather than by loss.
+  **This was a decision the ticket left open and is recorded for confirmation**:
+  stripping is the alternative if a menu entry for such a choice is wanted more
+  than a correct one. The command reference reads the same function, so it lists
+  neither the name nor the stripped form -- **and for a choice that states a
+  wrong constraint**: `choicesOf()` gets an empty list where every choice was
+  dropped, which the markdown prints as the hint placeholder, so a page says any
+  value is accepted where the parser enforces a list. The same shape existed for a
+  control character, which was never typeable; it now reaches typeable text such
+  as a Persian value or a heart with U+FE0F. Left as it is rather than giving the
+  reference its own answer, since two readers disagreeing about what can be typed
+  is what `tokensFor()` is shared to prevent, and filed as its own ticket.
+  Covered per shell, for a name, an alias, a choice, a positional choice and the
+  whole class, by `test/completion-format-chars.test.ts`; sabotaging `typeable()`
+  back to `\p{Cc}` fails the first six and a narrower `\p{Cf}` pattern fails the
+  whole-class pair.
 
 - **What is not covered.** The confirm and select prompts' own messages carry
   the escaped name as well, but nothing tests that: they are drawn by a canvas

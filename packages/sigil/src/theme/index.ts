@@ -458,19 +458,27 @@ export const FRAMEWORK_CSS = `
  * modules match the terminal's own foreground there instead, which on a dark
  * terminal is the light ones and on a light terminal is the dark ones -- so the
  * scheme is read along with the level and a pipe is not unconditionally inverted.
- * That is the component's decision rather than this sheet's, because which glyph
- * is drawn is content.
+ * Which glyph is drawn is content, so a painted code carries the borrowed form as
+ * well, in a box of its own, and the level block below swaps the two: the painted
+ * body above level 0 and the borrowed box at 0. A code the caller inverted has no
+ * borrowed form to swap to, so it wears the paint class and not the painted one. That is the renderer's own level
+ * rather than the one the view was built at, so the two cannot disagree (SIG-629).
  *
  * Content, so a code that nobody pinned carries both polarities as two bodies and
  * the sheet shows the one that matches the scheme -- the dark one by default, and
  * the light one inside the media block below. That is the one place a tree can ask
  * what the scheme is *now* without a renderer to hand: setColorScheme() on the
  * renderer writes the media context, the restyle that follows is what swaps the bodies, and
- * nothing in the component listens. Two declarations about which one takes space,
- * and neither is a look, which is why they are exceptions rather than a role.
+ * nothing in the component listens. Four selectors that decide which form takes space,
+ * and none is a look, which is why they are exceptions rather than a role.
  */
 .sigil-qrcode-paint { color: black; background-color: white }
 .sigil-qrcode-on-light { display: none }
+.sigil-qrcode-borrowed { display: none }
+@media (color-level: 0) {
+  .sigil-qrcode-painted { display: none }
+  .sigil-qrcode-borrowed { display: flex }
+}
 
 /*
  * And the light half, which is three rules now and was six declarations.

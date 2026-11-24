@@ -1031,6 +1031,16 @@ const guarded = new WeakSet<object>();
 const heard = new WeakSet<object>();
 
 /**
+ * Where a stream takes a throw from one of the router's own timers, if it has one.
+ *
+ * A registry symbol rather than an import, because the one thing that sets it is
+ * `createTestTerminal()` and the testing entry loads nothing of the router's. Read
+ * where a throw happens rather than where the router is built, so a hook added
+ * after `createInput()` is the one asked.
+ */
+const TIMER_ERROR = Symbol.for('@ttylabs/sigil/input/timer-error');
+
+/**
  * Builds the input router.
  *
  * Throws where stdin is not a terminal rather than carrying a router that can
@@ -1082,6 +1092,30 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       throw error;
     }
     opts.onError(error);
+  };
+
+  /**
+   * Wraps a callback a timer will run, so a throw that nothing is awaiting has
+   * somewhere to go where the stream has one (SIG-631).
+   *
+   * Where the stream has no hook the throw goes on as it always did, which is an
+   * uncaught exception -- the deliberate answer for an app, and what SIG-524 has
+   * `runApp()` end on. Only the entries a timer starts are wrapped: a throw from
+   * a key or a paste still has the `write()` that delivered it to go back through.
+   *
+   * @param run - What the timer does.
+   * @returns The callback to arm.
+   */
+  const timed = (run: () => void) => (): void => {
+    try {
+      run();
+    } catch (error) {
+      const hook = (stdin as unknown as Record<symbol, unknown>)[TIMER_ERROR];
+      if (typeof hook !== 'function') {
+        throw error;
+      }
+      hook(error);
+    }
   };
 
   // -- described bindings ---------------------------------------------------
@@ -1298,18 +1332,21 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       // came this can hold the loop for up to one deadline. Bounded, once, and
       // the price of the commit `ended()` keeps -- where unref'ing would drop
       // that commit in exactly the process that was about to exit anyway
-      seqTimer = setTimeout(() => {
-        seqTimer = undefined;
-        if (next.handlers.size === 0) {
-          return;
-        }
-        try {
-          clearSequence();
-          fire(next, keys);
-        } catch (error) {
-          failed(error);
-        }
-      }, waitFor);
+      seqTimer = setTimeout(
+        timed(() => {
+          seqTimer = undefined;
+          if (next.handlers.size === 0) {
+            return;
+          }
+          try {
+            clearSequence();
+            fire(next, keys);
+          } catch (error) {
+            failed(error);
+          }
+        }),
+        waitFor
+      );
     }
   }
 
@@ -2330,7 +2367,7 @@ export function createInput(opts: InputOptions = {}): InputRouter {
             return;
           }
           clearTimeout(pasteTimer);
-          pasteTimer = setTimeout(releasePaste, PASTE_TIMEOUT);
+          pasteTimer = setTimeout(timed(releasePaste), PASTE_TIMEOUT);
           return;
         }
         // the marker cannot lie wholly inside the tail, which is shorter than it,
@@ -2396,7 +2433,7 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       rest = joined.slice(start + PASTE_START.length);
       // the wait starts at the marker rather than at the first content, because a
       // read that ends on the marker brings nothing else to start it
-      pasteTimer = setTimeout(releasePaste, PASTE_TIMEOUT);
+      pasteTimer = setTimeout(timed(releasePaste), PASTE_TIMEOUT);
     }
 
     if (!stopped && pasting === undefined && rest !== '') {
@@ -2543,7 +2580,7 @@ export function createInput(opts: InputOptions = {}): InputRouter {
     if (pending.size > 0 && isString) {
       return;
     }
-    timer = setTimeout(expire, ESCAPE_TIMEOUT);
+    timer = setTimeout(timed(expire), ESCAPE_TIMEOUT);
   }
 
   /** Nothing followed it, so what is held is a key rather than a beginning. */
@@ -3132,7 +3169,7 @@ export function createInput(opts: InputOptions = {}): InputRouter {
             // always was. Armed rather than flushed here, because flushing
             // would dispatch keys from inside the handling of a reply
             if (pending.size === 0 && held !== '' && timer === undefined) {
-              timer = setTimeout(expire, ESCAPE_TIMEOUT);
+              timer = setTimeout(timed(expire), ESCAPE_TIMEOUT);
             }
             resolve(it.replies);
           },

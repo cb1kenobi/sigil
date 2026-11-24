@@ -344,6 +344,25 @@ describe("reading where an app's commands are", () => {
       }
     });
 
+    it('an inline `__proto__` key was read as a command, though it sets the prototype and declares none', async () => {
+      // SIG-634. From source the key is prototype sugar, so `__proto__` is no
+      // command; the build read it by name and, once `generateCommands()` wrote a
+      // command of that name as an own key, would have given the built app one
+      await withSchema(
+        `export default {
+  baseDir: import.meta.dirname,
+  commands: { __proto__: { desc: 'sugar', path: './commands/a.js' }, ok: { desc: 'ok', path: './commands/a.js' } },
+};\n`,
+        (dir) => {
+          const { commands } = readAppCommands(discoverApp(dir));
+          expect(commands?.kind).toBe('inline');
+          expect(
+            commands?.kind === 'inline' ? commands.commands.map((command) => command.name) : []
+          ).toStrictEqual(['ok']);
+        }
+      );
+    });
+
     it("a placeholder's async desc, method hidden or non-string thunk was let through, though the runtime refuses each", async () => {
       // SIG-421. The first was worse than a warning: the build baked `x`, so the
       // built app worked while the same app from source crashed at start. The

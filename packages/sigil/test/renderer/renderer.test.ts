@@ -1341,6 +1341,165 @@ describe('an owned effect whose first run throws (SIG-611)', () => {
   });
 });
 
+describe('a createRoot() whose body throws (SIG-630)', () => {
+  it('should dispose the effects the body made before it threw, and rethrow the same error', () => {
+    // nobody is handed the disposer from a body that threw, so the owner stayed
+    // live and the effect kept running on every write to `source`
+    const source = new State(0);
+    let runs = 0;
+    const failure = new Error('body');
+
+    let thrown: unknown;
+    try {
+      createRoot(() => {
+        createEffect(() => {
+          runs++;
+          source.get();
+        });
+        throw failure;
+      }, effects.effect);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBe(failure);
+    expect(runs).toBe(1);
+    expect(sinkCount(source)).toBe(0);
+    source.set(1);
+    effects.flush();
+    expect(runs).toBe(1);
+  });
+
+  it('should run the cleanups the body registered, and report one that threw with the error', () => {
+    const order: string[] = [];
+    const failure = new Error('body');
+    const cleanup = new Error('cleanup');
+
+    let thrown: unknown;
+    try {
+      createRoot(() => {
+        onCleanup(() => order.push('first'));
+        onCleanup(() => {
+          throw cleanup;
+        });
+        onCleanup(() => order.push('last'));
+        throw failure;
+      }, effects.effect);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(order).toEqual(['last', 'first']);
+    expect(thrown).toBeInstanceOf(AggregateError);
+    expect((thrown as AggregateError).errors).toEqual([failure, cleanup]);
+  });
+
+  it('should not make the caller depend on a signal a failed root cleanup read', () => {
+    // the cleanups of the failed root ran after the root's own untracked, owned
+    // run had ended, so a cleanup that read a signal made whatever effect was
+    // creating the root a sink of it
+    const source = new State(0);
+    let outerRuns = 0;
+    effects.effect(() => {
+      outerRuns++;
+      try {
+        createRoot(() => {
+          onCleanup(() => void source.get());
+          throw new Error('body');
+        }, effects.effect);
+      } catch {
+        // the body's own throw
+      }
+    });
+    expect(outerRuns).toBe(1);
+    source.set(1);
+    effects.flush();
+    expect(outerRuns).toBe(1);
+  });
+
+  it('should dispose a branch and a context scope the body built before it threw', () => {
+    const source = new State(0);
+    const theme = createContext('plain');
+    let branchRuns = 0;
+    let scopeRuns = 0;
+    expect(() =>
+      createRoot(() => {
+        const branch = createBranch();
+        runWithOwner(branch.owner, () =>
+          createEffect(() => {
+            branchRuns++;
+            source.get();
+          })
+        );
+        provideContext(theme, 'dark', () =>
+          createEffect(() => {
+            scopeRuns++;
+            source.get();
+          })
+        );
+        throw new Error('body');
+      }, effects.effect)
+    ).toThrow('body');
+
+    source.set(1);
+    effects.flush();
+    expect([branchRuns, scopeRuns]).toEqual([1, 1]);
+    expect(sinkCount(source)).toBe(0);
+  });
+
+  it('should dispose an effect whose own first run threw, which the owner had kept (SIG-611)', () => {
+    const source = new State(0);
+    let runs = 0;
+    const failure = new Error('first run');
+    let thrown: unknown;
+    try {
+      createRoot(() => {
+        createEffect(() => {
+          runs++;
+          source.get();
+          throw failure;
+        });
+      }, effects.effect);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBe(failure);
+    source.set(1);
+    effects.flush();
+    expect(runs).toBe(1);
+    expect(sinkCount(source)).toBe(0);
+  });
+
+  it.each([undefined, null, 0, 'text', Object.create(null)])(
+    'should rethrow a body that threw %s as it was',
+    (value) => {
+      let thrown: unknown = 'not thrown';
+      try {
+        createRoot(() => {
+          throw value;
+        }, effects.effect);
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toBe(value);
+    }
+  );
+
+  it('should leave a body that disposed its own owner before throwing alone', () => {
+    let cleanups = 0;
+    const failure = new Error('body');
+    expect(() =>
+      createRoot((dispose) => {
+        onCleanup(() => cleanups++);
+        dispose();
+        throw failure;
+      }, effects.effect)
+    ).toThrow(failure);
+    expect(cleanups).toBe(1);
+  });
+});
+
 describe('Show', () => {
   it('should close a branch whose own effect cleared the condition', () => {
     // the branch is built inside `Show`'s effect, so the write landed on a run

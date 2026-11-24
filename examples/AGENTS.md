@@ -616,6 +616,28 @@ commit message in a text area. What it settled:
   removed what they made"). A second test file that makes directories is the
   point at which the helper earns its copy.
 
+- **`entry.test.ts` quits the client only once its last git has answered, because
+  a git still running is what held the temp directory on Windows (SIG-641).** The
+  client runs `rev-parse` before it draws, and a test that waited for the first
+  frame pressed `q` with that git in flight: `stop.abort()` kills it and the
+  entry exits, and `close` on the entry says nothing about the git, which is a
+  process of its own and can outlive its parent. A process in a directory holds
+  it on Windows, so the `afterAll` removal answered `EBUSY` until `maxRetries`
+  ran out (CI run 45050668271, node 22 on windows-latest, passing on a re-run).
+  `git.exe` there can also be a launcher for a second `git.exe`, which killing the
+  first does not end. The two non-repository tests now wait for the diff pane's
+  note, which the client writes after its last git, and the repository test waits
+  for the untracked file, which is after `status` and `for-each-ref` (`log` is
+  skipped on an unborn branch).
+  What is **not** measured is the process itself: nothing could be reproduced off
+  Windows -- on macOS no git outlives the entry in fifteen runs of either entry,
+  with or without the wait -- so the cause is the code path plus the CI record.
+  The removal therefore lists the running `git.exe` processes, with their parent
+  and command line, when it fails on Windows, so a recurrence names its holder in the failure rather than
+  being retried away. Nothing here changes what the client does on `q` on Windows,
+  which is to kill the git it started and exit; whether the shim's child is left
+  behind there is a question for a Windows machine.
+
 - **The contract tests run it in the repository it is developed in, and it only
   reads there.** `examples.test.ts` mounts every root in-process and spawns every
   entry from `src/` and `dist/`, with no provider, so the client runs against

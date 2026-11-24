@@ -779,6 +779,29 @@ describe('largeText()', () => {
     expect(out).toContain('[1;31m');
   });
 
+  // SIG-629, for the reason `tableView()` has the same one: the view reads no level,
+  // so one built at 0 and shown at 3 is what the facade draws at 3, and the reverse
+  it('should draw at the level it is shown at, whatever level it was built at', () => {
+    const theme = '.sigil-large-text-body { color: magenta }';
+    for (const [built, shown] of [
+      [0, 3],
+      [3, 0],
+    ] as const) {
+      const { element, width } = largeTextView('A', { colorLevel: built, font: WORDS });
+      const out = renderToString(element, {
+        cascade: themedCascade({ sheets: [theme] }),
+        colorLevel: shown,
+        width,
+      });
+      expect(out, `built ${built}, shown ${shown}`).toBe(
+        largeText('A', { colorLevel: shown, font: WORDS, theme })
+      );
+    }
+    expect(largeText('A', { colorLevel: 3, font: WORDS, theme })).not.toBe(
+      largeText('A', { colorLevel: 0, font: WORDS, theme })
+    );
+  });
+
   it('should let a theme reach the body', () => {
     expect(
       largeText('A', {
