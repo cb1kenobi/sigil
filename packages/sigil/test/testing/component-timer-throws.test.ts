@@ -2,7 +2,7 @@ import { stopwatch, timer } from '../../src/components/clock.js';
 import { createDecrypt, decryptReveal, decryptState } from '../../src/components/decrypt.js';
 import { showToast } from '../../src/components/toast.js';
 import { box } from '../../src/element/index.js';
-import { createRoot, render, timed } from '../../src/renderer/index.js';
+import { createBranch, runWithOwner, createRoot, render, timed } from '../../src/renderer/index.js';
 import { createEffects } from '../../src/signals/index.js';
 import { createTestTerminal } from '../../src/testing/index.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -409,5 +409,29 @@ describe('timed(), given an owner', () => {
 
     expect(errors).toEqual([new Error('boom')]);
     view.dispose();
+  });
+
+  it('should walk up from a branch owner, which is where a Show or For body runs', () => {
+    const ui = createTestTerminal();
+    const errors: unknown[] = [];
+    ui.onTimerError((error) => void errors.push(error));
+    const view = render(() => box({}), { terminal: ui.terminal });
+    const branch = runWithOwner(view.owner, () => createBranch());
+
+    timed(branch.owner, () => {
+      throw new Error('boom');
+    })();
+
+    expect(errors).toEqual([new Error('boom')]);
+    branch.dispose();
+    view.dispose();
+  });
+
+  it('should end the walk at a parent that is null, rethrowing what was thrown', () => {
+    expect(() =>
+      timed({ parent: null }, () => {
+        throw new Error('boom');
+      })()
+    ).toThrow('boom');
   });
 });

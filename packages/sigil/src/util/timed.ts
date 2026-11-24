@@ -33,7 +33,14 @@ export function hearTimersOn(owner: object | undefined, stream: object | undefin
 
 /** The hook `on` leads to: its own, its renderer's stream's, or an ancestor owner's. */
 function hookFor(on: object | undefined): unknown {
-  for (let at = on; at !== undefined; at = (at as { parent?: object }).parent) {
+  // `typeof` rather than `!== undefined`: `timed()` is public and takes any
+  // object, and a `parent` of `null` must end the walk rather than throw out of
+  // the catch and replace the error being reported
+  for (
+    let at: unknown = on;
+    typeof at === 'object' && at !== null;
+    at = (at as { parent?: unknown }).parent
+  ) {
     const record = at as Record<symbol, unknown>;
     const stream = record[TIMER_STREAM];
     const held =
