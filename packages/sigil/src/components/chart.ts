@@ -905,6 +905,11 @@ interface LineLayout extends ScaleOptions {
    * crosshair; `undefined` draws none.
    */
   readonly pointer?: number;
+  /**
+   * How many samples before the newest the pinned one is, or `undefined` for none.
+   * Marked on the plot and the axis wherever the crosshair is not.
+   */
+  readonly pinned?: number;
   readonly step: number | 'fit';
   /** How wide the whole chart is. */
   readonly width: number;
@@ -966,6 +971,12 @@ const CROSSHAIR_CLASSES = 'sigil-chart-crosshair sigil-muted';
  * one, and a hook of its own.
  */
 const CROSSHAIR_FOCUS_CLASSES = 'sigil-chart-crosshair sigil-chart-crosshair-focus sigil-accent';
+
+/**
+ * The classes the pin's marker takes: its hook, and the warn role, which is neither
+ * the muted rule nor the accent the focus is shown in.
+ */
+const PIN_CLASSES = 'sigil-chart-pin sigil-warn';
 
 /**
  * Which dots of a braille cell are set, as the bits `Dots` keeps them in.
@@ -1209,6 +1220,17 @@ function lineDrawing(list: readonly PlotSeries[], layout: LineLayout): Drawing {
     (layout.back === undefined || longest === 0
       ? undefined
       : Math.max(oldest, longest - 1 - layout.back));
+  // the pinned sample, clamped to the oldest drawn as the keyboard's is, and
+  // marked in its own cell -- except where the rule stands in that cell, which
+  // already marks it
+  const pin =
+    layout.pinned === undefined || longest === 0
+      ? undefined
+      : Math.max(oldest, longest - 1 - layout.pinned);
+  const pinColumn =
+    pin === undefined || (crosshair !== undefined && across(crosshair) >> 1 === across(pin) >> 1)
+      ? -1
+      : across(pin) >> 1;
   const cross = new Dots(plotWidth, height);
   if (crosshair !== undefined) {
     for (let y = 0; y < cross.dotHeight; y++) {
@@ -1234,6 +1256,10 @@ function lineDrawing(list: readonly PlotSeries[], layout: LineLayout): Drawing {
       const { classes, glyph } = cellOf(x, y);
       const run = runs.at(-1);
       if (run === undefined) {
+        runs.push({ classes, text: glyph });
+      } else if (classes === PIN_CLASSES || run.classes === PIN_CLASSES) {
+        // the marker is one cell of its own: blanks beside it are not in its
+        // role, which a theme may give a background
         runs.push({ classes, text: glyph });
       } else if (classes === undefined || classes === run.classes) {
         run.text += glyph;
@@ -1272,6 +1298,10 @@ function lineDrawing(list: readonly PlotSeries[], layout: LineLayout): Drawing {
         glyph: plain ? '*' : braille(lines | maskAt(areas[owner], x, y)),
       };
     }
+    // the top cell of the pinned column, where no line is
+    if (x === pinColumn && y === 0) {
+      return { classes: PIN_CLASSES, glyph: plain ? 'v' : '▼' };
+    }
     const rule = maskAt(cross, x, y);
     if (rule !== 0) {
       return {
@@ -1296,9 +1326,19 @@ function lineDrawing(list: readonly PlotSeries[], layout: LineLayout): Drawing {
     // marked where the x labels are read
     const at = crosshair === undefined ? -1 : Math.floor(across(crosshair) / 2);
     const rule = Array.from({ length: plotWidth }, (_, x) =>
-      x === at ? (plain ? '+' : '┴') : plain ? '-' : '─'
-    ).join('');
-    rows.push([{ text: `${' '.repeat(gutter)} ${plain ? '+' : '└'}${rule}` }]);
+      x === at ? (plain ? '+' : '┴') : x === pinColumn ? ' ' : plain ? '-' : '─'
+    );
+    const left = `${' '.repeat(gutter)} ${plain ? '+' : '└'}`;
+    if (pinColumn < 0) {
+      rows.push([{ text: `${left}${rule.join('')}` }]);
+    } else {
+      // the pin's marker is a segment of its own, to take its classes
+      rows.push([
+        { text: `${left}${rule.slice(0, pinColumn).join('')}` },
+        { role: PIN_CLASSES, text: plain ? '^' : '▲' },
+        { text: rule.slice(pinColumn + 1).join('') },
+      ]);
+    }
 
     const [start, end] = layout.xLabels ?? ['', ''];
     if (start !== '' || end !== '') {
@@ -1749,7 +1789,7 @@ export interface SparklineProps extends ChartElementProps, ScaleOptions {
  * A line chart's crosshair: `attachTooltip()`'s options, with the words worked out
  * per sample.
  */
-export interface LineChartCrosshair extends Omit<TooltipOptions, 'area' | 'text'> {
+export interface LineChartCrosshair extends Omit<TooltipOptions, 'area' | 'hold' | 'text'> {
   /**
    * What the readout says at a sample: its index, counted along the longest
    * series, and each series' value there in the order they were given, or
@@ -1760,23 +1800,10 @@ export interface LineChartCrosshair extends Omit<TooltipOptions, 'area' | 'text'
   text?: (index: number, values: readonly (number | undefined)[]) => string;
 }
 
-export interface LineChartProps extends ChartElementProps, ScaleOptions {
+/** What a line chart takes whether or not it has a crosshair. */
+interface LineChartBase extends ChartElementProps, ScaleOptions {
   /** Whether to draw the value labels and the axes. Defaults to true. */
   axis?: boolean;
-  /**
-   * A rule down the plot at the sample under the pointer, and a tooltip beside it
-   * saying each series' value there. It needs the router's `mouse.motion`, since
-   * without it nothing knows where the pointer is; the readout is `attachTooltip()`
-   * pointed at the rule, so it shows at once unless `delay` says otherwise, flips
-   * where there is no room, and goes with the component. Defaults to none.
-   *
-   * A chart with one takes the focus, so it is not left to a pointer: while it
-   * has the focus the rule stands at the newest sample, Left and Right step it to
-   * the sample before and after, and the readout says what it says for the
-   * pointer. It owns `onKey`, so `props` may not carry one, and
-   * `describeLineChart()` lists the keys for a footer.
-   */
-  crosshair?: LineChartCrosshair;
   /** One series' samples, where there is one. `series` is the way to give several. */
   data?: ChartSource<readonly number[]>;
   /**
@@ -1804,6 +1831,56 @@ export interface LineChartProps extends ChartElementProps, ScaleOptions {
   /** What the first and last points are, set under the axis. */
   xLabels?: ChartSource<readonly [string, string] | undefined>;
 }
+
+/** A line chart with no crosshair, which owns no key, so `props` may carry an `onKey`. */
+export interface PlainLineChartProps extends LineChartBase {
+  crosshair?: undefined;
+  /** Letters belong to the crosshair, so a chart with none takes none. */
+  vim?: false;
+}
+
+/**
+ * A line chart with a crosshair, which owns `onKey`: the type leaves it out of
+ * `props`, as every component that owns a hook does, and `LineChart()` refuses one
+ * where it is built for a caller the type does not reach.
+ */
+export interface CrosshairLineChartProps extends LineChartBase {
+  /**
+   * A rule down the plot at the sample under the pointer, and a tooltip beside it
+   * saying each series' value there. It needs the router's `mouse.motion`, since
+   * without it nothing knows where the pointer is; the readout is `attachTooltip()`
+   * pointed at the rule, so it shows at once unless `delay` says otherwise, flips
+   * where there is no room, and goes with the component. Defaults to none.
+   *
+   * A chart with one takes the focus, so it is not left to a pointer: while it
+   * has the focus the rule stands at the newest sample, Left and Right step it to
+   * the sample before and after, and the readout says what it says for the
+   * pointer. It owns `onKey`, so `props` may not carry one, and
+   * `describeLineChart()` lists the keys for a footer.
+   *
+   * Home and End jump to the oldest and newest sample drawn, and Enter pins the
+   * sample the rule is on, so that it stands there, with its readout, while the
+   * chart has not the focus and the pointer is not over it; Enter again unpins
+   * it. A refocus starts at the pinned sample, and while the rule is on another
+   * the pin is marked on the plot and the axis (`.sigil-chart-pin`).
+   */
+  crosshair: LineChartCrosshair;
+  /** The chart's own props, without the two hooks it owns. */
+  props?: ElementPropsWithout<'onKey' | 'onResize'>;
+  /**
+   * `h` and `l` to step the rule as Left and Right do, which is vim's spelling and
+   * the treemap's `vim` less its `j` and `k`: a chart has no up and down. Off by
+   * default, as the treemap's is: a letter the chart takes is one the app cannot
+   * bind while the chart has the focus.
+   */
+  vim?: boolean;
+}
+
+/**
+ * What `LineChart()` takes. A chart with a `crosshair` is a different type from
+ * one without, because it owns a key and the other does not.
+ */
+export type LineChartProps = CrosshairLineChartProps | PlainLineChartProps;
 
 export interface BarChartProps extends ChartElementProps, ScaleOptions {
   /** The width of a vertical bar. Defaults to sharing the width out between the bars. */
@@ -2108,6 +2185,13 @@ export function LineChart(props: LineChartProps): Element {
   if (crosshair !== undefined) {
     refuseOwnedHooks('LineChart', props.props, ['onKey']);
   }
+  if (props.vim !== undefined && typeof props.vim !== 'boolean') {
+    throw new TypeError('Expected line chart vim to be a boolean');
+  }
+  if (props.vim === true && crosshair === undefined) {
+    throw new TypeError('Expected a line chart with vim to have a crosshair, which owns the keys');
+  }
+  const vim = props.vim === true;
   const list: readonly LineChartSeries[] = props.series ?? [
     { data: props.data as ChartSource<readonly number[]> },
   ];
@@ -2127,6 +2211,12 @@ export function LineChart(props: LineChartProps): Element {
    * pointer's column is.
    */
   const back = crosshair === undefined ? undefined : new State<number | undefined>(undefined);
+  /**
+   * The sample the rule rests on when the keyboard is not on the chart, counted back
+   * from the newest as `back` is, or `undefined` for none. Enter sets and clears it;
+   * the focus starts from it and a blur returns to it.
+   */
+  const pinned = crosshair === undefined ? undefined : new State<number | undefined>(undefined);
   let tip: TooltipHandle | undefined;
   let host: Element | undefined;
   let body: Element | undefined;
@@ -2211,16 +2301,20 @@ export function LineChart(props: LineChartProps): Element {
     (size) => {
       const xLabels = read(props.xLabels);
       const hasFocus = crosshair !== undefined && focused();
+      // read always, so a pin set or cleared redraws a chart whose keyboard
+      // sample already says where the rule is
+      const pinnedAt = pinned?.get();
       const drawing = lineDrawing(plotSeries(list, props.role, props.fill), {
         ascii,
         axis,
-        back: hasFocus ? (back?.get() ?? 0) : undefined,
+        back: hasFocus ? (back?.get() ?? pinnedAt ?? 0) : pinnedAt,
         focused: hasFocus,
         format,
         height: Math.max(1, size.height - extra(xLabels)),
         legend,
         max: props.max,
         min: props.min,
+        pinned: pinnedAt,
         pointer: pointer?.get(),
         step,
         width: size.width,
@@ -2241,6 +2335,7 @@ export function LineChart(props: LineChartProps): Element {
           tip = attachTooltip(outer, {
             ...crosshair,
             area: () => pointed?.get(),
+            hold: () => pinned?.get() !== undefined,
             ascii: crosshair.ascii ?? props.ascii,
             delay: crosshair.delay ?? 0,
             side: crosshair.side ?? 'right',
@@ -2272,19 +2367,22 @@ export function LineChart(props: LineChartProps): Element {
           });
           onCleanup(off);
 
-          // Left and Right step the rule one sample, from where it is drawn --
-          // the pointer's or the keyboard's -- and it is the keyboard's from
-          // then on, until the pointer moves again. Claimed even at the end of
-          // the series, a list's rule for Down on its last row; Shift, Ctrl and
-          // Alt are left for what is around the chart, and with nothing drawn no
-          // key is the chart's
+          // Left and Right (and `h` and `l` with `vim`) step the rule one sample, and
+          // Home and End take it to the oldest drawn and the newest, from where it
+          // is drawn -- the pointer's or the keyboard's -- and it is the keyboard's
+          // from then on, until the pointer moves again. Enter pins the sample it
+          // stands on, or unpins it where it is already pinned there. Claimed
+          // even at the end of the series, a list's rule for Down on its last row;
+          // Shift, Ctrl and Alt are left for what is around the chart, and with
+          // nothing drawn no key is the chart's
           outer.onKey = (event: KeyEvent): void => {
             const k = event.key;
-            if (event.paste || k.ctrl || k.meta || samples === undefined) {
+            if (event.paste || k.ctrl || k.meta || k.shift || samples === undefined) {
               return;
             }
-            const way = k.name === 'left' ? -1 : k.name === 'right' ? 1 : 0;
-            if (way === 0 || k.shift) {
+            const name = vim ? (VIM_LETTERS.get(k.name) ?? k.name) : k.name;
+            const way = name === 'left' ? -1 : name === 'right' ? 1 : 0;
+            if (way === 0 && name !== 'home' && name !== 'end' && name !== 'enter') {
               return;
             }
             event.stop();
@@ -2292,16 +2390,29 @@ export function LineChart(props: LineChartProps): Element {
             // From the sample the pointer's rule is on where the pointer has
             // moved since the last key, and otherwise from the keyboard's own,
             // since keys can arrive faster than frames and the drawing is one
-            // behind them; from the newest where nothing was pressed yet. Held to
-            // the samples there are, which data shrinking under a large `back`
-            // would otherwise leave beyond the first.
-            const held = untrack(() => back?.get());
+            // behind them; from the pinned one, or the newest, where nothing was
+            // pressed yet. Held to the samples there are, which data shrinking
+            // under a large `back` would otherwise leave beyond the first.
+            const held = untrack(() => back?.get() ?? pinned?.get());
             const from =
               untrack(() => pointer?.get()) !== undefined && shown !== undefined
                 ? shown
                 : count - 1 - (held ?? 0);
             const at = Math.min(count - 1, Math.max(first, from));
-            const index = Math.min(count - 1, Math.max(first, at + way));
+            const index =
+              name === 'home'
+                ? first
+                : name === 'end'
+                  ? count - 1
+                  : Math.min(count - 1, Math.max(first, at + way));
+            if (name === 'enter') {
+              // a pin counted back past the oldest drawn stands on the oldest
+              const pin = untrack(() => pinned?.get());
+              const here = count - 1 - at;
+              pinned?.set(
+                pin !== undefined && Math.min(pin, count - 1 - first) === here ? undefined : here
+              );
+            }
             back?.set(count - 1 - index);
             pointer?.set(undefined);
           };
@@ -2315,13 +2426,19 @@ export function LineChart(props: LineChartProps): Element {
         }
   );
   if (crosshair !== undefined) {
-    CHARTS.add(chart);
+    CHARTS.set(chart, { vim });
   }
   return chart;
 }
 
-/** Each line chart `LineChart()` built with a crosshair: what `describeLineChart()` accepts. */
-const CHARTS = new WeakSet<Element>();
+/** What `vim: true` adds: `h` and `l`, as the arrows they stand for. */
+const VIM_LETTERS = new Map<string, string>([
+  ['h', 'left'],
+  ['l', 'right'],
+]);
+
+/** Each line chart `LineChart()` built with a crosshair, and whether it takes `vim`: what `describeLineChart()` accepts. */
+const CHARTS = new WeakMap<Element, { readonly vim: boolean }>();
 
 /** Where a line chart's keys are described, which is the whole of what is asked of a router. */
 export interface LineChartDescriber {
@@ -2332,7 +2449,8 @@ export interface LineChartDescriber {
  * Describes a line chart's keys to a router, for a key-help footer.
  *
  * Scoped to the chart, which is the element whose focus makes the keys apply:
- * Left and Right, as `move`.
+ * Left and Right, as `move`, and `h` and `l` after them where the chart is `vim`;
+ * Home and End, as `oldest` and `newest`; and Enter, as `pin`.
  *
  * @param router - What to describe the keys to.
  * @param charts - Hosts that `LineChart()` returned with a `crosshair`.
@@ -2349,10 +2467,19 @@ export function describeLineChart(
   }
   const off: Array<() => void> = [];
   for (const scope of charts) {
-    off.push(
-      router.describe('left', { description: __`move`, priority: 1, scope }),
-      router.describe('right', { description: __`move`, priority: 1, scope })
-    );
+    const say = (spec: string, description: string, priority: number): void => {
+      off.push(router.describe(spec, { description, priority, scope }));
+    };
+    say('left', __`move`, 1);
+    say('right', __`move`, 1);
+    if (CHARTS.get(scope)?.vim === true) {
+      // in the arrows' order, so the line reads each letter against its arrow
+      say('h', __`move`, 1);
+      say('l', __`move`, 1);
+    }
+    say('home', __`oldest`, 1);
+    say('end', __`newest`, 1);
+    say('enter', __`pin`, 2);
   }
   return () => {
     for (const fn of off) {

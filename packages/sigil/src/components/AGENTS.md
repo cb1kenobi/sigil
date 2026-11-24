@@ -4123,9 +4123,37 @@ whole of it: the encoder, `qrLines()`, `qrcodeView()` and the facade.
   follows puts `qrcodeView()` in a tree. **A cascade without the framework's sheet
   draws both bodies**, there being no rule to hide either -- `themedCascade()` is
   the cascade every built-in is styled by, and a caller who built their own names
-  the scheme. **The level is not live**: a painted code's level still comes from
-  `colorLevelOf()` at build, since the ticket is about the scheme. The two rules are
-  exceptions in `should declare on a role, bar fifteen exceptions that say why`:
+  the scheme. **The level is not live, and it was measured rather than assumed
+  (SIG-621)**: a painted code's level still comes from `colorLevelOf()` at build.
+  Nothing an app calls sets the level a renderer resolves at. `detect()` only
+  _raises_ it, and never off or onto `0` -- `refineColorLevel()` refuses a floor of
+  zero and `detect()` asks again against the level on screen -- and a painted code
+  asks one question of its level, whether it is above `0`, so a reply moving 2 to 3
+  moves no cell (`should draw a painted code the same at every level above 0`).
+  What does move it across `0` is `readMedia()` re-reading the environment, which
+  every `publishMedia()` does -- a resize, `setColorScheme()`, or a reply that moved
+  something -- and only where nothing named a level (not the renderer's
+  `colorLevel`, not the terminal's) and no `detect()` reply has been recorded over
+  it. So it takes `NO_COLOR` or `FORCE_COLOR` being changed in the process while the
+  app runs. Measured: built at 3, the environment set to 0 and the terminal
+  resized, the media level reads 0 and the painted body, which is the form for a
+  level above 0, stays on a dark scheme where level 0 wants the inverted one
+  (`should keep the form it was built at when the media level falls to 0
+  afterwards`).
+
+  The view's level and the renderer's are two reads, and they can disagree from the
+  first frame with no environment change: `render({ colorLevel: 0 })` over a view
+  built at 3 draws the painted form at level 0, and a view built at 0 under a
+  renderer above it draws the inverted body wearing the paint class -- black on
+  white, a negative (`should draw the inverted body when a code built at level 0 is
+  mounted above it`). That is `table()` and `largeText()`'s own limit and is
+  unchanged here; the fix for both it and liveness is the same
+  `@media (color-level)` choice in the sheet, and it is not taken because the painted
+  code would hold both polarities too, which is more selectors on the sheet's
+  exception list, and a cascade without the framework's sheet would draw both bodies
+  of a painted code that today draws one. Name the same level for the view and the
+  renderer, and rebuild the view if the environment changes under a running app.
+  The two rules are exceptions in `should declare on a role, bar fifteen exceptions that say why`:
   they are which polarity takes space, not a look. Pinned by `the scheme a tree
   follows` in `test/components/qrcode.test.ts`, which mounts a real renderer and
   flips `setColorScheme()`.
@@ -7736,10 +7764,121 @@ took the focus and the arrows in SIG-491.
 - **The dashboard's traffic chart has it,** a Tab stop after the range row: the
   search, the menu, the range, the chart, then the table, which is one more Tab
   than before and why that test helper counts five.
-- **Not done:** `h` and `l` with a `vim` option as the treemap has (SIG-499); Home
-  and End for the oldest and newest sample, which would need two more words in the
-  footer; and a way to pin a sample so the readout stays while the focus is
-  elsewhere.
+- **Not done here, and done by SIG-607 below:** `h` and `l` with a `vim` option as
+  the treemap has (SIG-499); Home and End for the oldest and newest sample; and a
+  way to pin a sample so the readout stays while the focus is elsewhere.
+
+### A line chart's letters, ends and pin: `vim`, Home and End, and Enter (SIG-607)
+
+SIG-516's four named gaps, closed in the shape the treemap and the list already
+have.
+
+- **`vim: true` takes `h` and `l` as Left and Right, and nothing else.** The
+  treemap's option under the treemap's name, off by default for its reason: a
+  letter a focused component claims outranks every binding the app has for it.
+  The treemap's `j` and `k` are not here because a chart has no up and down, and
+  no `g`/`G`: Home and End are always on, so the letters would be a second spelling
+  of keys nobody has to opt into. The letters are the arrows' in every other rule --
+  claimed at an end, `H` and `L` are not them (the decoder names a capital as
+  itself), Ctrl and Alt leave them to the app. Asked for with no `crosshair` the
+  chart throws, since it owns no key to take a letter with, as does a `vim` that
+  is not a boolean; the type is the first refusal, `vim?: undefined` on a plain chart.
+- **Home and End are the oldest sample the plot draws and the newest.** `first`
+  and `count - 1` of `Drawing.samples`, so on a scrolling chart Home is the left
+  edge of the plot rather than the start of the history, for the reason Left stops
+  there. Always on with a crosshair, as a list's are; claimed even where the rule
+  is already there. `lineDrawing()` is unchanged: they set `back` as the arrows do.
+- **A pin is one sample, set and cleared by Enter, and the rule rests on it.** The
+  smallest API that satisfies the ticket: no prop and no callback, just a state the
+  chart keeps, counted back from the newest like `back` and for the same reason (a
+  pushed series keeps it where it is on screen). Enter pins the sample the rule is
+  on, or unpins it where it is already pinned there -- compared after the clamp to
+  the oldest drawn, so a pin that scrolled off the left and is now drawn on the
+  oldest sample toggles off from there. Enter at another sample moves the pin; it
+  is not a list of them. Space was left unclaimed, since a chart has no selection
+  for it to mean and Enter is what a treemap and a list activate with.
+- **The pin is where the rule rests when the keyboard is not on the chart.** Drawn
+  with no focus and no pointer it is the muted rule, the pointer's colour, rather
+  than the accent the focus is shown in -- the accent still says "keys go here".
+  A refocus starts from the pin and not the newest, and blur forgets the
+  keyboard's sample and returns to the pin, so the effect that forgot it still does
+  and `pinned` is the one fallback beneath it. The pointer wins while it moves, as
+  it does over the keyboard, and gives the rule back to the pin when it leaves.
+  The limit this recorded -- while the chart is focused and the rule has moved off
+  the pin, nothing shows where the pin is -- is closed by SIG-620 below.
+- **The readout stands through the tooltip's new `hold`.** The bubble was shown by
+  the pointer or the focus and nothing else, so a pin had no readout once the focus
+  went. `TooltipOptions.hold` is a function that returns `true` for a third reason
+  to show, asked in the effect that already reads the focus so a signal it reads is
+  tracked -- read first and unconditionally, since a short-circuit on hover or focus
+  left it unread and a `hold` set later waiting for the next mouse report -- and
+  `delay` still applies to it. **Escape and `hide()` do nothing while it holds**:
+  `dismissed` clears only when the pointer, the focus and the hold have all gone,
+  so a pin that outlasted the other two made one Escape -- the dashboard's search
+  field clearing, a menu closing -- kill the readout until unpinned. The app asked
+  for the bubble to stay, and Enter again is how a reader takes it away. The other
+  order had the same stuck state: an Escape pressed **before** a pin set
+  `dismissed` while nothing held, and the pin then kept it set, so the pinned
+  readout never showed. A hold that starts is a new reason to show the bubble, so
+  `update()` clears `dismissed` when the hold goes from off to on
+  (`should show a pinned readout after an Escape pressed before the pin`). It is the
+  one change outside the chart;
+  the chart sets it (`LineChartCrosshair` omits it, as it omits `area`), and no
+  other component does.
+- **`props` leaves `onKey` out of a chart with a crosshair, in the type.** The
+  "props type leaves it out" convention SIG-516 recorded as its one departure is
+  followed now: `LineChartProps` is a union of `PlainLineChartProps` and
+  `CrosshairLineChartProps`, told apart by `crosshair` being absent or required,
+  and the second's `props` is `ElementPropsWithout<'onKey' | 'onResize'>`. A plain
+  chart owns no key and still takes an `onKey`, so a literal that compiled before
+  stops compiling only if it passed an `onKey` the chart refused at run time anyway.
+  A union does narrow what generic code can do with the type, which review round 1
+  measured rather than assumed: `Omit<LineChartProps, 'data'>` collapses it and
+  assigning `.crosshair` onto a plain-typed value fails, where `crosshair: maybe`
+  and a conditional crosshair still compile. No consumer in the repository does
+  either. `vim?: false` rather than `undefined` on the plain chart, so a flag
+  `vim: false` beside a conditional crosshair still type-checks.
+  `chart-live.test.ts` pins both halves with `@ts-expect-error`, one on `props`
+  and one on `vim`, which `packages/sigil`'s tsconfig includes `./test` for.
+- **`describeLineChart()` lists them:** `left`, `right`, `h` and `l` where the chart
+  is `vim`, `home` as `oldest`, `end` as `newest`, and `enter` as `pin`, three new
+  words in `SIGIL_KEYS`. The arrows are priority 1 as before, Home and End 1 and
+  Enter 2 as a list's Enter is -- a higher priority survives -- so a narrow
+  footer keeps the pin over the movement keys. The
+  dashboard's chart footer is therefore longer by those words; its tests are
+  re-read for it rather than assumed.
+
+### A pinned sample is marked where the rule is not (SIG-620)
+
+- **The marker is a cell on the plot's top row and a tick on the axis, both in the
+  pinned sample's column, and drawn only where the rule is in another one.** `▼` on
+  the plot and `▲` in the axis row, `v` and `^` in ASCII, so it needs no colour to
+  be seen. Where the rule stands on the pin's cell it already marks it -- with the
+  `┴` tick and the rule -- and a second glyph there would only hide that, so the
+  marker is the answer to "where is the pin" and goes the moment the answer is "under
+  the rule". It is compared by cell column rather than by sample, because under
+  `step: 'fit'` two samples can share one cell and the rule in it is the pin's.
+  The pin is clamped to the oldest drawn as the rule is, so one that scrolled off the
+  left is marked on the left edge.
+- **A line beats it on the plot, as it beats the rule.** The top cell of the
+  pinned column is the highest value's wherever the pinned sample is the highest, so
+  there the plot's marker is not drawn and the axis one is the answer. A chart with
+  `axis: false` has only the plot's, and loses it under a line there -- and under
+  the readout's bubble, which sits beside the rule over the plot's top rows, so a pin
+  within about nine columns of the rule is covered while the readout is shown. A
+  limit, recorded rather than fixed, since moving the marker off the plot's top row
+  would make it a thing that wanders with the data.
+- **The marker and Enter can disagree under `fit`.** The marker is compared by cell
+  and Enter by sample (SIG-607), so with the rule on a neighbour of the pin in the
+  pin's cell no marker shows and Enter moves the pin rather than clearing it. Both
+  rules stand on their own; the cell is the finest thing a reader can see.
+- **`sigil-chart-pin`, with `sigil-warn` beside it,** is the theme hook: the warn role
+  because the rule is already the muted and the accent roles, and it is a colour
+  nobody reads as "the keys go here". It is a segment of its own, not a run the
+  blanks beside it join, so a theme that gives it a background paints one cell.
+  `LineLayout.pinned` carries it, and the draw reads the pin unconditionally: the
+  rule's `back ?? pinned` short-circuits, so without the marker's own read a pin
+  cleared while the keyboard sample already said where the rule was would not redraw.
 
 ### An image: a picture fitted to the box it got, in half blocks (SIG-326)
 
