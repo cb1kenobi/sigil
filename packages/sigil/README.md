@@ -2962,6 +2962,7 @@ what to ask in a listener of your own:
 import { isStreamGone } from '@ttylabs/sigil/terminal';
 
 isStreamGone(err); // `EPIPE`, `EOF`, `ERR_STREAM_DESTROYED` or `ERR_STREAM_WRITE_AFTER_END`
+isStreamGone(err, process.stdout); // ...and `EIO`, when the stream is a TTY that hung up
 ```
 
 The terminal's own listener swallows every error, since its output is
@@ -8672,7 +8673,8 @@ writeTo(process.stderr, 'a diagnostic\n'); // the same, for any stream
 **`guardOutput()`** puts one listener on `process.stdout` and on `process.stderr`,
 once, however many times it is called, however many copies of the runtime call it
 and however many `main()`s nest. The listener returns when `isStreamGone()` says
-the reader went away -- `EPIPE`, and `EOF`, which is what Windows calls it -- and
+the reader went away -- `EPIPE`, `EOF`, which is what Windows calls it, and `EIO` on a
+terminal that hung up (on a file it is the disk failing, and is thrown) -- and
 **throws everything else**, so a full disk (`ENOSPC`) is still a failure. After the
 reader leaves, later writes land nowhere and the exit code is whatever the
 command's own result was; it is not `141`, and it is not a stack trace. Pass

@@ -31,7 +31,39 @@ describe('isStreamGone()', () => {
   });
 });
 
+describe('isStreamGone() and a terminal that hung up (SIG-538)', () => {
+  it('should call EIO the reader leaving when the stream is a terminal', () => {
+    // an ssh connection dropped or a window closed: the next write to the pty
+    // fails EIO, which is the reader going away as much as EPIPE is
+    expect(isStreamGone(failure('EIO'), { isTTY: true })).toBe(true);
+  });
+
+  it('should keep EIO a real fault for a file, a pipe, and a stream nobody named', () => {
+    // on a file it is the disk failing, so swallowing it exits 0 over a cut-off
+    // file; a pipe's reader leaving is EPIPE
+    expect(isStreamGone(failure('EIO'), { isTTY: false })).toBe(false);
+    expect(isStreamGone(failure('EIO'), {})).toBe(false);
+    expect(isStreamGone(failure('EIO'), undefined)).toBe(false);
+    expect(isStreamGone(failure('EIO'))).toBe(false);
+  });
+
+  it('should not let a terminal make any other fault the reader leaving', () => {
+    for (const code of ['ENOSPC', 'EFBIG', 'EACCES']) {
+      expect(isStreamGone(failure(code), { isTTY: true })).toBe(false);
+    }
+  });
+});
+
 describe('guardOutput()', () => {
+  it('should be quiet about EIO on a terminal and throw it on anything else', () => {
+    const tty = Object.assign(new EventEmitter(), { isTTY: true });
+    const file = Object.assign(new EventEmitter(), { isTTY: false });
+    guardOutput([tty, file]);
+
+    expect(() => tty.emit('error', failure('EIO'))).not.toThrow();
+    expect(() => file.emit('error', failure('EIO'))).toThrow('EIO');
+  });
+
   it('should leave only the reader leaving quiet', () => {
     const stream = new EventEmitter();
     guardOutput([stream]);

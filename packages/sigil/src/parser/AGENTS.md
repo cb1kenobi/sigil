@@ -2559,14 +2559,23 @@ app that had somebody looking. Chris decided on 2026-11-24 that both are
   both run. And a live region's terminal swallows every error from the stream it
   draws on, which covered `ENOSPC` on a redirected stdout as a side effect; now
   it crashes, which is the right answer for a file that stopped taking bytes and
-  a change for a full-screen app run with stdout sent to one. The same goes for
-  `EIO`, which a write to a terminal that hung up (an ssh drop, a closed window)
-  can fail with and which is **not** in `isStreamGone()`'s set: the terminal's
-  listener swallowed it and the app took its own exit path, and the guard now
-  rethrows it as an uncaught exception. Read from the two listeners rather than
-  reproduced on a pty, and left for Chris: adding `EIO` to the set changes what
-  the terminal and every program asking it treat as the reader leaving, and for a
-  file stdout it is a real disk fault. There is no opt-out
+  a change for a full-screen app run with stdout sent to one. **`EIO` is not part of that cost** (decided by Chris, 2026-11-24). A write to a
+  terminal that hung up -- an ssh drop, a closed window -- fails `EIO`, which is
+  not in the gone set, and the guard threw it where the terminal's listener used to
+  swallow it. Measured on a real pty rather than read: before the change a command
+  that was only printing died with `Error: write EIO` and exit 1, and so did the
+  same app with no guard at all (what `main` had before this entry, on the
+  unhandled `error` event); after it the app finishes and exits 0. So **`EIO` is
+  the reader leaving only for a TTY**: `isStreamGone(err, stream)` takes the stream
+  and asks `stream.isTTY`, and `EIO` is still not in the general set. On a regular
+  file it is the disk failing, and swallowing it exits 0 over a cut-off file, which
+  is the bug this entry exists to close; a pipe's reader leaving is `EPIPE`, so
+  `EIO` there is not that either. It is asked per stream rather than per process,
+  because stdout can be a terminal while stderr is a file, and the terminal passes
+  the stream it wrote to, so its listener and `main()`'s agree. The pty
+  measurement is kept as `packages/cli/test/hung-up-terminal.test.ts`, which
+  drives a real one through Python's `os.openpty()` and is skipped on Windows and
+  wherever there is no `python3` that can open one. There is no opt-out
   setting: the ticket offered one and the decision was to guard by default, and
   `guardOutput()` being idempotent and rethrowing means there is nothing to opt
   out _of_ for the reader leaving. A setting is a small addition if somebody

@@ -435,8 +435,15 @@ is the vocabulary and the probe, the framing that makes a reply recognisable is
   above refused to publish was a guard that **swallows every error**, and that is
   still unpublished: `guardOutput()` in `@ttylabs/sigil/output` returns for the
   reader leaving and throws the rest, `main()` attaches it, and the terminal's own
-  listener stays the swallowing one. The decision is under "`main()` guards its
-  output streams and writes its own output whole" in `src/parser/AGENTS.md`.
+  listener stays the swallowing one.
+
+  **`isStreamGone()` takes the stream the error came from, for `EIO`:** a terminal
+  that hung up fails the next write `EIO`, which is the reader leaving only when
+  the stream is a TTY -- on a file it is the disk failing, so it is not in the
+  general set. The terminal passes the stream it wrote to, in the listener and in
+  the synchronous catch, so it and `main()`'s guard agree. The decision is under
+  "`main()` guards its output streams and writes its own output whole" in
+  `src/parser/AGENTS.md`.
 
 - **`Terminal.width` asks a live TTY before it reads `COLUMNS`, and `terminalWidth()`
   still reads `COLUMNS` first** (SIG-404). Both are right, for different streams.

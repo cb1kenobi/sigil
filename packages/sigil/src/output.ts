@@ -47,11 +47,20 @@ const GONE = new Set(['EPIPE', 'EOF', 'ERR_STREAM_DESTROYED', 'ERR_STREAM_WRITE_
  * when it says `false`, which is how `mycli > file` on a full disk (`ENOSPC`)
  * stays a failure while `mycli | head -1` does not.
  *
+ * `EIO` is the one code that depends on **what was written to**, which is why the
+ * stream is an argument. A terminal that hung up -- an ssh connection dropped, a
+ * window closed -- fails the next write `EIO`, and that is the reader leaving as
+ * much as `EPIPE` is. On a file `EIO` is the disk failing, and on a pipe it is not
+ * a thing a reader leaving produces, so for those it stays a real fault and is
+ * thrown. Asked of a stream that is a TTY, or not asked about a stream at all.
+ *
  * @param err - Whatever a write threw or a stream emitted.
- * @returns `true` for `EPIPE` and its relatives.
+ * @param stream - The stream it came from, when the caller has it.
+ * @returns `true` for `EPIPE` and its relatives, and for `EIO` on a TTY.
  */
-export function isStreamGone(err: unknown): boolean {
-  return GONE.has((err as NodeJS.ErrnoException | undefined)?.code as string);
+export function isStreamGone(err: unknown, stream?: { readonly isTTY?: boolean }): boolean {
+  const code = (err as NodeJS.ErrnoException | undefined)?.code as string;
+  return GONE.has(code) || (code === 'EIO' && stream?.isTTY === true);
 }
 
 /**
@@ -68,6 +77,7 @@ const GUARD = Symbol.for('@ttylabs/sigil/output-guard');
 
 /** Only what a guard asks of a stream. */
 export interface GuardableStream {
+  readonly isTTY?: boolean;
   listeners?(event: 'error'): readonly unknown[];
   on?(event: 'error', listener: (err: unknown) => void): unknown;
 }
@@ -106,7 +116,7 @@ export function guardOutput(
     }
 
     const onError = (err: unknown): void => {
-      if (!isStreamGone(err)) {
+      if (!isStreamGone(err, stream)) {
         throw err;
       }
     };

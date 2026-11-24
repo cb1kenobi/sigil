@@ -362,7 +362,7 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
     } catch (err) {
       // a synchronous throw is the pipe being gone already. Anything else is a
       // real fault and is not this module's to swallow
-      if (isStreamGone(err)) {
+      if (isStreamGone(err, stream)) {
         closed = true;
         return false;
       }
@@ -388,7 +388,7 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
     }
 
     const onStreamError = (...args: unknown[]) => {
-      if (isStreamGone(args[0])) {
+      if (isStreamGone(args[0], stream)) {
         closed = true;
       }
     };
