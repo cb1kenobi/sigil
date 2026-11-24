@@ -1284,6 +1284,396 @@ describe('DiffView lines', () => {
     expect(cursor.get()).toBeUndefined();
   });
 
+  describe('a drag', () => {
+    /** A report at a row of the canvas, with a record of whether it was stopped. */
+    function at(kind: MouseEvent['kind'], y: number, button: MouseEvent['button'] = 'left') {
+      return { ...mouse(kind, button), y };
+    }
+
+    /** The canvas row a row of the view is drawn at. */
+    function rowY(root: Element, label: string): number {
+      return rowWith(root, label).box?.y ?? Number.NaN;
+    }
+
+    /**
+     * A press on one row, then moves to others, then the release: all of them to the
+     * row that was pressed, as the router sends a captured drag. Each move is flushed.
+     */
+    function drag(
+      root: Element,
+      from: string,
+      moves: readonly (string | number)[],
+      release = true
+    ): { claimed: boolean[]; up: ReturnType<typeof at> } {
+      const target = rowWith(root, from);
+      const press = at('mousedown', rowY(root, from));
+      target.onMouse?.(press);
+      flush();
+      const claimed: boolean[] = [];
+      for (const move of moves) {
+        const event = at('mousemove', typeof move === 'number' ? move : rowY(root, move));
+        target.onMouse?.(event);
+        flush();
+        claimed.push(event.claimed());
+      }
+      const up = at('mouseup', 0);
+      if (release) {
+        target.onMouse?.(up);
+        flush();
+      }
+      return { claimed, up };
+    }
+
+    const sorted = (set: ReadonlySet<number>): number[] => [...set].sort();
+
+    it('should pick the range from the press to the pointer, dragging down', () => {
+      const { cursor, host, root, selected } = mountLines();
+      press(host, 'enter');
+
+      const { claimed, up } = drag(root, '-two', ['+TWO', '+FOUR']);
+
+      expect(sorted(selected.get())).toEqual([1, 2, 4, 5]);
+      expect(cursor.get()).toBe(5);
+      // the drag is the view's, so nothing above it acts on a move or the release
+      expect(claimed).toEqual([true, true]);
+      expect(up.claimed()).toBe(true);
+    });
+
+    it('should pick the range from the press to the pointer, dragging up', () => {
+      const { cursor, host, root, selected } = mountLines();
+      press(host, 'enter');
+
+      drag(root, '+FOUR', ['-four', '-two']);
+
+      expect(sorted(selected.get())).toEqual([1, 2, 4, 5]);
+      expect(cursor.get()).toBe(1);
+    });
+
+    it('should pick what v would, shrinking as the pointer comes back', () => {
+      const { cursor, host, root, selected } = mountLines();
+      press(host, 'enter');
+      press(host, 'v');
+      press(host, 'down');
+      press(host, 'down');
+      const byKey = sorted(selected.get());
+
+      press(host, 'escape');
+      press(host, 'enter');
+      drag(root, '-two', ['+FOUR', '+TWO']);
+
+      expect(byKey).toEqual([1, 2, 4]);
+      expect(sorted(selected.get())).toEqual([1, 2]);
+      expect(cursor.get()).toBe(2);
+    });
+
+    it('should leave what it picked picked on release, and start nothing more', () => {
+      const { cursor, host, root, selected } = mountLines();
+      press(host, 'enter');
+      drag(root, '-two', ['+TWO']);
+
+      // no range is open: the keys step the cursor and leave the picks alone
+      press(host, 'down');
+      expect(cursor.get()).toBe(4);
+      expect(sorted(selected.get())).toEqual([1, 2]);
+    });
+
+    it('should keep what was picked before it, as v does', () => {
+      const { host, root, selected } = mountLines();
+      press(host, 'enter');
+      press(host, 'x');
+
+      drag(root, '+FOUR', ['-four']);
+
+      expect(sorted(selected.get())).toEqual([1, 4, 5]);
+    });
+
+    it('should leave a click that is not a drag as a click, which moves the cursor', () => {
+      const { cursor, host, root, selected } = mountLines();
+      press(host, 'enter');
+      const row = rowWith(root, '+FOUR');
+      const y = rowY(root, '+FOUR');
+
+      // a press, a release and the click they make, and a motion that stays on the line
+      row.onMouse?.(at('mousedown', y));
+      row.onMouse?.(at('mousemove', y));
+      const up = at('mouseup', y);
+      row.onMouse?.(up);
+      const click = at('click', y);
+      row.onMouse?.(click);
+      flush();
+
+      expect(selected.get().size).toBe(0);
+      expect(up.claimed()).toBe(false);
+      expect(click.claimed()).toBe(true);
+      expect(cursor.get()).toBe(5);
+    });
+
+    it('should swallow the click that ends a drag, and not the next one', () => {
+      const { cursor, host, root, selected } = mountLines();
+      press(host, 'enter');
+      drag(root, '-two', ['+TWO']);
+
+      // released where it was pressed, so the click lands on that row
+      const row = rowWith(root, '-two');
+      const ended = at('click', rowY(root, '-two'));
+      row.onMouse?.(ended);
+      flush();
+      expect(ended.claimed()).toBe(true);
+      expect(cursor.get()).toBe(2);
+
+      // a click that is only a click moves the cursor, though the last one was not
+      const next = at('click', rowY(root, '+FOUR'));
+      rowWith(root, '+FOUR').onMouse?.(next);
+      flush();
+      expect(cursor.get()).toBe(5);
+      expect(sorted(selected.get())).toEqual([1, 2]);
+    });
+
+    it('should not leave the next click swallowed when a release never came', () => {
+      const { cursor, host, root } = mountLines();
+      press(host, 'enter');
+      // a release off the canvas makes no click, which is the case this is for
+      drag(root, '-two', ['+TWO'], false);
+
+      const row = rowWith(root, '+FOUR');
+      row.onMouse?.(at('mousedown', rowY(root, '+FOUR')));
+      row.onMouse?.(at('mouseup', rowY(root, '+FOUR')));
+      row.onMouse?.(at('click', rowY(root, '+FOUR')));
+      flush();
+
+      expect(cursor.get()).toBe(5);
+    });
+
+    it('should clamp a pointer past the hunk to its first and last lines', () => {
+      const { cursor, host, root, selected } = mountLines();
+      press(host, 'enter');
+
+      // above the view altogether, then below it: the context line at the top of
+      // the hunk is no place for the cursor, so it is the first changed line
+      drag(root, '+FOUR', [-5]);
+      expect(sorted(selected.get())).toEqual([1, 2, 4, 5]);
+      expect(cursor.get()).toBe(1);
+
+      drag(root, '-two', [500]);
+      expect(sorted(selected.get())).toEqual([1, 2, 4, 5]);
+      expect(cursor.get()).toBe(5);
+    });
+
+    it('should clamp a pointer past the edge of the view to the rows it shows', () => {
+      // six rows, which end on `-four`: the hunk's last line is one row below them
+      const { cursor, host, root, selected } = mountLines({}, 6);
+      press(host, 'enter');
+
+      expect(picture(root, 30, 6).at(-1)).toBe('▌ -four');
+      drag(root, '-two', [500]);
+
+      // `+FOUR` is a row below the view, which a drag does not scroll to
+      expect(sorted(selected.get())).toEqual([1, 2, 4]);
+      expect(cursor.get()).toBe(4);
+    });
+
+    it('should end the range on the changed line nearest a context line under it', () => {
+      const { cursor, host, root, selected } = mountLines();
+      press(host, 'enter');
+
+      // `three` is between the two edits: going down it ends on the one above it
+      drag(root, '-two', [' three']);
+      expect(sorted(selected.get())).toEqual([1, 2]);
+      expect(cursor.get()).toBe(2);
+
+      // and coming up it ends on the one below
+      press(host, 'escape');
+      press(host, 'enter');
+      drag(root, '+FOUR', [' three']);
+      expect(sorted(selected.get())).toEqual([4, 5]);
+      expect(cursor.get()).toBe(4);
+    });
+
+    it('should not begin from a context line, outside the lines, or by another button', () => {
+      const { cursor, host, root, selected } = mountLines();
+
+      // not in the lines
+      drag(root, '-two', ['+FOUR']);
+      expect(selected.get().size).toBe(0);
+      expect(cursor.get()).toBeUndefined();
+
+      press(host, 'enter');
+      drag(root, ' three', ['+FOUR']);
+      expect(selected.get().size).toBe(0);
+
+      const target = rowWith(root, '-two');
+      target.onMouse?.(at('mousedown', rowY(root, '-two'), 'right'));
+      target.onMouse?.(at('mousemove', rowY(root, '+FOUR'), 'right'));
+      flush();
+      expect(selected.get().size).toBe(0);
+    });
+
+    it('should close the range a redraw ended the drag of, which the release cannot find', () => {
+      const { cursor, host, root, selected } = mountLines();
+      press(host, 'enter');
+      const target = rowWith(root, '-two');
+      target.onMouse?.(at('mousedown', rowY(root, '-two')));
+      target.onMouse?.(at('mousemove', rowY(root, '+TWO')));
+      flush();
+      // `w` draws every row again, and the row pressed is not the view's any more
+      press(host, 'w');
+      picture(root, 30, 14);
+      target.onMouse?.(at('mouseup', rowY(root, '+TWO')));
+      flush();
+
+      // no range is open: stepping the cursor picks nothing more
+      press(host, 'down');
+      expect(cursor.get()).toBe(4);
+      expect(sorted(selected.get())).toEqual([1, 2]);
+    });
+
+    it('should leave a drag alone when another button is pressed in the middle of it', () => {
+      const { host, root, selected } = mountLines();
+      press(host, 'enter');
+      const target = rowWith(root, '-two');
+      target.onMouse?.(at('mousedown', rowY(root, '-two')));
+      target.onMouse?.(at('mousemove', rowY(root, '+TWO')));
+      rowWith(root, '+FOUR').onMouse?.(at('mousedown', rowY(root, '+FOUR'), 'right'));
+      const up = at('mouseup', rowY(root, '+TWO'));
+      target.onMouse?.(up);
+      flush();
+
+      expect(up.claimed()).toBe(true);
+      press(host, 'down');
+      expect(sorted(selected.get())).toEqual([1, 2]);
+    });
+
+    it('should not close a range v opened because a drag it lost was still remembered', () => {
+      const { cursor, host, root, selected } = mountLines();
+      press(host, 'enter');
+      // a drag whose release never came, then v closes it and opens a range of its own
+      drag(root, '-two', ['+TWO'], false);
+      press(host, 'v');
+      press(host, 'down');
+      press(host, 'v');
+      expect(cursor.get()).toBe(4);
+      // a redraw, which ended the drag if it were still there
+      press(host, 'w');
+      picture(root, 30, 14);
+      press(host, 'down');
+
+      expect(cursor.get()).toBe(5);
+      expect(sorted(selected.get())).toEqual([1, 2, 4, 5]);
+    });
+
+    it('should not follow another button held over a drag whose release was lost', () => {
+      const { host, root, selected } = mountLines();
+      press(host, 'enter');
+      const target = rowWith(root, '-two');
+      target.onMouse?.(at('mousedown', rowY(root, '-two')));
+      target.onMouse?.(at('mousemove', rowY(root, '+TWO')));
+      // the right button now moves over the same rows
+      target.onMouse?.(at('mousemove', rowY(root, '+FOUR'), 'right'));
+      flush();
+
+      expect(sorted(selected.get())).toEqual([1, 2]);
+    });
+
+    it('should close a range a lost release left open when the next press begins', () => {
+      const { host, root, selected } = mountLines();
+      press(host, 'enter');
+      drag(root, '-two', ['+TWO'], false);
+      const next = rowWith(root, '+FOUR');
+      next.onMouse?.(at('mousedown', rowY(root, '+FOUR')));
+      next.onMouse?.(at('mouseup', rowY(root, '+FOUR')));
+      flush();
+
+      press(host, 'down');
+      expect(sorted(selected.get())).toEqual([1, 2]);
+    });
+
+    it('should end a drag on motion with nothing held, where the release never came', () => {
+      const { cursor, root, selected } = mountLines({}, 14);
+      const target = rowWith(root, '-two');
+      // the lines are not started: Enter is the key, so start them and drag
+      cursor.set(1);
+      flush();
+      target.onMouse?.(at('mousedown', rowY(root, '-two')));
+      target.onMouse?.(at('mousemove', rowY(root, '+TWO')));
+      // what an app that reports hover is sent as the pointer moves on
+      target.onMouse?.({ ...at('mousemove', rowY(root, '+FOUR')), button: undefined });
+      flush();
+
+      expect(sorted(selected.get())).toEqual([1, 2]);
+      expect(cursor.get()).toBe(2);
+    });
+
+    it('should stop following when an app takes the cursor off the lines mid-drag', () => {
+      const { cursor, host, root, selected } = mountLines();
+      press(host, 'enter');
+      const target = rowWith(root, '-two');
+      target.onMouse?.(at('mousedown', rowY(root, '-two')));
+      cursor.set(undefined);
+      flush();
+      target.onMouse?.(at('mousemove', rowY(root, '+FOUR')));
+      flush();
+
+      expect(cursor.get()).toBeUndefined();
+      expect(selected.get().size).toBe(0);
+    });
+
+    it('should not follow a press once the cursor has left the lines and come back', () => {
+      const { host, root, selected } = mountLines();
+      press(host, 'enter');
+      const target = rowWith(root, '-two');
+      target.onMouse?.(at('mousedown', rowY(root, '-two')));
+      press(host, 'escape');
+      press(host, 'enter');
+      target.onMouse?.(at('mousemove', rowY(root, '+FOUR')));
+      flush();
+
+      expect(selected.get().size).toBe(0);
+    });
+
+    it('should not begin from a line of a hunk that is not the current one', () => {
+      const { cursor, host, root, selected } = mountLines();
+      press(host, 'enter');
+      drag(root, '-twenty-one', ['+TWENTY-ONE']);
+
+      expect(selected.get().size).toBe(0);
+      expect(cursor.get()).toBe(1);
+    });
+
+    it('should read the pointer against where the view is, not the top of the canvas', () => {
+      const cursor = new State<number | undefined>(undefined);
+      const selected = new State<ReadonlySet<number>>(new Set());
+      const host = DiffView({
+        ascii: false,
+        content: { patch: LINES_PATCH },
+        lineNumbers: false,
+        lines: { cursor, selected },
+        props: { 'flex-grow': 1, 'min-height': 0 },
+        scrollbar: false,
+      });
+      // two rows above the view, so its first row is the canvas's third
+      const root = box({ 'flex-direction': 'column', height: 16 }, box({ height: 2 }), host);
+      picture(root, 30, 16);
+      press(host, 'enter');
+
+      // a pointer read from the top of the canvas would be two rows further down
+      drag(root, '-two', ['+TWO']);
+
+      expect(sorted(selected.get())).toEqual([1, 2]);
+      expect(cursor.get()).toBe(2);
+    });
+
+    it('should stop following when the cursor leaves the lines mid-drag', () => {
+      const { cursor, host, root, selected } = mountLines();
+      press(host, 'enter');
+
+      drag(root, '-two', [], false);
+      press(host, 'escape');
+      drag(root, '-two', ['+FOUR']);
+      expect(cursor.get()).toBeUndefined();
+      expect(selected.get().size).toBe(0);
+    });
+  });
+
   it('should scroll the cursor into view as it steps', () => {
     const many = [
       '--- a/a.txt',

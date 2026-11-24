@@ -61,6 +61,8 @@ interface Scope {
   items: State<string[]>;
   /** What the handlers and refs under test write, in the order they ran. */
   log: string[];
+  /** A component that reports whether a `__proto__` prop arrived as its own. */
+  Echo: (props: Record<string, unknown>) => Element;
   /** A component that reports what its children arrived as. */
   Kind: (props: { children?: unknown }) => Element;
   made: Element;
@@ -204,6 +206,14 @@ function makeScope(): Scope {
     // could disagree about invisibly, so the component says it out loud
     Kind: (props: { children?: unknown }) =>
       box({}, text(Array.isArray(props.children) ? `list of ${props.children.length}` : 'one')),
+    // an own property or nothing: an inherited `__proto__` is the prototype, not
+    // a prop, and it reads back as an object rather than what was written
+    Echo: (props) =>
+      text(
+        Object.hasOwn(props, '__proto__')
+          ? `proto=${typeof props['__proto__']}:${String(props['__proto__'])}`
+          : 'dropped'
+      ),
     made: text('made'),
     Show,
     ui,

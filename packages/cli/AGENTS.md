@@ -3103,10 +3103,48 @@ other is refused with numbers.
   counted as evidence, and `md:flex` is dropped): that is the safelist's, as it
   is for a file that does not parse. A count that is too high refuses a file
   that would have parsed, and it costs a lot -- 513 unbalanced `(` in strings
-  appended to a file kept 377 of 383 rules where it kept none, with no warning
-  naming the file. The repository's deepest naive count is 246 over 1,631
-  files, inflated by brackets in strings; that is why the ceiling is not
-  lower.
+  appended to a file kept 377 of 383 rules where it kept none. The repository's
+  deepest naive count is 246 over 1,631 files, inflated by brackets in strings;
+  that is why the ceiling is not lower.
+
+  **That cost is said, once per file** (SIG-638). `sigil build` prints a note
+  naming each file it read without parsing, why, and what the file keeps **on
+  its own**: `scanClassEvidence()` reads the file into a scratch `Evidence`
+  holding nothing else and counts the rules that answers `mayName()` for, so
+  `src/deep.ts ... keeps 377 of 383 utility rules`. On its own is an upper
+  bound on what it added, since the rest of the app may have kept some of the
+  same rules, and it is what can be named per file where the summary's count is
+  one sum over all of them. It goes through `writeNote()` beside
+  `warnEmptyShake()`, a note rather than a diagnostic for that function's
+  reason -- the build's own finding about the app's whole sheet, with no line to
+  point at -- so it is dropped under `--quiet` and is not counted in the
+  summary's warnings. The path is shown relative to the app root through
+  `displayPath()` and is escaped, since a file can be named anything and a pipe
+  does not strip a control character the way a canvas does. `build.safelist` is
+  deliberately not offered as the fix: it adds rules and this is about having
+  too many. What does work is making the file shallow enough to parse, or
+  `--no-shake`, which keeps every rule anyway. Only `sigil build` says it;
+  `sigil package` reads the same files the same way and is silent.
+
+  **Windows was measured, and its default stack is not the 1 MB one**
+  (SIG-638). A throwaway test spawned one `node` per depth on the Windows runner
+  and recorded each child's exit status, so that a native crash was a number
+  rather than a dead test run. On node 22, 24 and 26, `win32 x64`, with the
+  default main thread: nested function bodies parsed at 256, 384, 420, 512, 768,
+  1,024, 1,536, 2,048 and **3,000** levels, and crashed at **4,000** with exit
+  status `3221225725`, which is `0xC00000FD`, a stack overflow; a right-nested
+  `||` chain parsed at every depth tried, up to **4,500**. The same script on
+  macOS, node 24, crashed at 4,000 function bodies too, so Windows is where the
+  default 8 MB figures below already were, to within the resolution of that
+  probe -- the crash is somewhere between 3,000 and 4,000 and was not
+  bisected. The ceiling of 512 is therefore about six times under it, and the
+  guard covers Windows' default stack. The "1 MB" in the gap below is a **small
+  stack someone chose** (`ulimit -s 1024`, a thread started with a small stack
+  size), not a platform default, and **420 nested function bodies under it
+  remain a gap**: a file nested between about 420 and 512 is parsed, and on such
+  a stack ends the build. The probe was removed rather than kept, because the
+  number it prints is the parser's and the platform's and not ours, and a test
+  asserting it would fail the day oxc changes.
 
   What it does **not** cover is depth with no brackets in it -- a flat `+` chain
   past ~57,000 terms, a bare `?:` chain past ~7,900, an `if ... else if` chain
@@ -3114,8 +3152,8 @@ other is refused with numbers.
   bodies, which crash at about 3,450 on 8 MB, and nothing at all on a smaller
   stack, which moves every number above down: under `ulimit -s 1024` the same
   parser crashed at about 560 levels of the `||` chain and **420 nested function
-  bodies, which is below the ceiling of 512**. Whether Windows' main thread is
-  1 MB was not established. A file that deep is a data file rather than source, and
+  bodies, which is below the ceiling of 512**. Windows' default is not that
+  stack (see above). A file that deep is a data file rather than source, and
   it is the parser's to report: **`sigil build` still ends with exit 139 if
   discovery or rolldown reads such a file**, which is oxc's, and the shake can
   only refuse to be the first thing that does. The tests keep clear of the
