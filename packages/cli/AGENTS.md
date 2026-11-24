@@ -7686,15 +7686,41 @@ measurements are in
   because routing one note around `--quiet` is a decision about `--quiet` and not
   about this.
 
-  **What stays missed, and is the larger hole: a confirmed `'names'` has it too.**
-  `updateCheck: githubChecker({ repo })` plus a hand-called `check()` with no
-  checker packages without a word and answers `{"current": ...}` just the same,
-  because the schema's checker is for the automatic check and `check()` reads only
-  its own `checker` option or the baked one. Closing it needs the import signal
-  to tell an import of `check` from an import of a builder, which is a read of
-  what each module imports from the specifier -- filed as SIG-609 rather than done here,
-  since warning on every confirmed `names` would put a warning on the documented
-  path.
+  **A confirmed `'names'` has the same hole, and the build now says so when the
+  app reaches `check()` itself (SIG-609).** `updateCheck: githubChecker({ repo })`
+  plus a hand-called `check()` with no checker packaged without a word and answered
+  `{"current": ...}` just the same, because the schema's checker is for the
+  automatic check and `check()` reads only its own `checker` option or the baked
+  one. The import signal could not tell the two apart: the bundler's watch sees the
+  specifier and not what was imported from it. `bundleApp()` now also answers
+  `importsCheck`, asked in the same `resolveId` hook of the importing module itself
+  by `importsCheckFunction()`: a named or namespace import of `check` (through
+  `importBindings()`, so an alias counts and a type-only import does not), and a
+  re-export of `check`, of everything or of the namespace -- so a barrel is read,
+  as it is for the specifier. `handCalledCheckWarning()` is what `sigil package`
+  writes when `importsCheck` and the schema is `'names'` and `sigil.json` declares
+  no `updateCheck`; declaring one is the fix and the silence.
+
+  **It is a warning and does not bake the schema's checker, and both halves of that
+  are deliberate.** Baking would mean reading `githubChecker({ repo })` back out of
+  the source and evaluating it: a literal is easy and a name, a call or a template
+  is not, so it would work for the demo and silently not for the app one
+  refactor away -- and `sigil.json` already bakes, by the same builders, what the
+  author declares. A refusal is out for the reason the whole entry gives: an app
+  that passes its own `checker` to `check()` is correct and the build cannot see the
+  argument, so it costs that app one note and a `sigil.json` entry (`"none"` says it
+  has handled it). What keeps the note off the documented path is that it needs
+  `check` itself: `updateCheck: githubChecker(...)` imports a builder and nothing
+  else, and `should not see an app that imports only a builder, which is the documented path`
+  is the negative that matters, since a detector that always answers yes warns every app that names its
+  checker. What it misses is silent and safe: a dynamic `import()` and a `require()`
+  have no name to read, and a module that does not parse is not one this can say
+  anything about. It reads the import and **not** through `importBindings()`: that
+  drops a name the module binds again anywhere, and `check` is generic enough that
+  `.filter((check) => ...)` beside the import would have turned the warning off. A namespace import counts
+  without asking which member is used. `'wrapped'` is left on the specifier signal
+  as SIG-593 wrote it, since narrowing it to `importsCheck` is a change to a warning
+  that has its own tests; `--quiet` silences both, which is `writeNote()`'s rule.
 
 - **A checker the schema writes out is asked of `checkedChecker()` at build time,
   so the author is told where they are already looking (SIG-564).**

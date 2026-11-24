@@ -4,6 +4,8 @@ import {
   bundleApp,
   checkSchemaUpdateCheck,
   discoverApp,
+  handCalledCheckWarning,
+  importsCheckFunction,
   readSchemaUpdateCheck,
   schemaWantsUpdateCheck,
   resolveCommandTree,
@@ -640,6 +642,150 @@ describe('whether the bundle reached the update check', () => {
       rmSync(out, { force: true, recursive: true });
     }
   }, 60000);
+});
+
+// SIG-609: the bundler's watch sees `@ttylabs/sigil/updates` and not what was imported
+// from it, so an app that writes `updateCheck: githubChecker(...)` and one that also calls
+// `check()` by hand were the same to the build -- and only the second has a call that reads
+// `sigil.json` rather than the schema
+describe('whether the bundle reached check() itself', () => {
+  const SPEC = '@ttylabs/sigil/updates';
+
+  /** `source` as an app's entry, bundled, with `extra` written beside it. */
+  async function reached(
+    source: string,
+    extra: Record<string, string> = {}
+  ): Promise<{ check: boolean; specifier: boolean }> {
+    const root = variant(`reach-${Math.random().toString(36).slice(2, 8)}`, undefined, source);
+    for (const [name, body] of Object.entries(extra)) {
+      writeFileSync(join(root, 'src', name), body);
+    }
+    const out = mkdtempSync(join(tmpdir(), 'sigil-upd-reach-'));
+    try {
+      const result = await bundleApp({
+        app: discoverApp(root),
+        binName: 'reach',
+        out,
+        tree: { commands: [], diagnostics: [] },
+      });
+      return { check: result.importsCheck, specifier: result.usesUpdateCheck };
+    } finally {
+      rmSync(out, { force: true, recursive: true });
+    }
+  }
+
+  it('should see an app that imports check', async () => {
+    const source = `import { check } from '${SPEC}';\nexport default { name: 'reach', run: check };\n`;
+    expect(await reached(source)).toEqual({ check: true, specifier: true });
+  });
+
+  it('should see check imported under an alias', async () => {
+    expect(
+      (await reached(`import { check as ping } from '${SPEC}';\nvoid ping;\nexport default {};\n`))
+        .check
+    ).toBe(true);
+  });
+
+  it('should not see an app that imports only a builder, which is the documented path', async () => {
+    // the negative matters more: a detector that always answers yes warns every
+    // app that names its checker, which is the warning on the documented path
+    // this ticket exists to avoid
+    const result = await reached(
+      [
+        `import { githubChecker } from '${SPEC}';`,
+        "export default { name: 'reach', updateCheck: githubChecker({ repo: 'a/b' }) };",
+        '',
+      ].join('\n')
+    );
+    expect(result).toEqual({ check: false, specifier: true });
+  });
+
+  // `type` modifiers are TypeScript, so these are read off `.ts` modules directly: nothing
+  // type-only reaches a bundle, and what is asked is what `importsCheckFunction()` says
+  it.each([
+    ['an import', `import { githubChecker, type check } from '${SPEC}';\nvoid githubChecker;\n`],
+    ['an import statement', `import type { check } from '${SPEC}';\n`],
+    ['a re-export', `export type { check } from '${SPEC}';\n`],
+    ['a star re-export', `export type * from '${SPEC}';\n`],
+  ])('should not see a type-only %s of check', (_what, source) => {
+    const root = variant(`reach-type-${Math.random().toString(36).slice(2, 8)}`, undefined);
+    const file = join(root, 'src', 'types.ts');
+    writeFileSync(file, source);
+    expect(importsCheckFunction(file)).toBe(false);
+  });
+
+  it.each([
+    ['a namespace import', `import * as updates from '${SPEC}';\nvoid updates;`, true],
+    ['a re-export of check', `export { check } from '${SPEC}';`, true],
+    ['a re-export of everything', `export * from '${SPEC}';`, true],
+    ['a re-export of the namespace', `export * as updates from '${SPEC}';`, true],
+    ['a re-export of a builder', `export { githubChecker } from '${SPEC}';`, false],
+  ])('should read %s through a barrel the app imports', async (_what, barrel, expected) => {
+    const result = await reached("import './barrel.js';\nexport default { name: 'reach' };\n", {
+      'barrel.js': `${barrel}\n`,
+    });
+    expect(result.specifier).toBe(true);
+    expect(result.check).toBe(expected);
+  });
+
+  // the realistic layout: the schema's module imports a builder and a command imports check
+  it('should see check imported by a second module when the first imports only a builder', async () => {
+    const result = await reached(
+      [
+        `import { githubChecker } from '${SPEC}';`,
+        "import './update.js';",
+        "export default { name: 'reach', updateCheck: githubChecker({ repo: 'a/b' }) };",
+        '',
+      ].join('\n'),
+      { 'update.js': `import { check } from '${SPEC}';\nexport const update = () => check;\n` }
+    );
+    expect(result).toEqual({ check: true, specifier: true });
+  });
+
+  // `check` is as generic a name as there is, and a module binding it again somewhere
+  // must not turn the answer off: the detector asks what was imported, not which use
+  it('should still see check when the module binds the name again elsewhere', async () => {
+    const result = await reached(
+      [
+        `import { check } from '${SPEC}';`,
+        "export default { name: 'reach', run: () => [1].filter((check) => check) && check };",
+        '',
+      ].join('\n')
+    );
+    expect(result.check).toBe(true);
+  });
+
+  it('should answer false for a module it cannot read', () => {
+    expect(importsCheckFunction(join(variants, 'no-such-module.js'))).toBe(false);
+  });
+});
+
+// the other half of SIG-609: a confirmed `'names'` plus a hand-called `check()` ships an
+// update check that does nothing, and the warning says why
+describe('a checker named in the schema and a check() called by hand', () => {
+  it('should warn that check() reads sigil.json and not the schema', () => {
+    const warning = handCalledCheckWarning({}, true, 'names');
+    expect(warning).toContain('check()');
+    expect(warning).toContain('@ttylabs/sigil/updates');
+    expect(warning).toContain('sigil.json');
+    expect(warning).toContain('"updateCheck"');
+  });
+
+  it.each([
+    ['sigil.json declares where to look', { updateCheck: { type: 'none' } }, true, 'names'],
+    [
+      'sigil.json declares a checker',
+      { updateCheck: { repo: 'a/b', type: 'github' } },
+      true,
+      'names',
+    ],
+    ['only a builder was imported, which is the documented path', {}, false, 'names'],
+    ['the checker is named through a call, which is the other warning', {}, true, 'wrapped'],
+    ['the schema asks and says nothing, which is refused instead', {}, true, 'asks'],
+    ['the schema does not ask', {}, true, undefined],
+  ] as const)('should say nothing when %s', (_what, config, importsCheck, schema) => {
+    expect(handCalledCheckWarning(config as SigilConfig, importsCheck, schema)).toBeUndefined();
+  });
 });
 
 // the half of the ticket that `sigil build` cannot reach: inside a
@@ -1457,6 +1603,9 @@ describe('a packaged binary that asks in its schema', () => {
       try {
         const { code, err } = await sigil('package', root, '--runtime', 'bun', '--out', out);
         expect(code, err).toBeFalsy();
+        // the documented path, which imports the builder and nothing else, gets no
+        // warning (SIG-609)
+        expect(err.replace(/\s+/g, ' ')).not.toContain('serves the automatic check only');
 
         const result = spawnSync(join(out, binaryName('fixture-updates', hostTarget())), [], {
           encoding: 'utf-8',
@@ -1524,6 +1673,60 @@ describe('a packaged binary that asks in its schema', () => {
       });
       expect(code, err).toBeFalsy();
       expect(flat(err)).not.toContain('through a call');
+    }, 180000);
+  });
+
+  // SIG-609: the hole under SIG-593's, with nothing unconfirmed about it. The schema
+  // names its checker with the documented builder call and `run()` also calls `check()`
+  // with none: the schema's checker serves the automatic check and `check()` reads only
+  // its own `checker` or the baked one, so the binary's check found nothing to look at
+  // and the build said nothing at all
+  describe.skipIf(!hasBun)('naming its checker in the schema, and calling check() by hand', () => {
+    const entry = [
+      "import { check, githubChecker } from '@ttylabs/sigil/updates';",
+      'export default {',
+      "  name: 'fixture-confirmed',",
+      "  version: '1.0.0',",
+      "  updateCheck: githubChecker({ repo: 'acme/mycli' }),",
+      '  async run() {',
+      "    const result = await check({ packageName: 'fixture-confirmed', packageVersion: '1.0.0', wait: true });",
+      '    process.stdout.write(`${JSON.stringify(result)}\\n`);',
+      '  },',
+      '};',
+      '',
+    ].join('\n');
+
+    const flat = (text: string): string => text.replace(/\s+/g, ' ');
+
+    async function packaged(name: string, config?: unknown) {
+      const root = variant(name, config, entry);
+      const out = mkdtempSync(join(tmpdir(), 'sigil-upd-pkg-'));
+      try {
+        const { code, err } = await sigil('package', root, '--runtime', 'bun', '--out', out);
+        const binary = join(out, binaryName('fixture-updates', hostTarget()));
+        const ran = code ? undefined : spawnSync(binary, [], { encoding: 'utf-8' });
+        return { code, err, ran };
+      } finally {
+        rmSync(out, { force: true, recursive: true });
+      }
+    }
+
+    it('should say why the check is empty, and still package', async () => {
+      const { code, err, ran } = await packaged('confirmed-empty');
+      expect(code, err).toBeFalsy();
+      expect(flat(err)).toContain('serves the automatic check only');
+      expect(flat(err)).toContain('"updateCheck"');
+
+      // the defect the warning is about: a check that ran and found nothing to look at
+      expect(ran?.stdout).toBe('{"current":"1.0.0"}\n');
+    }, 180000);
+
+    it('should say nothing once sigil.json says where to look', async () => {
+      const { code, err } = await packaged('confirmed-declared', {
+        updateCheck: { repo: 'acme/mycli', type: 'github' },
+      });
+      expect(code, err).toBeFalsy();
+      expect(flat(err)).not.toContain('serves the automatic check only');
     }, 180000);
   });
 

@@ -167,6 +167,8 @@ export {
   assertUpdateCheckDeclared,
   bakedUpdateCheck,
   checkSchemaUpdateCheck,
+  handCalledCheckWarning,
+  importsCheckFunction,
   readSchemaUpdateCheck,
   schemaWantsUpdateCheck,
   updateCheckDefine,
