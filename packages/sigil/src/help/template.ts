@@ -13,7 +13,14 @@
  * enough room for two columns at all.
  */
 
-import { box, type Element, paragraph, text as textNode, type TextRun } from '../element/index.js';
+import {
+  box,
+  type Element,
+  paragraph,
+  text as textNode,
+  type TextRun,
+  toDisplayText,
+} from '../element/index.js';
 import { maxOf, stringWidth } from '../width/index.js';
 
 /** One row of a two-column list: a term and what it means. */
@@ -58,12 +65,16 @@ const MIN_DESC = 20;
  */
 export function definitions(items: readonly Definition[], opts: ListOptions): Element {
   const { gap, indent, maxLabel, width } = opts;
+  // a label is measured, wrapped and drawn, and the text draws a tab as a space, so
+  // every one of those is handed what is drawn (SIG-670): a command key is taken as
+  // written and can hold one
+  const drawn = items.map((item) => ({ ...item, label: toDisplayText(item.label) }));
 
   // a label wider than the column is going to take a line of its own, so it
   // does not get to widen the column for everything else: one long flag would
   // otherwise leave every short one trailing twenty spaces before its
   // description
-  const fitting = items.map((item) => stringWidth(item.label)).filter((w) => w <= maxLabel);
+  const fitting = drawn.map((item) => stringWidth(item.label)).filter((w) => w <= maxLabel);
   const labelWidth = maxOf(fitting, 0);
   const column = indent + labelWidth + gap;
 
@@ -75,7 +86,7 @@ export function definitions(items: readonly Definition[], opts: ListOptions): El
 
   // one at a time rather than spread into `box()`: a row for each item (SIG-417)
   const list = box({ 'flex-direction': 'column' });
-  for (const item of items) {
+  for (const item of drawn) {
     list.append(row(item, { column, gap, indent, labelWidth, maxLabel, stacked, width }));
   }
   return list;

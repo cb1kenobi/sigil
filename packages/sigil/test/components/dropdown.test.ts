@@ -86,6 +86,22 @@ describe('Dropdown()', () => {
     expect(picture(s.root)[0]).to.equal('Level  error ▾');
   });
 
+  it('should be as wide as the widest choice is drawn, a tab being a space (SIG-670)', () => {
+    const options = ['a\tbcd', 'abc'];
+    const first = scene({ options, value: new State<string | undefined>('a\tbcd') });
+    const second = scene({ options, value: new State<string | undefined>('abc') });
+    // the arrow is in one column whichever choice is showing
+    expect(picture(first.root)[0]).to.equal('Level  a bcd ▾');
+    expect(picture(second.root)[0]).to.equal('Level  abc   ▾');
+    // and a placeholder is sized the same way
+    const empty = scene({
+      options: ['a'],
+      placeholder: 'p\tqrs',
+      value: new State<string | undefined>(undefined),
+    });
+    expect(picture(empty.root)[0]).to.equal('Level  p qrs ▾');
+  });
+
   it('should bracket itself and take the focus role while it has the focus', () => {
     const s = scene();
     s.input.focus.focus(s.field);

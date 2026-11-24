@@ -186,6 +186,23 @@ describe('the commands section', () => {
     ]);
   });
 
+  it('should leave the label column as wide as a label is drawn, a tab being a space (SIG-670)', async () => {
+    // a command key is taken as written, so one can hold a tab; the label is a text
+    // and draws it as a space, a column the column was not measured to hold
+    const schema: Schema = {
+      name: 'mycli',
+      commands: {
+        'ab\tcd': { desc: 'First' },
+        ef: { desc: 'Second' },
+      },
+    };
+
+    expect(sectionOf(await help(schema), 'Commands')).toEqual([
+      '  ab cd  First',
+      '  ef     Second',
+    ]);
+  });
+
   it('should put aliases on the same row as the command', async () => {
     const schema: Schema = {
       name: 'mycli',

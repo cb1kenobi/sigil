@@ -26,7 +26,13 @@
  * with the form controls.
  */
 
-import { box, type Element, type ElementPropsWithout, text as textNode } from '../element/index.js';
+import {
+  box,
+  type Element,
+  type ElementPropsWithout,
+  text as textNode,
+  toDisplayText,
+} from '../element/index.js';
 import type { InputRouter, MouseEvent } from '../input/index.js';
 import { createEffect, onCleanup } from '../renderer/index.js';
 import { State } from '../signals/index.js';
@@ -165,12 +171,15 @@ export function Dropdown<T = unknown>(props: DropdownProps<T>): Element {
   const placeholder = props.placeholder ?? '';
   const glyph = (props.ascii ?? !unicodeSupported()) ? 'v' : '▾';
 
-  /** The columns the label gets: the widest choice, or what a declared width leaves. */
+  /**
+   * The columns the label gets: the widest choice, or what a declared width leaves.
+   * A choice is measured as the text draws it, which holds a tab as a space (SIG-670).
+   */
   const room =
     props.width === undefined
       ? maxOf(
-          options.map((option) => stringWidth(option.label)),
-          Math.max(1, stringWidth(placeholder))
+          options.map((option) => stringWidth(toDisplayText(option.label))),
+          Math.max(1, stringWidth(toDisplayText(placeholder)))
         )
       : props.width - CHROME;
 
@@ -300,7 +309,7 @@ export function Dropdown<T = unknown>(props: DropdownProps<T>): Element {
 
   createEffect(() => {
     const at = chosen();
-    const words = at === -1 ? placeholder : (options[at] as Option<T>).label;
+    const words = toDisplayText(at === -1 ? placeholder : (options[at] as Option<T>).label);
     const cut = stringWidth(words) > room ? truncate(words, room) : words;
     label.setText(cut + ' '.repeat(Math.max(0, room - stringWidth(cut))));
     label.toggleClass('sigil-muted', at === -1);

@@ -910,7 +910,10 @@ function headWidths(
     Math.max(1, stringWidth(toDisplayText(tail))),
     Math.max(1, Math.floor(avail / 2))
   );
-  const forMessage = Math.max(1, Math.min(stringWidth(message), avail - forTail));
+  // the message as the text draws it, which holds a tab as a space (SIG-670): the
+  // `wrap()` below is handed the same, and a width counted a column short per tab
+  // wraps the question it was counting
+  const forMessage = Math.max(1, Math.min(stringWidth(toDisplayText(message)), avail - forTail));
   const rest = Math.max(1, avail - forMessage);
 
   return {

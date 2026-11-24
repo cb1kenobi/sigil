@@ -349,6 +349,16 @@ describe('createMultiProgress()', () => {
     ]);
   });
 
+  it('should start the bars after the widest label as it is drawn, a tab being a space (SIG-670)', () => {
+    const ui = screenSetup({ rows: 10 });
+    const group = createMultiProgress({ ansi: ui.ansi, barWidth: 2, terminal: ui.terminal });
+
+    group.add({ text: 'a\tb\tc' });
+    group.add({ text: 'abc' });
+
+    expect(ui.log).to.deep.equal([`a b c ${LIGHT}${LIGHT}   0%`, `abc   ${LIGHT}${LIGHT}   0%`]);
+  });
+
   it('should hold a column for a row that has no label of its own', () => {
     const ui = screenSetup({ rows: 10 });
     const group = createMultiProgress({ ansi: ui.ansi, barWidth: 2, terminal: ui.terminal });

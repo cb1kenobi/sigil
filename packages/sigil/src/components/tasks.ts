@@ -1,5 +1,11 @@
 import { strip } from '../ansi/index.js';
-import { box, type Element, renderToString, text as textNode } from '../element/index.js';
+import {
+  box,
+  type Element,
+  renderToString,
+  text as textNode,
+  toDisplayText,
+} from '../element/index.js';
 import { __, __n } from '../i18n/index.js';
 import { createEffect, createRoot, For, onCleanup } from '../renderer/index.js';
 import { State, untrack } from '../signals/index.js';
@@ -831,7 +837,8 @@ function createRun(opts: TasksOptions): Run {
           cascade,
           colorLevel,
           colorScheme: opts.colorScheme,
-          width: stringWidth(OUTCOME_SYMBOLS[outcome]) + 1 + stringWidth(label),
+          // the label as the text draws it, which holds a tab as a space (SIG-670)
+          width: stringWidth(OUTCOME_SYMBOLS[outcome]) + 1 + stringWidth(toDisplayText(label)),
         })}`;
       } finally {
         dispose();

@@ -147,6 +147,16 @@ describe('fitKeyHelp', () => {
     expect(truncated).toBe(true);
   });
 
+  it('should fit a line as it is drawn, a tab being a space (SIG-670)', () => {
+    // a hand-built entry can hold one, though a binding's label and description
+    // cannot: `a\tb go` is six columns drawn and five counted raw, so the two lines
+    // are twelve with their separator and do not fit eleven
+    const tabbed = [entry('a\tb', 'go', 2), entry('c', 'd', 1)];
+
+    expect(fitKeyHelp(tabbed, 11)).toEqual({ shown: [tabbed[0]], truncated: true });
+    expect(fitKeyHelp(tabbed, 12)).toEqual({ shown: tabbed, truncated: false });
+  });
+
   it('should drop the later of two equals', () => {
     const tie = [entry('a', 'one'), entry('b', 'two'), entry('c', 'three')];
     const { shown } = fitKeyHelp(tie, 20);

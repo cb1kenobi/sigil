@@ -29,7 +29,15 @@
  * `menubar.ts` and `dropdown.ts` are built on the same session.
  */
 
-import { box, cellStyle, Element, raw, text as textNode } from '../element/index.js';
+import {
+  box,
+  cellStyle,
+  Element,
+  raw,
+  text as textNode,
+  toDisplayLine,
+  toDisplayText,
+} from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import type { InputRouter, KeyEvent, MouseEvent } from '../input/index.js';
 import type { Box } from '../layout/index.js';
@@ -452,7 +460,7 @@ export function labelParts(label: string, className: string): { parts: Element[]
   const { at, text } = parseMnemonic(label);
   const props = { class: className, 'white-space': 'nowrap' } as const;
   if (at === undefined) {
-    return { parts: [textNode(text, props)], width: stringWidth(text) };
+    return { parts: [textNode(text, props)], width: stringWidth(toDisplayText(text)) };
   }
   const char = String.fromCodePoint(text.codePointAt(at) ?? 0);
   const before = text.slice(0, at);
@@ -466,7 +474,7 @@ export function labelParts(label: string, className: string): { parts: Element[]
   if (after !== '') {
     parts.push(textNode(after, props));
   }
-  return { parts, width: stringWidth(text) };
+  return { parts, width: stringWidth(toDisplayText(text)) };
 }
 
 /** What a row says at its right: a disabled item's reason, else its hint. */
@@ -476,7 +484,9 @@ function hintOf<T>(item: MenuItem<T>): string | undefined {
 
 /** The words set into a separator's line, with a space either side, or nothing. */
 function separatorWords(entry: Separator): string {
-  return LINE_ONLY.test(entry.separator) ? '' : ` ${entry.separator.trim()} `;
+  // what the line is painted with is cell by cell, which refuses a control character
+  // outright, so a tab or a break in the words is the element layer's one line of it
+  return LINE_ONLY.test(entry.separator) ? '' : ` ${toDisplayLine(entry.separator).trim()} `;
 }
 
 /**
@@ -493,8 +503,8 @@ function rowWidth<T>(entry: MenuEntry<T>, marked: boolean): number {
   return (
     2 +
     (marked ? 2 : 0) +
-    stringWidth(parseMnemonic(entry.label).text) +
-    (hint ? 2 + stringWidth(hint) : 0) +
+    stringWidth(toDisplayText(parseMnemonic(entry.label).text)) +
+    (hint ? 2 + stringWidth(toDisplayText(hint)) : 0) +
     (entry.items ? 2 : 0) +
     1
   );

@@ -1,4 +1,4 @@
-import type { Element } from '../element/index.js';
+import { type Element, toDisplayText } from '../element/index.js';
 import { For } from '../renderer/index.js';
 import { State, untrack } from '../signals/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
@@ -180,7 +180,8 @@ export function createMultiProgress(opts: MultiProgressOptions = {}): MultiProgr
   function measure(): void {
     let widest = 0;
     for (const row of rows.get()) {
-      widest = Math.max(widest, stringWidth(row.label.get()));
+      // as the label draws, which holds a tab as a space (SIG-670)
+      widest = Math.max(widest, stringWidth(toDisplayText(row.label.get())));
     }
     labelWidth.set(widest);
   }

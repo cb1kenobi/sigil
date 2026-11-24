@@ -8036,11 +8036,37 @@ have.
   written a second time here. The tooltip itself needed nothing: it never measures a
   string, it takes its size from the layout. `test/components/chart-live.test.ts`
   reads the area the chart handed the tooltip, by wrapping `attachTooltip()`, since a
-  hidden bubble draws nothing to look at. Other components that size a caller's string
-  with `stringWidth()` and draw it through a `text` carry the same one-column-per-tab
-  slip (the dropdown, the menu, the log, the toggle, the key help and this chart's own
-  legend, which measures a series label raw, among them); they were not swept with this
-  entry, which is the chart readout's. A readout of only a control character other than
+  hidden bubble draws nothing to look at. **The rest were swept by SIG-670, each one
+  traced from the string a caller gives to the text that draws it, and the one
+  question at every site was whether what is measured is what a `text` is handed.**
+  Measured through `toDisplayText()`, and nothing new written: the dropdown's choices
+  and placeholder; the menu's labels, hints and disabled reasons, and
+  `labelParts().width`, which is exported; a menu separator's words, which are
+  painted a cell at a time and threw a `RangeError` on a tab, so they go through
+  `toDisplayLine()` as the treemap's painted names do; the log's message and glyph;
+  the slider's readout; the multi-progress label column; a settled task's width; the
+  prompt head's message in `headWidths()`, which wrapped the displayed message and
+  measured the raw one in the same function, and the toggle's inline check; the
+  help's definition labels, which a command key can put a tab in; and a key-help
+  entry. Left alone, each for a reason: this chart's legend, because a series label
+  has been through `labelLine()` in `plotSeries()` before `legendRow()` sees it; the
+  tab row, badge, rule, note and border label, which `labelLine()` as well; the
+  toggle's two state names, which `fault()` refuses a control character in; a key-help
+  entry that came from a binding, whose label is a canonical key spelling and whose
+  description is folded to single spaces -- only one built by hand for `fitKeyHelp()`
+  could hold a tab, which is why that is measured too; the tree and the outline,
+  because `wrap()` reads a tab as the gap it is and hands back a line with none;
+  markdown, which splits a word at every `\s` before it measures one; the gradient and
+  the live region, which are strings for a raw terminal where `stringWidth()` is the
+  right question; and the log's streamed text, which is written to the terminal and
+  never handed to a `text`. **Not done, and a ticket of its own:** a glyph the caller
+  configures -- a spinner's frames, a bar's `filled` and `empty`, a page indicator's
+  dots, an outline's enumerator -- is measured raw and a tab in one is the same
+  column short, but a glyph holding a tab is a mistake and not content, and the
+  answer the toggle's states and the text area's gutter mark already give is to
+  refuse it where it is declared, which is a decision per option rather than a
+  measurement. A chart's `format()` output is the same slip in `barChart()` and
+  `lineChart()` (`5\t%` draws as `5`) and was left alone with that file. A readout of only a control character other than
   a tab or a newline (a bell, a bare `ESC`) is empty by the same rule: the tree draws
   nothing for it, so it is no readout, though a standalone `attachTooltip()` strips
   sequences only and still shows a bubble for one.

@@ -324,6 +324,21 @@ describe('toggle()', () => {
       await answer;
     });
 
+    it('should size the question as it is drawn, a tab being a space (SIG-670)', async () => {
+      // `Enable notifications` is 20 columns drawn and 19 counted raw, and the
+      // states and the margins take 15: the line is 34 wide, so it holds the
+      // question only if the tab were no column
+      const ui = screenSetup({ columns: 34, rows: 6 });
+      const answer = settle(open(ui, { message: 'Enable\tnotifications' }));
+
+      await tick();
+
+      expect(rows(ui)).toEqual(['? Enable notifications', '  ◉ off  ◯ on']);
+
+      await type(ui.stdin, CTRL_C);
+      await answer;
+    });
+
     it('should not clip the answer when the question takes the whole line', async () => {
       const ui = screenSetup({ columns: 24, rows: 6 });
       const answer = settle(open(ui, { message: 'Enable notifications' }));
