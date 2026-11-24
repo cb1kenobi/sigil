@@ -31,7 +31,11 @@ describe('growthOf()', () => {
   });
 
   it('should read a quadratic walk as more than three times the factor', () => {
-    expect(growthOf(quadratic, text(4096), text(32768), 8, 'quadratic')).toBeGreaterThan(24);
+    // small enough that one read of the small side is well under a span, so the
+    // span bounds the work: at 4096 a single small read already filled it on a
+    // Windows runner, the large side was then 64 of them, and seven turns of that
+    // timed out at ten seconds
+    expect(growthOf(quadratic, text(512), text(4096), 8, 'quadratic')).toBeGreaterThan(24);
   });
 
   it('should read a clock that moves in steps a span can be read over', () => {
