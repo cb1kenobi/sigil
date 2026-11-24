@@ -2670,7 +2670,8 @@ describe('an onError that throws during a teardown', () => {
     // the screen first, then every report, the failure last
     expect(order).toEqual(['stop', 'restore', 'reported cleanup broke', 'reported boom']);
     // and what `onError` threw is said, not dropped
-    expect(written.text()).toContain('Error in effect error handler: Errors thrown by onError');
+    expect(written.text()).toContain('Error in effect error handler: cleanup broke');
+    expect(written.text()).toContain('Error in effect error handler: boom');
   });
 
   it('should report what onError threw, and not raise it from the frame, when only the failure is reported', () => {

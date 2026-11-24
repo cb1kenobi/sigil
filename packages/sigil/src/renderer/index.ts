@@ -325,7 +325,9 @@ export interface RenderOptions {
    * this throws does not stop the teardown or the other reports. It is raised
    * from the call that was doing the reporting once every report has been tried:
    * `frame()`, `dispose()`, or `render()` itself. Several throws are raised as an
-   * `AggregateError`.
+   * `AggregateError`. The exception is a failure that arrives through an effect's
+   * flush: what this throws there is reported to stderr by the effect scope, with
+   * the exit code set, and not raised.
    */
   onError?: (error: unknown) => void;
   /**

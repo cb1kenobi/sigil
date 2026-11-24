@@ -34,7 +34,12 @@ export interface EffectOptions {
   adopt?: (dispose: () => void) => void;
 }
 
-/** Reports an error an effect threw. See `setErrorHandler()`. */
+/**
+ * Reports an error an effect threw. See `setErrorHandler()`.
+ *
+ * A handler that throws is skipped rather than raised: the default report writes
+ * the effect's error and then the handler's.
+ */
 export type EffectErrorHandler = (error: unknown) => void;
 
 /**
@@ -95,6 +100,9 @@ export interface Effects {
   flush(): void;
   /**
    * Replaces where an error thrown by an effect goes.
+   *
+   * A handler that throws is skipped, and the default report writes both its
+   * throw and the error it was given.
    *
    * @param next - The handler, or `undefined` for the default.
    * @returns The handler that was in place.
@@ -212,7 +220,11 @@ export function createEffects(): Effects {
     } catch (thrown) {
       report(error);
       if (!Object.is(thrown, error)) {
-        write('Error in effect error handler', thrown);
+        // the renderer's handler raises several reports as one `AggregateError`,
+        // whose own message says only that they were several
+        for (const each of thrown instanceof AggregateError ? thrown.errors : [thrown]) {
+          write('Error in effect error handler', each);
+        }
       }
     }
   }
@@ -771,6 +783,9 @@ export function setScheduler(next: Scheduler | undefined): Scheduler {
 
 /**
  * Replaces where an error thrown by an effect goes.
+ *
+ * A handler that throws is skipped, and the default report writes both its
+ * throw and the error it was given.
  *
  * @param next - The handler, or `undefined` to restore the default.
  * @returns The handler that was in place.

@@ -1631,6 +1631,32 @@ describe('an error handler that throws (SIG-660)', () => {
     }
   });
 
+  it('should say each error of an AggregateError the handler threw, not only its message', () => {
+    const own = createEffects();
+    own.setScheduler(() => {});
+    own.setErrorHandler(() => {
+      throw new AggregateError([new Error('first'), new Error('second')], 'several');
+    });
+    const stderr = quietStderr();
+    try {
+      const s = new State(0);
+      const stop = own.effect(() => {
+        if (s.get() > 0) {
+          throw new Error('effect broke');
+        }
+      });
+      s.set(1);
+
+      own.flush();
+      expect(stderr.text()).toBe(
+        'Error in effect: effect broke\nError in effect error handler: first\nError in effect error handler: second\n'
+      );
+      stop();
+    } finally {
+      stderr.restore();
+    }
+  });
+
   it('should reach the default report for a cleanup that threw on a re-run too', () => {
     const own = createEffects();
     own.setScheduler(() => {});

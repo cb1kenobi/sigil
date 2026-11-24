@@ -618,7 +618,10 @@ the entry it belongs to.
   throw, the teardown, `dispose()` -- is raised as before. Reversing the other
   half was considered and refused: raising from a frame timer is the uncaught
   exception SIG-660 is about, and a caller of `frame()` was never promised the
-  throw of an effect, which the layer below reports and does not rethrow. See
+  throw of an effect, which the layer below reports and does not rethrow. What is
+  left is the same `onError` bug surfacing two ways: a frame handler or a layout that
+  fails on a frame timer still raises what `onError` threw, as an uncaught exception.
+  See
   `src/signals/AGENTS.md`.
   One throw is raised as itself and several as an `AggregateError`. `runFrame()`
   rethrows anything it catches once `failed` is set, since only `fail()`

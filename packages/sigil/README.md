@@ -8412,7 +8412,8 @@ An error thrown by an effect goes to `setErrorHandler()` rather than out of the
 flush. Under the default scheduler a rethrow would land in a microtask nobody
 catches, which kills the process with a raw stack and skips every bit of error
 handling the framework has. The default handler writes the message and sets the
-exit code; the renderer replaces it with the real one.
+exit code; the renderer replaces it with the real one. A handler that throws is
+skipped, and the default report writes both its throw and the error it was given.
 
 The first run is the one exception to that: it happens where `effect()` is called,
 so a throw in it reaches the caller rather than the handler. The effect is kept —

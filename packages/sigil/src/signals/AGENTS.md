@@ -212,7 +212,7 @@ the entry it belongs to.
   drain and of a chain of flushes -- goes through `deliver()` in
   `createEffects()`, which catches what the handler threw and writes the default
   report: what the effect threw, which the handler did not take, then what the
-  handler threw as `Error in effect error handler: ...`, so neither is lost. It is
+  handler threw as `Error in effect error handler: ...` (each of an `AggregateError`'s, which is how the renderer's handler raises several), so neither is lost. A handler that took the error and threw over a later one still has the first written again: a handler that throws is taken not to have handled what it was given. It is
   the rule a `beforeError` hook that throws already follows (logged, skipped, the
   next one runs), and the alternative, a deliberate crash, was refused because a
   handler is the one place nobody is catching: the throw would be uncaught
