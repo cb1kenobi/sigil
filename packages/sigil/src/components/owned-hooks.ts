@@ -17,7 +17,6 @@
  */
 
 import type { HandlerProp } from '../element/index.js';
-import { __ } from '../i18n/index.js';
 
 /**
  * Throws if a component's `props` carry a hook the component owns.
@@ -41,7 +40,7 @@ export function refuseOwnedHooks(
   for (const hook of owned) {
     if ((props as Record<string, unknown>)[hook] !== undefined) {
       throw new TypeError(
-        __`${who} sets ${hook} itself, so an ${hook} in its props would be replaced: put the handler on an element around it`
+        `${who} sets ${hook} itself, so an ${hook} in its props would be replaced: put the handler on an element around it`
       );
     }
   }

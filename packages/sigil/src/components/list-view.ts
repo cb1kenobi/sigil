@@ -754,7 +754,7 @@ export function ListView<T, K = T>(props: ListViewProps<T, K>): Element {
     throw new TypeError(`Expected list empty to be a string or a function that builds an element`);
   }
   if (props.find && props.vim) {
-    throw new TypeError(__`A list takes type-to-find or vim keys, and not both`);
+    throw new TypeError(`A list takes type-to-find or vim keys, and not both`);
   }
   if (
     props.tail !== undefined &&

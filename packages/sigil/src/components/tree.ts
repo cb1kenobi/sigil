@@ -119,7 +119,7 @@ const GLYPHS: Readonly<Record<TreeGuide | 'ascii', TreeGlyphs>> = {
  */
 export function treeGlyphs(guide: TreeGuide = 'plain', ascii = false): TreeGlyphs {
   if (guide !== 'plain' && guide !== 'rounded') {
-    throw new TypeError(__`Unknown tree guide ${String(guide)}`);
+    throw new TypeError(`Unknown tree guide ${String(guide)}`);
   }
   return ascii ? GLYPHS.ascii : GLYPHS[guide];
 }

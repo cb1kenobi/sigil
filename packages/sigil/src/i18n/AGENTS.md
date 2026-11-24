@@ -439,7 +439,8 @@ and the check, and `src/i18n/keys.ts` is generated.
   rest, each ticket adding a handful, which is why no single change looked large.
 
   They were a drift, not a decision. "What is deliberately out" below says the
-  **139 developer-facing errors** (as of SIG-53) stay English, because a translated `Expected
+  **139 developer-facing errors** (counted as of SIG-53; it has only grown since,
+  so read it as the decision's date and not as today's count) stay English, because a translated `Expected
   option choices to be an array` is a bug report in a language the maintainer
   cannot read, and `src/components/AGENTS.md` records a chart's new messages as
   plain for that reason. The component tickets never read it, tagged the
@@ -463,12 +464,41 @@ and the check, and `src/i18n/keys.ts` is generated.
   entry` in `test/dist.test.ts` pins the other half: one module, importing
   nothing, costing what its strings cost to within 512 B, so that a second table
   or pulled-in code fails by name where a ceiling would stay green until it had
-  doubled again. **Left alone and worth a look**, because they are `__` tags on
-  messages whose reader is a developer and the `Expected ` test cannot see them:
-  `A TreeListView reads items.get() inside a Computed ...`, `{0} sets {1}
-  itself, so an {2} in its props would be replaced ...` and `Cannot write a line
-  after one with no newline`. Together they are under a kilobyte, so they were
-  not worth widening the sweep inside a ticket about a measurement.
+  doubled again.
+
+  **Five more, under other words, and a rule that is not a spelling (SIG-668).**
+  SIG-658 left three messages tagged because the `Expected ` test cannot see them
+  and they were under a kilobyte together: `A TreeListView reads items.get()
+  inside a Computed ...`, `{0} sets {1} itself, so an {2} in its props would be
+  replaced ...` and `Cannot write a line after one with no newline`. Each was
+  read for who can reach it rather than for how it begins. Two are a programming
+  mistake and lost the tag: a `TreeListView` source that writes a signal while it
+  is read, and `refuseOwnedHooks()`, which is a component handed a hook it assigns
+  itself and which every component with owned hooks calls. The third **keeps its
+  tag**, and is the reason this entry says "read for who can reach it":
+  `hunkLinesPatch()` is fed a set of lines a person picked in a diff, and the
+  git client shows that message in a toast -- `select the line that ends the file
+  too` is advice to the person at the keyboard, the sibling of `Cannot stage part
+  of a deleted file`, which was always tagged. It is a user's mistake that happens
+  to be raised from a library function.
+
+  That reading found the guard. Every one of the five `new TypeError(...)` sites
+  that still carried a tag was a programming mistake -- the two above, and
+  `A list takes type-to-find or vim keys, and not both`, `Unknown outline
+  enumerator {0}` and `Unknown tree guide {0}`, which lost theirs too -- and no
+  `TypeError` or `RangeError` anywhere in `src/` is a user's. `should tag no
+  TypeError or RangeError` in `packages/cli/test/i18n-keys.test.ts` reads the
+  tree for it, with the tag resolved through the module's imports the way the
+  generator resolves it, and fails naming the site. It is a rule about the
+  constructor rather than a spelling because a `TypeError` is the runtime saying
+  a caller handed it something it cannot use, which is what SIG-53 meant by a
+  developer-facing error. It is deliberately **not** extended to `new Error(...)`:
+  87 tagged sites were listed for this and they are a mix -- a PNG that will not
+  decode, a config file that will not parse, a trash that cannot be reached, the
+  parser's own value errors -- most of which a user provokes, so no constructor
+  rule is true of them and a list would be a convention again. The `i18n-keys`
+  entry is **8,251 B at 300 keys** as of SIG-668, against 8,610 B at 305 as of
+  SIG-658; the ceiling stays at 18 KiB.
 
 - **`[options]`, `[command]` and `<command>` are translated and `<entry>` is
   not.** The asymmetry is right: those three are _metasyntax_ a user never
@@ -721,8 +751,8 @@ and the check, and `src/i18n/keys.ts` is generated.
   inner half**, which is V8's English and reaches no catalog; the outer frame is
   a key. **Translating argument, option or command names**, which are the API the
   user types -- a localized placeholder is expressible as an option _hint_, which
-  is the one of the three that is never typed. **The 139 developer-facing
-  errors**: a translated `Expected option choices to be an array` is a bug report
+  is the one of the three that is never typed. **The developer-facing
+  errors** (139 as of SIG-53): a translated `Expected option choices to be an array` is a bug report
   in a language the maintainer cannot read. **`@ttylabs/cli`'s own output**,
   whose reader is a developer and whose piped form exists so tooling can grep it.
   **Right-to-left layout**, for the reason `large-text.ts` refuses an RTL FIGlet
@@ -863,7 +893,7 @@ the two width defects it turned up were already wrong in English.
   sees through `errorHandler()`'s own translated `Error: {0}` frame, so a German
   app that cancelled a prompt printed `Fehler: Cancelled`, which is half a
   sentence. A prompt declared with no choices or no submit key is a bug in the
-  app, like the 139 developer errors SIG-53 left alone.
+  app, like the developer errors SIG-53 left alone (139 as of SIG-53).
 
 - **What is deliberately left English, after an exhaustive sweep.** Every string
   literal reaching a `text`, `textNode` or `textElement` under `src/components/`
@@ -872,8 +902,8 @@ the two width defects it turned up were already wrong in English.
   SIG-53 already applied to `@ttylabs/cli`'s own output -- its reader is a
   developer, so a translated one is a bug report in a language the maintainer
   cannot read. Everything else in those components is caller-supplied text or a
-  `TypeError` about a programming mistake, which is the 139 developer errors
-  SIG-53 left alone. Written down so that the next sweep finds a decision rather
+  `TypeError` about a programming mistake, which is the developer errors SIG-53
+  left alone (139 as of SIG-53). Written down so that the next sweep finds a decision rather
   than an omission.
 
 - **And the keystroke a translated key needs may not be one the keyboard

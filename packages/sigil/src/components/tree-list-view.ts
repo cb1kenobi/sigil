@@ -845,7 +845,7 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
       // again as the rule a source has to keep, with what to do instead
       if (err instanceof Error && err.message === 'A Computed may not write to a signal') {
         throw new TypeError(
-          __`A TreeListView reads items.get() inside a Computed, so a source may not write a signal while it is read: write it before, or from an effect`,
+          `A TreeListView reads items.get() inside a Computed, so a source may not write a signal while it is read: write it before, or from an effect`,
           { cause: err }
         );
       }
