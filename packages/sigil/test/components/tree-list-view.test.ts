@@ -1413,8 +1413,9 @@ describe('TreeListView()', () => {
       // review round 2: an answer kept while its branch was closed names a value
       // shown elsewhere -- which the walk only refuses when both are shown -- and
       // the read again that fails marks that one stale after its row was built.
-      // Showing both refuses the walk, and the tree's effect reports that: it is
-      // heard here, because a passing suite prints no effect error (SIG-675)
+      // Expanding `b` shows both, which refuses the walk as a by-product of this
+      // order of events, and the tree's effect reports it: heard here, because a
+      // passing suite prints no effect error (SIG-675)
       const errors: unknown[] = [];
       const previous = setErrorHandler((error) => void errors.push(error));
       try {
