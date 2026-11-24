@@ -10,23 +10,27 @@ import { pathToFileURL } from 'node:url';
 const { log } = debug('sigil:parser:load-command');
 
 /**
- * What a failed import or loader said, safe to print.
+ * What a failed import or loader said, with the module's path made inert
+ * (SIG-650).
  *
- * Node's own errors -- the ones with a string `code`, `ERR_MODULE_NOT_FOUND`
- * and the rest -- quote the path they failed on, and a path is the file
- * system's, so one holding a control character would print it live beside the
- * escaped copy the wrapping message carries (SIG-650). A module's own throw has
- * no `code` unless the module gave it one, and its message is the module's: an
- * app's own styled message keeps its SGR, which is the line SIG-412 drew.
+ * Node's own errors quote the path they failed on -- `ERR_MODULE_NOT_FOUND`,
+ * the `Require stack` of a `.cjs`, the `SyntaxError` of a JSON import, none of
+ * which has anything in common but the path -- and a path is the file system's,
+ * so one holding a control character would print it live beside the escaped
+ * copy the wrapping message carries. So it is the **path** that is escaped
+ * wherever the message repeats it, and nothing else: a module's own message
+ * keeps its SGR, which is the line SIG-412 drew, and a multi-line one keeps its
+ * lines. Keying on an error's `code` instead was the first answer and was wrong
+ * three ways -- it missed the JSON `SyntaxError`, which has none, and it
+ * flattened Node's multi-line messages and a module's own coded throw.
  *
  * @param e - What was caught.
- * @returns The message, escaped when Node wrote it.
+ * @param path - The module's file system path, when it has one.
+ * @returns The message.
  */
-function loaderMessage(e: unknown): string {
+function loaderMessage(e: unknown, path?: string): string {
   const message = errorMessage(e);
-  return typeof (e as { code?: unknown } | null)?.code === 'string'
-    ? escapeControls(message)
-    : message;
+  return path === undefined ? message : message.replaceAll(path, () => escapeControls(path));
 }
 
 /**
@@ -111,7 +115,7 @@ async function fetchModule(
       return { def, entryFile: internal.path };
     } catch (e: unknown) {
       throw new Error(
-        `Failed to load command module (${escapeControls(internal.path)}): ${loaderMessage(e)}`,
+        `Failed to load command module (${escapeControls(internal.path)}): ${loaderMessage(e, internal.path)}`,
         {
           cause: e,
         }

@@ -1278,9 +1278,9 @@ The sites judged not to need it, with the reason:
 
   **What is deliberately not escaped.**
 
-  - **An argument's name in a runtime message** (`Missing required arguments`):
-    it is read against `[\w-]+` before it exists, so it cannot hold a control or a
-    format character. The one place it can is trailing padding, since the
+  - **Nothing in an argument's name would need it in a runtime message**
+    (`Missing required arguments`, which is escaped regardless): it is read against
+    `[\w-]+` before it exists, so it cannot hold a control or a format character. The one place it can is trailing padding, since the
     pattern's `\s` is wider than a space (U+2028, U+FEFF), which is why the
     messages that quote the name as declared are escaped.
   - **An option's label is escaped anyway**, because it is only validated when a
@@ -1294,11 +1294,12 @@ The sites judged not to need it, with the reason:
     character and reach that suggestion, which this ticket did not change.
   - **A module's own message.** `Failed to load command module (…)` and
     `Failed to JSON parse …` wrap what was caught. The path in the wrapping text
-    is escaped, and so is the whole message when the caught error has a string
-    `code`, which is what Node's loader errors carry and which quote the path
-    they failed on (`loaderMessage()` in `load-command.ts`). An error without one
-    is the module's own throw and keeps its SGR, the line SIG-412 drew. The
-    manifest's V8 parse message in `routes.ts` is left alone, as above.
+    is escaped, and so is the path wherever the caught message repeats it
+    (`loaderMessage()` in `load-command.ts`): Node's loader errors quote it, and
+    a JSON import's `SyntaxError` does too with no `code` to tell it by. Only the
+    path is replaced, so a module's own message keeps its SGR and its lines --
+    keying on `code` was the first answer and a review found it wrong in three
+    ways. The manifest's V8 parse message in `routes.ts` is left alone, as above.
 
   Covered by `test/parser/init-errors-echo.test.ts`: a table of sites, each run
   once per class of character (a control character, which becomes `\xNN`, and a

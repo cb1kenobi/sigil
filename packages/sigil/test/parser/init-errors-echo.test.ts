@@ -442,6 +442,20 @@ describe.skipIf(process.platform === 'win32')('a name the file system chose', ()
       expect(message).not.toMatch(RAW);
     });
 
+    it(`should escape ${kind} in the path a module's own error repeats, which has no code to tell it by`, async () => {
+      const root = tempDir('sigil-init-errors-');
+      const dir = join(root, `c${raw}`);
+      mkdirSync(dir);
+      writeFileSync(
+        join(dir, 'bad.mjs'),
+        "import { fileURLToPath } from 'node:url';\nthrow new SyntaxError(fileURLToPath(import.meta.url) + ': Expected property name');"
+      );
+
+      const message = await messageOf(() => parse({ argv: ['bad'], schema: { commands: dir } }));
+      expect(message).toContain(`c${escaped}`);
+      expect(message).not.toMatch(RAW);
+    });
+
     it(`should escape ${kind} in the path Node quotes when a module imports what is missing`, async () => {
       const root = tempDir('sigil-init-errors-');
       const dir = join(root, `c${raw}`);
@@ -454,6 +468,19 @@ describe.skipIf(process.platform === 'win32')('a name the file system chose', ()
       expect(message).not.toMatch(RAW);
     });
   }
+});
+
+describe.skipIf(process.platform === 'win32')("a module's own message", () => {
+  it('should keep its SGR and its lines, because only the path is the file system', async () => {
+    const root = tempDir('sigil-init-errors-');
+    writeFileSync(
+      join(root, 'bad.mjs'),
+      "const e = new Error('\\u001b[31mred\\u001b[39m\\nsecond line');\ne.code = 'E_APP';\nthrow e;"
+    );
+
+    const message = await messageOf(() => parse({ argv: ['bad'], schema: { commands: root } }));
+    expect(message).toContain(`${ESC}[31mred${ESC}[39m\nsecond line`);
+  });
 });
 
 describe('what `sigil reference` and the surface snapshot print of a refused schema', () => {
