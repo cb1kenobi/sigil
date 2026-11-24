@@ -25,7 +25,7 @@ import {
 } from '../../src/input/index.js';
 import { createRoot } from '../../src/renderer/index.js';
 import { flush, State } from '../../src/signals/index.js';
-import { createTestTerminal } from '../../src/testing/index.js';
+import { createTestTerminal, KEYS } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -1908,6 +1908,111 @@ describe('DiffView lines', () => {
 
         dispose();
         expect(vi.getTimerCount()).toBe(0);
+      });
+
+      describe('through the input router', () => {
+        const WIDTH = 30;
+        const COLUMN = 5;
+        /** An SGR report of a left-button event at a canvas row, which may be off the canvas. */
+        const report = (kind: 'down' | 'move' | 'up', y: number): string =>
+          `\x1b[<${kind === 'move' ? 32 : 0};${COLUMN};${y + 1}${kind === 'up' ? 'm' : 'M'}`;
+
+        let routers: { stop(): void }[] = [];
+        afterEach(() => {
+          for (const router of routers) {
+            router.stop();
+          }
+          routers = [];
+        });
+
+        beforeEach(() => {
+          // only the repeat is faked: the test terminal's `press()` waits on
+          // `setImmediate`, which a clock that faked it would never fire
+          vi.useRealTimers();
+          vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+        });
+
+        function mountRouted() {
+          const term = createTestTerminal({ columns: WIDTH, rows: HEIGHT });
+          const view = mountTall();
+          const input = createInput({
+            mouse: {
+              surface: {
+                height: HEIGHT,
+                locate: async () => true,
+                origin: { x: 0, y: 0 },
+                toCanvas: (column: number, row: number) => ({ x: column - 1, y: row - 1 }),
+                width: WIDTH,
+              },
+            },
+            root: view.root,
+            terminal: term.terminal,
+          });
+          routers.push(input);
+          return { ...view, input, term };
+        }
+
+        it('should scroll and extend the range on the timer and end it at the release, with the row it pressed out of the tree', async () => {
+          const { cursor, host, input, root, selected, term } = mountRouted();
+          const pressed = rowWith(root, '-a00');
+          const start = top(root);
+
+          await term.press(report('down', rowY(root, '-a00')));
+          // the motion past the bottom edge is off the canvas, which the capture delivers
+          await term.press(report('move', HEIGHT + 6));
+          flush();
+          const shown = cursor.get() ?? 0;
+          expect(selected.get().size).toBe(shown + 1);
+          expect(top(root)).toBe(start);
+          expect(vi.getTimerCount()).toBe(1);
+
+          // held: the view scrolls the pressed row out of the tree, and the range grows
+          tick(6);
+          picture(root, WIDTH, HEIGHT);
+          expect(top(root)).toBe(start + 6);
+          expect(every(root)).not.toContain(pressed);
+          expect(cursor.get()).toBe(shown + 6);
+          expect(selected.get().size).toBe(shown + 7);
+
+          // a move still reaches it, and is read against the scroll as it now is: back
+          // onto the rows stops the repeat and picks to the line under the pointer
+          await term.press(report('move', 2));
+          flush();
+          expect(vi.getTimerCount()).toBe(0);
+          picture(root, WIDTH, HEIGHT);
+          const back = cursor.get() ?? 0;
+          // the scroll is 8 by now, so row 2 of the view is line 7: read against the
+          // scroll the press was made at (2) it would be line 1
+          expect(back).toBe(7);
+          expect(selected.get().size).toBe(back + 1);
+          // and out again, which re-arms it
+          await term.press(report('move', HEIGHT + 6));
+          flush();
+          expect(vi.getTimerCount()).toBe(1);
+          // the move clamps to the last row in view, and the repeat goes on from there
+          const edge = cursor.get() ?? 0;
+          expect(edge).toBe(12);
+          tick(2);
+          expect(cursor.get()).toBe(edge + 2);
+
+          // and the release still reaches that row, which ends the repeat and the range
+          await term.press(report('up', HEIGHT + 6));
+          flush();
+          expect(vi.getTimerCount()).toBe(0);
+          const picked = selected.get().size;
+          const stopped = top(root);
+          tick(5);
+          expect(top(root)).toBe(stopped);
+          expect(selected.get().size).toBe(picked);
+
+          // the range is closed rather than left open for the keys: a step down moves
+          // the cursor and keeps what was picked, where an open range would pick one more
+          expect(input.focus.current.get()).toBe(host);
+          await term.press(KEYS.down);
+          flush();
+          expect(cursor.get()).toBe(picked);
+          expect(selected.get().size).toBe(picked);
+        });
       });
     });
   });
