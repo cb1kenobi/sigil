@@ -14,7 +14,7 @@
  */
 
 import { box, type Element, paragraph, text as textNode, type TextRun } from '../element/index.js';
-import { stringWidth } from '../width/index.js';
+import { maxOf, stringWidth } from '../width/index.js';
 
 /** One row of a two-column list: a term and what it means. */
 export interface Definition {
@@ -64,7 +64,7 @@ export function definitions(items: readonly Definition[], opts: ListOptions): El
   // otherwise leave every short one trailing twenty spaces before its
   // description
   const fitting = items.map((item) => stringWidth(item.label)).filter((w) => w <= maxLabel);
-  const labelWidth = Math.max(...fitting, 0);
+  const labelWidth = maxOf(fitting, 0);
   const column = indent + labelWidth + gap;
 
   // when there is not enough room left for a description to read as prose, the
@@ -73,10 +73,12 @@ export function definitions(items: readonly Definition[], opts: ListOptions): El
   // running past the terminal's edge is worse still
   const stacked = width - column < MIN_DESC;
 
-  return box(
-    { 'flex-direction': 'column' },
-    ...items.map((item) => row(item, { column, gap, indent, labelWidth, maxLabel, stacked, width }))
-  );
+  // one at a time rather than spread into `box()`: a row for each item (SIG-417)
+  const list = box({ 'flex-direction': 'column' });
+  for (const item of items) {
+    list.append(row(item, { column, gap, indent, labelWidth, maxLabel, stacked, width }));
+  }
+  return list;
 }
 
 interface RowOptions extends ListOptions {

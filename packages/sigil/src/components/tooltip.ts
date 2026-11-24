@@ -30,6 +30,7 @@
  * `--quiet` hides it.
  */
 
+import { strip } from '../ansi/index.js';
 import {
   box,
   type Element,
@@ -37,7 +38,6 @@ import {
   type ElementPropsWithout,
   text as textNode,
 } from '../element/index.js';
-import { __ } from '../i18n/index.js';
 import type { InputRouter } from '../input/index.js';
 import type { Box } from '../layout/index.js';
 import { createEffect, onCleanup } from '../renderer/index.js';
@@ -106,7 +106,8 @@ export interface TooltipOptions {
   /**
    * What it says. Wraps at `maxWidth`. An empty string says nothing, and a bubble
    * with nothing to say is hidden rather than drawn as an empty box, until
-   * `setText()` gives it words again.
+   * `setText()` gives it words again. Escape sequences are dropped, as `note()`
+   * drops them: colour is the bubble's, from its class.
    */
   text: string;
 }
@@ -121,7 +122,7 @@ export interface TooltipHandle {
   readonly element: Element | undefined;
   /** Hides it until the pointer and the focus have both left and come back, as Escape does. */
   hide(): void;
-  /** Changes what it says, re-placing the bubble if it is shown. */
+  /** Changes what it says, re-placing the bubble if it is shown. Escape sequences are dropped. */
   setText(value: string): void;
   /**
    * Whether the bubble is in the tree. Still `true` while the anchor is scrolled
@@ -317,34 +318,34 @@ function samePlaced(a: Placed, b: Placed): boolean {
 export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHandle {
   refuseOwnedHooks('attachTooltip', opts?.props, ['onLayout']);
   if (typeof anchor?.contains !== 'function' || typeof anchor.setState !== 'function') {
-    throw new TypeError(__`Expected a tooltip anchor to be an element`);
+    throw new TypeError(`Expected a tooltip anchor to be an element`);
   }
   const input = opts?.input;
   if (typeof input?.bind !== 'function' || typeof input.onMouse !== 'function') {
-    throw new TypeError(__`Expected a tooltip input to be a router`);
+    throw new TypeError(`Expected a tooltip input to be a router`);
   }
   if (typeof opts.text !== 'string') {
-    throw new TypeError(__`Expected tooltip text to be a string`);
+    throw new TypeError(`Expected tooltip text to be a string`);
   }
   const side = opts.side ?? 'bottom';
   if (!SIDES.includes(side)) {
-    throw new TypeError(__`Expected a tooltip side to be top, bottom, left or right`);
+    throw new TypeError(`Expected a tooltip side to be top, bottom, left or right`);
   }
   const delay = opts.delay ?? DELAY;
   if (typeof delay !== 'number' || !Number.isFinite(delay) || delay < 0) {
-    throw new TypeError(__`Expected a tooltip delay in milliseconds`);
+    throw new TypeError(`Expected a tooltip delay in milliseconds`);
   }
   const area = opts.area;
   if (area !== undefined && typeof area !== 'function') {
-    throw new TypeError(__`Expected a tooltip area to be a function`);
+    throw new TypeError(`Expected a tooltip area to be a function`);
   }
   const hold = opts.hold;
   if (hold !== undefined && typeof hold !== 'function') {
-    throw new TypeError(__`Expected a tooltip hold to be a function`);
+    throw new TypeError(`Expected a tooltip hold to be a function`);
   }
   const maxWidth = opts.maxWidth ?? MAX_WIDTH;
   if (!Number.isInteger(maxWidth) || maxWidth < 4) {
-    throw new TypeError(__`Expected a tooltip maxWidth of at least 4 cells`);
+    throw new TypeError(`Expected a tooltip maxWidth of at least 4 cells`);
   }
   // asked once now for the refusal it makes of a value that is not a boolean, and
   // again at every show for the answer, since `--quiet` is read after an app has
@@ -363,9 +364,10 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
   let wasHolding = false;
 
   /** What the bubble says. One element for the tooltip's life, moved into each bubble. */
-  const label = textNode(opts.text, { class: 'sigil-tooltip-text' });
+  const first = strip(opts.text);
+  const label = textNode(first, { class: 'sigil-tooltip-text' });
   /** Whether it has anything to say, which an empty bubble does not. */
-  let saying = opts.text !== '';
+  let saying = first !== '';
 
   /** A fresh bubble, at the screen's corner until the layout has measured it. */
   function build(): Element {
@@ -645,10 +647,12 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
     hide: dismiss,
     setText(value: string): void {
       if (typeof value !== 'string') {
-        throw new TypeError(__`Expected tooltip text to be a string`);
+        throw new TypeError(`Expected tooltip text to be a string`);
       }
-      label.setText(value);
-      saying = value !== '';
+      // dropped rather than drawn: a text node would print what follows the `ESC`
+      const said = strip(value);
+      label.setText(said);
+      saying = said !== '';
     },
     get shown() {
       return bubble !== undefined;

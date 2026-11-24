@@ -1781,10 +1781,13 @@ export function paragraph(runs: readonly (TextRun | string)[], props: ElementPro
     return wrappingRow(lines[0], props);
   }
 
-  return box(
-    { 'flex-direction': 'column', ...props },
-    ...lines.map((line) => wrappingRow(line, {}))
-  );
+  // appended one at a time rather than spread into `box()`: a line for each
+  // newline of the text, however many (SIG-417)
+  const column = box({ 'flex-direction': 'column', ...props });
+  for (const line of lines) {
+    column.append(wrappingRow(line, {}));
+  }
+  return column;
 }
 
 /**
@@ -1809,7 +1812,13 @@ function wrappingRow(runs: readonly TextRun[], props: ElementProps): Element {
     }
   }
 
-  return box({ 'column-gap': 1, 'flex-direction': 'row', 'flex-wrap': 'wrap', ...props }, ...words);
+  // one at a time rather than spread into `box()`: a word for each word of the
+  // text, which is as many as the author wrote (SIG-417)
+  const row = box({ 'column-gap': 1, 'flex-direction': 'row', 'flex-wrap': 'wrap', ...props });
+  for (const word of words) {
+    row.append(word);
+  }
+  return row;
 }
 
 /**

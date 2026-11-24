@@ -31,7 +31,6 @@
  */
 
 import { box, type Element, type ElementPropsWithout, text as textNode } from '../element/index.js';
-import { __ } from '../i18n/index.js';
 import { createEffect } from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import { stringWidth } from '../width/index.js';
@@ -113,20 +112,20 @@ export function TextField(props: TextFieldProps = {}): Element {
     typeof props.value !== 'string' &&
     !(props.value instanceof State)
   ) {
-    throw new TypeError(__`Expected a text field value to be a string or a State`);
+    throw new TypeError(`Expected a text field value to be a string or a State`);
   }
   const disabled = controlCondition(
     props.disabled,
-    __`Expected text field disabled to be a boolean, a State, a Computed or a function`
+    `Expected text field disabled to be a boolean, a State, a Computed or a function`
   );
   if (props.mask !== undefined && (typeof props.mask !== 'string' || props.mask === '')) {
-    throw new TypeError(__`Expected a text field mask to be a non-empty string`);
+    throw new TypeError(`Expected a text field mask to be a non-empty string`);
   }
   if (props.placeholder !== undefined && typeof props.placeholder !== 'string') {
-    throw new TypeError(__`Expected a text field placeholder to be a string`);
+    throw new TypeError(`Expected a text field placeholder to be a string`);
   }
   if (props.width !== undefined && !(Number.isInteger(props.width) && props.width > 0)) {
-    throw new TypeError(__`Expected a text field width to be a positive whole number`);
+    throw new TypeError(`Expected a text field width to be a positive whole number`);
   }
 
   const value = props.value instanceof State ? props.value : new State(props.value ?? '');

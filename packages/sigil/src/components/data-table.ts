@@ -378,14 +378,14 @@ export function DataTable<T, K = T>(props: DataTableProps<T, K>): Element {
   const isSource = (value: unknown): boolean =>
     Array.isArray(value) || typeof (value as { get?: unknown } | undefined)?.get === 'function';
   if (!isSource(props.rows)) {
-    throw new TypeError(__`Expected data table rows to be an array, a State or a Computed`);
+    throw new TypeError(`Expected data table rows to be an array, a State or a Computed`);
   }
   if (!isSource(props.columns)) {
-    throw new TypeError(__`Expected data table columns to be an array, a State or a Computed`);
+    throw new TypeError(`Expected data table columns to be an array, a State or a Computed`);
   }
   for (const name of ['disabled', 'key', 'onActivate', 'rowClass'] as const) {
     if (props[name] !== undefined && typeof props[name] !== 'function') {
-      throw new TypeError(__`Expected data table ${name} to be a function`);
+      throw new TypeError(`Expected data table ${name} to be a function`);
     }
   }
 
@@ -409,13 +409,13 @@ export function DataTable<T, K = T>(props: DataTableProps<T, K>): Element {
         typeof given === 'string' ? { header: given, key: given } : given;
       for (const name of ['compare', 'format', 'value'] as const) {
         if (column[name] !== undefined && typeof column[name] !== 'function') {
-          throw new TypeError(__`Expected data table column ${name} to be a function`);
+          throw new TypeError(`Expected data table column ${name} to be a function`);
         }
       }
       const id = column.key ?? String(index);
       if (seen.has(id)) {
         throw new TypeError(
-          __`Expected every data table column to have a name of its own: ${id} is used twice`
+          `Expected every data table column to have a name of its own: ${id} is used twice`
         );
       }
       seen.add(id);
@@ -443,7 +443,7 @@ export function DataTable<T, K = T>(props: DataTableProps<T, K>): Element {
 
   const sort = controlState<DataTableSort | undefined>(
     props.sort,
-    __`Expected data table sort to be a sort or a State, not a Computed, since the table writes it`
+    `Expected data table sort to be a sort or a State, not a Computed, since the table writes it`
   );
   const initial = untrack(() => sort.get());
   if (
@@ -451,7 +451,7 @@ export function DataTable<T, K = T>(props: DataTableProps<T, K>): Element {
     !untrack(() => readSpecs()).some((spec) => spec.id === initial.column)
   ) {
     throw new TypeError(
-      __`Expected data table sort to name a column: ${String(initial.column)} is not one`
+      `Expected data table sort to name a column: ${String(initial.column)} is not one`
     );
   }
 
@@ -812,7 +812,7 @@ export function describeDataTable(
   const found = hosts.map((host) => {
     const model = MODELS.get(host);
     if (model === undefined) {
-      throw new TypeError(__`Expected an element that DataTable() returned`);
+      throw new TypeError(`Expected an element that DataTable() returned`);
     }
     return model;
   });

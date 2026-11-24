@@ -86,11 +86,12 @@ function badgeForms(body: string): BadgeForms {
 }
 
 /** One of a badge's two forms, as a `nowrap` text. */
-function formText(which: 'bracketed' | 'padded'): Element {
+function formText(which: 'bracketed' | 'padded', href?: string): Element {
   return textNode('', {
     class: `sigil-badge-${which}`,
     'flex-shrink': 0,
     'white-space': 'nowrap',
+    ...(href === undefined ? {} : { href }),
   });
 }
 
@@ -180,7 +181,11 @@ export interface BadgeProps {
   colorLevel?: ColorLevel;
   /** The label. Escape sequences and line breaks are dropped, and an empty one draws nothing. */
   label: BadgeSource<string>;
-  /** The badge's own props: a margin, a flex factor. They win over the defaults, and are on its box. */
+  /**
+   * The badge's own props: a margin, a flex factor. They win over the defaults, and
+   * are on its box -- except `href`, which a box does not paint and which goes on
+   * both of the texts inside it instead, so the label is the link (SIG-656).
+   */
   props?: ElementProps;
   /** Which role colours the badge. Defaults to `neutral`. */
   variant?: BadgeSource<BadgeVariant>;
@@ -248,9 +253,13 @@ export function Badge(props: BadgeProps): Element {
     return badgeParts(String(read(props.label) ?? ''), variant);
   };
 
-  const forms = { bracketed: formText('bracketed'), padded: formText('padded') };
+  // `href` is read by a text alone, so it is taken off the box's props and put on
+  // the two texts the label is drawn by
+  const { href, ...boxProps } = props.props ?? {};
+  const link = href === undefined || href === null ? undefined : String(href);
+  const forms = { bracketed: formText('bracketed', link), padded: formText('padded', link) };
   const element = box(
-    { 'flex-direction': 'row', 'flex-shrink': 0, overflow: 'hidden', ...props.props },
+    { 'flex-direction': 'row', 'flex-shrink': 0, overflow: 'hidden', ...boxProps },
     forms.padded,
     forms.bracketed
   );

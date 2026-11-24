@@ -234,14 +234,14 @@ export interface OutlineEntry {
  */
 export function outlineEntries(items: readonly OutlineItem[]): OutlineEntry[] {
   if (!Array.isArray(items)) {
-    throw new TypeError(__`Expected items to be an array`);
+    throw new TypeError(`Expected items to be an array`);
   }
   return items.map((item) => {
     if (typeof item === 'string') {
       return { items: [], text: strip(item) };
     }
     if (item === null || typeof item !== 'object' || typeof item.text !== 'string') {
-      throw new TypeError(__`Expected each item to be a string or an object with a text string`);
+      throw new TypeError(`Expected each item to be a string or an object with a text string`);
     }
     return {
       items: item.items === undefined ? [] : outlineEntries(item.items),
@@ -264,7 +264,7 @@ function enumeratorAt(opts: OutlineMarkerOptions, depth: number): OutlineEnumera
   }
   if (Array.isArray(given)) {
     if (given.length === 0) {
-      throw new TypeError(__`Expected enumerator to hold at least one entry`);
+      throw new TypeError(`Expected enumerator to hold at least one entry`);
     }
     return given[depth % given.length];
   }
@@ -302,7 +302,7 @@ export function outlineMarkers(
         ? enumerator({ count: entries.length, depth, index, item: entry.text })
         : styled(enumerator, start + index, ascii);
     if (typeof marker !== 'string') {
-      throw new TypeError(__`Expected an enumerator to return a string`);
+      throw new TypeError(`Expected an enumerator to return a string`);
     }
     return strip(marker).replaceAll(/\s*[\n\r]+\s*/g, ' ');
   });
@@ -338,47 +338,51 @@ function listNode(
 ): Element {
   const { column, drawn } = outlineMarkers(entries, depth, opts, ascii);
 
-  return box(
-    { class: 'sigil-outline-list', 'flex-direction': 'column' },
-    ...entries.map((entry, index) => {
-      const body: Element[] = [textNode(entry.text, { class: 'sigil-outline-text' })];
-      if (entry.items.length > 0) {
-        body.push(
-          box(
-            {
-              class: 'sigil-outline-nested',
-              'flex-direction': 'column',
-              'padding-left': column === 0 ? BARE_INDENT : 0,
-            },
-            listNode(entry.items, depth + 1, opts, ascii)
-          )
-        );
-      }
-
-      return box(
-        { class: 'sigil-outline-item', 'flex-direction': 'row' },
-        ...(column === 0
-          ? []
-          : [
-              textNode(drawn[index], {
-                class: 'sigil-outline-marker sigil-muted',
-                'flex-shrink': 0,
-                'padding-right': GAP,
-                'white-space': 'nowrap',
-              }),
-            ]),
+  // appended one at a time rather than spread into `box()`: a row for each entry
+  // of the list, however many that is (SIG-417)
+  const rows = entries.map((entry, index) => {
+    const body: Element[] = [textNode(entry.text, { class: 'sigil-outline-text' })];
+    if (entry.items.length > 0) {
+      body.push(
         box(
           {
-            class: 'sigil-outline-body',
+            class: 'sigil-outline-nested',
             'flex-direction': 'column',
-            'flex-shrink': 1,
-            'min-width': 0,
+            'padding-left': column === 0 ? BARE_INDENT : 0,
           },
-          ...body
+          listNode(entry.items, depth + 1, opts, ascii)
         )
       );
-    })
-  );
+    }
+
+    return box(
+      { class: 'sigil-outline-item', 'flex-direction': 'row' },
+      ...(column === 0
+        ? []
+        : [
+            textNode(drawn[index], {
+              class: 'sigil-outline-marker sigil-muted',
+              'flex-shrink': 0,
+              'padding-right': GAP,
+              'white-space': 'nowrap',
+            }),
+          ]),
+      box(
+        {
+          class: 'sigil-outline-body',
+          'flex-direction': 'column',
+          'flex-shrink': 1,
+          'min-width': 0,
+        },
+        ...body
+      )
+    );
+  });
+  const list = box({ class: 'sigil-outline-list', 'flex-direction': 'column' });
+  for (const row of rows) {
+    list.append(row);
+  }
+  return list;
 }
 
 /**

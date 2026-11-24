@@ -4209,13 +4209,29 @@ whole of it: the encoder, `qrLines()`, `qrcodeView()` and the facade.
   wider than the label, so the width does not depend on the level. `Badge` is the
   row, so its `class` and `props` are the row's (with `overflow: hidden` under them,
   so a `width` or a shrink on the row clips the label as it did when the props were
-  on the one text; a prop that is about the _text_ -- `href`, `text-overflow`,
+  on the one text; a style prop that is about the _text_ -- `text-overflow`,
   `text-align`, `inverse`, `white-space` -- no longer reaches the label, and
-  nothing forwards it: it is a limit, and a theme class on the variant is the way) and its variant classes are on the two texts inside -- a caller who read `el.classes` for `sigil-success` reads a child
+  nothing forwards it: it is a limit, and a theme class on the variant is the way.) and its variant classes are on the two texts inside -- a caller who read `el.classes` for `sigil-success` reads a child
   now. `colorLevel` on `Badge` is accepted and not read. `badge()` the string is
   unchanged: it renders the same tree at `colorLevelOf(opts)` under the sheet.
   The rejected alternative was one `text` that picked its content at paint, which
   would have needed a paint hook on `text` for one component.
+
+  **A badge's `href` goes to its label, not its row (SIG-656).** `href` is not a style
+  property but content, read by a `text` alone and not inherited, so on the row it
+  was accepted at build and painted nothing -- `Badge({ props: { href } })` drew a
+  link before SIG-644 and silently stopped after. `Badge` takes it out of the props
+  it puts on the row and gives it to both texts, so the link holds whichever form
+  the sheet shows. A control character in it throws where the badge is built, from the
+  text's own check. It is forwarded rather than refused because `<text href>` is a
+  real prop today and the label is exactly the text a link belongs on; if SIG-633
+  removes it from `text`, this becomes a refusal naming `href`, and the forwarding is
+  the one `const { href, ...boxProps }` line in `Badge()` and the second argument of
+  `formText()`. Two limits: it is read once when the badge is built, so setting
+  `href` on the returned row later does nothing (`label` and `variant` are the live
+  inputs), and a `null` or `undefined` is no link, where a bare `text` reads `null`
+  as the string. The test is `a badge given an href in its props` in
+  `test/components/badge.test.ts`.
 
   **A markdown link in a view holds both forms of the word it ends, when the terminal
   can draw a hyperlink.** `hyperlinks` -- the option, or `supportsHyperlinks()` -- no
@@ -7998,14 +8014,35 @@ have.
   is the same clamp, and not to `side: 'top'` or `'bottom'`. A line that was already wider than the bubble's
   cap, and wrapped, is cut too once the room is under the reach. `MIN_READOUT` is a constant
   of the chart's own for the reason the 40 above is. The room is read from the last
-  layout's boxes, as the area is, so a terminal narrowed with the chart's own size
-  unchanged is cut at the next drawing and not before. The reach is still an estimate
+  layout's boxes, as the area is. The reach is still an estimate
   from the words, so a bubble the screen squeezes is narrower than it says, which only
-  keeps it a few cells further out. The SIG-636 tests in
+  keeps it a few cells further out.
+  The SIG-636 tests in
   `test/components/chart-live.test.ts` pin the reach exactly, the widest line,
   `maxWidth`, a line under the pin, and `side: 'top'`; the SIG-646 ones pin the cut past
   the pin, the fall back to the rule, a rule with no pin, and a readout that fits being
   left as said; each fails with its rule taken out.
+  **A layout says it again, so a resize needs no key (SIG-651).** That read was a
+  limit: `follow()` ran from a drawing, a drawing from a key, a pointer move, data or
+  the chart's own size, and a terminal narrowed with the chart's own size unchanged
+  (a fixed `width`) runs none of them, so the widened area and the cut words stayed
+  those of the old screen until the next key. The host's `onLayout` -- which every
+  layout owes -- now calls `follow()` again on the last drawing, which is kept as
+  `drawn`, reading the boxes the new layout has just given. `follow()` writes the
+  words and the area only where they moved and says whether it did, which is the
+  answer `onLayout` gives: a layout that moved nothing sets nothing and asks for no
+  pass, and one that did owes the settle loop another. It is untracked, since a layout
+  may run inside something that tracks and the caller's `text()` is not ours to
+  subscribe it to. It says the words the drawing's `text()` already said rather than
+  asking again (`spoken`), so a `text()` that reads a clock cannot disagree with itself
+  and owe a pass of every layout; `drawn` is kept only after those words passed the
+  string check, so a `text()` that threw is not retried by every layout after it. The chart **owns** `onLayout` for that, as it owns `onKey`
+  (SIG-305): refused in `props` and left out of the type, not composed, so a
+  later `onLayout` assignment on the host is the caller replacing the placement.
+  The tooltip's own resize handling is untouched: it still builds a fresh bubble,
+  and what was stale was the chart's input to it. The SIG-651 tests narrow and widen
+  the terminal under a held pin and assert the bubble's columns after a single
+  frame; each fails with the `onLayout` taken out.
 - **The marker and Enter can disagree under `fit`.** The marker is compared by cell
   and Enter by sample (SIG-607), so with the rule on a neighbour of the pin in the
   pin's cell no marker shows and Enter moves the pin rather than clearing it. Both
@@ -11920,6 +11957,20 @@ because a dropdown or anything else that sits beside a box wants the same answer
   chart's crosshair needed the hiding to hold while the pointer is on the bubble,
   where an `area` of nothing keeps it. `should hide a bubble with nothing to say,
   and bring it back with words` is the pin.
+- **Escape sequences are dropped from a tooltip's text, which is plain (SIG-652).**
+  A `text` node strips the `ESC` of a control sequence and draws the rest, so a
+  readout of `ESC[31mred` was drawn `[31mred` -- and the line chart's reach is
+  worked out with `stringWidth()`, which does not count a sequence, so the bubble was
+  as wide as the literal characters made it and the chart thought it narrower.
+  Decided as `note()` and `outline()` decided it, and `table()`'s string cell: the
+  tree is not handed a string with a sequence in it, `strip()` is applied to `text`
+  and to `setText()` on the way in, and colour is the bubble's, from its class.
+  Styled words in a bubble would be rich content, which is not done below, and
+  would be a different API rather than a string that sometimes means style. Both
+  widths now agree for a styled readout because the bubble draws what
+  `stringWidth()` counts. A text of nothing but a sequence is empty after the strip
+  and hides the bubble as `''` does. `should reach as far as a styled readout draws`
+  in `chart-live.test.ts` and the two SIG-652 cases in `tooltip.test.ts` are the pins.
 - **Not done:** a warm-up that shows
   the next tooltip at once after one has just closed; an arrow pointing at the
   anchor; rich content in the bubble; and announcing it in accessible mode, which
@@ -14839,6 +14890,52 @@ was reached, the measurements and the sabotage pass are in
   ends the drag, so the next motion does not put the caret back under the
   pointer. A caret `State` is one area's: two areas handed one clamp it to their
   own lines and write it back over each other.
+- **The selection is `selection`, an anchor and a caret, and it is the caret's
+  shape again (SIG-518).** `{ anchor, caret }` as a place or a `State` of one,
+  both ends the caret's own `{ line, col }` in UTF-16 units, so the two props
+  share a type for a place and the rules above hold for each end: out of range is
+  the nearest place, inside a cluster is the end of it, nothing throws at run time
+  and a plain value that is not two places is refused at construction. It is an
+  anchor and a caret rather than a start and an end because that is what the area
+  keeps and what a Shift-arrow moves: the order the user made it in is the
+  information a range throws away, and an app that wants a range orders two
+  places. `TextField` has no selection, so there was no shape to follow; this one
+  is the area's own.
+
+  **The state always holds an answer.** Nothing selected is both ends on the
+  caret, not `undefined` -- a reader of the state would otherwise be a reader of a
+  union, and the area never has a state of no caret. The state is written from
+  `publish()` beside the caret, only when it differs, by the identity rule
+  `said` already follows: an app's write that already says what was selected is
+  kept as it is rather than written again.
+
+  **How the two states agree is three rules and no more.** A write to `caret`
+  collapses the selection, even onto the place it was, which is the caret rule
+  said once and is why the state then reads collapsed. A write to `selection`
+  selects and puts the caret at its `caret` end, and the caret state is then
+  written by the area like any move. A write to both in one turn **selects**:
+  `adopt()` takes the value, the caret and the selection in that order, so the
+  selection is applied last and wins -- the one that says more, since a selection
+  says where the caret is and a caret does not say what is selected. A write to
+  `value` clears the selection like any value write, and a selection written with
+  it is placed in the new text, which is the caret's rule. A handed-in `State` is
+  where the area starts, as a caret's is, so a selection state that is collapsed
+  somewhere other than the caret prop's place moves the caret there at the first
+  frame; an app handing both gives them the same place.
+
+  **A write that lands during a drag ends it**, the SIG-466 rule: `select()` clears
+  `dragging` as `place()` does, so the next motion does not put the end back
+  under the pointer, which is also what an app that selects a match while the
+  mouse is down wants. It is taken in before a key and from inside `onChange` by
+  the one function the caret already is, with the third argument added, rather
+  than by a second path. The editor's footer is the first reader: `Ln 3, Col 5
+  (12 selected)`, counting characters, in `examples/editor/test/selection.test.ts`.
+  Covered by `the selection` in `test/components/text-area.test.ts`.
+  Sabotage: four, none survived -- the selection applied before the caret
+  (both written in a turn then collapse), no `dragging = false` in `select()`, the
+  state never written, and an anchor taken as written rather than as the nearest
+  place.
+
 - **A write the app makes is taken in before a key, not only when the effect
   runs.** The effect runs with the frame, and a key in the same read as the
   write -- a burst, a fast typist, a "go to line" bound to a key that then types
@@ -14858,8 +14955,7 @@ was reached, the measurements and the sabotage pass are in
   claimed, the prompt's own case. Three more on `pastedBlock()`'s pattern -- a tab
   dropped, a line break dropped, nothing dropped -- each fail the prompt's tests.
 - **Not done:** undo; soft wrap; `charLimit`; select-all, a double-click word and
-  a scroll bar; indenting a selection with Tab; an incremental highlight; a handle
-  for an app to read or set the selection (the caret is `caret`, above); and
+  a scroll bar; indenting a selection with Tab; an incremental highlight; and
   `multiline()` onto the element.
 
 ### Syntax highlighting: a lexer per language, and one seam for four components (SIG-289)
@@ -15433,18 +15529,41 @@ was never read. No error, and a derivation that did nothing at all.
   length the component decides -- a font's height, a mask's slots, a command's
   options -- is fine and is left alone, which is why the rule is about the
   caller's data rather than about spreads.
-- **This is a rule about a min or a max, not yet about every spread, and the
-  `box(props, ...rows)` sites are the reason.** Spreading children into `box()`
-  fails the same way, and SIG-363 appended them one at a time only where its own
-  subjects needed it: `chart.ts`'s `viewOf()` and live rows, `tableView()`, and
-  the layout engine's per-line measures that a long `table()` or bar chart
-  reaches. Several more remain, each throwing at 200,000 entries on a main thread
-  -- `outlineView()`, `logView()`, a markdown list, a markdown table, a document
-  of 200,000 paragraphs, and `diff()` -- including where this ticket moved the
-  component's width measurement onto `maxOf()`. That move is correct and keeps the
-  answer exactly, and it does not make those components safe at that size: their
-  `box(...children)` throws first. Whether `box()` should take an array, or every
-  such site should append, is SIG-417's decision.
+- **A box's children are appended one at a time wherever there is a child per
+  row of the caller's data (SIG-417).** `box(props, ...children)` is
+  `new Element('box', props).append(...children)`, so a component that wrote
+  `box(props, ...rows)` put every row on the call stack and failed the way
+  `Math.max(...values)` does. SIG-363 appended them only where its own subjects
+  needed it -- `chart.ts`, `tableView()` and the layout engine -- and SIG-417 did
+  the rest: `markdownView()` (a document's blocks, a list's items, a table's rows
+  and rule cells, the footnotes, a paragraph's words and a word's pieces),
+  `diffView()` (and so `diff()`), `codeView()`, `logView()` over a message's
+  lines, `treeView()`, `outlineView()`, a menu's and a palette's rows, `RadioSet`,
+  the key-select prompt's rows, `groupMultiselect()`'s entries, a table row's
+  cells in `tableRowView()`, `paragraph()` over its lines and words,
+  `definitions()` and the examples in help, a key-help footer's rows, a menubar's
+  titles, a tab list's labels, and a failed task's subtree in `tasks.ts`. Each is a `for` loop over `append()`, which is what
+  SIG-363 did and what was decided over the alternative: `box()` takes no array,
+  and the element factories gained no API for it. `test/components/box-children.test.ts`
+  is the regression test, at 200,000 entries in a spawned node for the reason the
+  bullet below gives, and every case there failed with `RangeError` before the
+  change. It covers the representative sites and not every one: a menu, a
+  palette, a radio set, the key-select prompt, a group, a task failure and help's
+  lists have no case of their own, so a revert of one of those is caught by review
+  and not by the suite.
+- **What is left is a spread over one line's worth, and is a limit rather than a
+  fix.** One log line that wraps to more than about 125,000 rows is not data in
+  the sense above, and Chris decided on 2026-11-24 that it is recorded and not
+  fixed: `log-stream.ts` pushes the rows of one wrapped line
+  (`out.push(...finish(line))`). The same reading holds for the other places that
+  spread the pieces of a single line -- `diff.ts`'s runs of one source line, a
+  menu item's label parts, the pager's cells for one line -- which were left on
+  that reading and not separately decided: a source line of more than 125,000
+  tokens still throws `RangeError` on a main thread. The children of a component
+  that are the **caller's own arguments** -- `panel(props, ...children)`,
+  `button(...buttons)` and the like -- are left too: a caller that spread more
+  than a call has room for into the component would have overflowed at its own
+  call.
 - **`maxOf(values, floor)` is exactly `Math.max(floor, ...values)`, odd inputs
   included.** It is `Math.max` asked one element at a time, and `Math.max` is
   associative and commutative over every number: a `NaN` anywhere is `NaN`, `-0`

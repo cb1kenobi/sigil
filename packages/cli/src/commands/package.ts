@@ -35,6 +35,7 @@ import {
   assertToolchain,
   assertUpdateCheckDeclared,
   bakedUpdateCheck,
+  handCalledCheckWarning,
   bundleApp,
   bunTargetRuntime,
   bunVersion,
@@ -83,6 +84,7 @@ import {
   reportDiagnostics,
   resolveOut,
   utilityRules,
+  warnEmptyShake,
   warnUnparsed,
 } from './_inspect.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
@@ -346,8 +348,15 @@ const pkg: AnyCommand = command({
       if (unconfirmed) {
         writeNote([unconfirmed], process.stderr);
       }
+      // the other half of the same hole: a confirmed schema checker serves the
+      // automatic check, and a hand-called `check()` reads `sigil.json` (SIG-609)
+      const handCalled = handCalledCheckWarning(sigilConfig, result.importsCheck, schemaCheck);
+      if (handCalled) {
+        writeNote([handCalled], process.stderr);
+      }
       // after the refusals above, so an app that is not going to be packaged
       // is not also told what its sheet would have cost
+      warnEmptyShake(result.styles);
       warnUnparsed(result.styles, found.app.root);
 
       // emptied only now, once the graph says whether `out` holds a module

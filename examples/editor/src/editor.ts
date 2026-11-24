@@ -9,7 +9,14 @@
  * file, when the file is opened, and that is not a thing a template says.
  */
 
-import { type Doc, createDoc, diskText, shownPath, tabLabels } from './documents.ts';
+import {
+  type Doc,
+  createDoc,
+  diskText,
+  selectedCharacters,
+  shownPath,
+  tabLabels,
+} from './documents.ts';
 import { type Command, openPalette } from './palette.ts';
 import { WorkspaceContext } from './workspace.ts';
 import { useApp } from '@ttylabs/sigil/app';
@@ -74,7 +81,10 @@ export interface Editor {
   readonly previewSubject: Computed<string | undefined>;
   /** The source panel's title: the file's path, and a mark while it is unsaved. */
   readonly title: () => string;
-  /** Where the caret is in the file showing, `Ln 12, Col 5`, or nothing with none open. */
+  /**
+   * Where the caret is in the file showing, `Ln 12, Col 5`, with `(5 selected)` after
+   * it while something is, or nothing with none open.
+   */
   readonly position: () => string;
   /** The last thing the editor said: saved, copied, refused. */
   readonly status: State<string>;
@@ -199,6 +209,8 @@ export function createEditor(): Editor {
           );
         },
         props: { class: 'area', display: 'none' },
+        // the other half of what the footer reads: how much is selected
+        selection: doc.selection,
         tab: '  ',
         value: doc.value,
       })
@@ -548,7 +560,11 @@ export function createEditor(): Editor {
       return '';
     }
     const { col, line } = doc.caret.get();
-    return `Ln ${line + 1}, Col ${col + 1}`;
+    const where = `Ln ${line + 1}, Col ${col + 1}`;
+    // the value is split only while something is selected, so a caret that moves
+    // alone costs the footer nothing in a long file
+    const held = selectedCharacters(doc.value.get(), doc.selection.get());
+    return held === 0 ? where : `${where} (${held} selected)`;
   };
 
   return {

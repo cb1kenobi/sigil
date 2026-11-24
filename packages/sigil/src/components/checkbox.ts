@@ -80,18 +80,18 @@ const CHECKBOXES = new WeakSet<Element>();
 export function Checkbox(props: CheckboxProps): Element {
   refuseOwnedHooks('Checkbox', props?.props, ['onKey', 'onMouse', 'onFocusChange']);
   if (typeof props?.label !== 'string') {
-    throw new TypeError(__`Expected a checkbox label to be a string`);
+    throw new TypeError(`Expected a checkbox label to be a string`);
   }
   if (props.onChange !== undefined && typeof props.onChange !== 'function') {
-    throw new TypeError(__`Expected a checkbox onChange to be a function`);
+    throw new TypeError(`Expected a checkbox onChange to be a function`);
   }
   const checked = controlFlag(
     props.checked,
-    __`Expected checkbox checked to be a boolean or a State`
+    `Expected checkbox checked to be a boolean or a State`
   );
   const disabled = controlCondition(
     props.disabled,
-    __`Expected checkbox disabled to be a boolean, a State, a Computed or a function`
+    `Expected checkbox disabled to be a boolean, a State, a Computed or a function`
   );
   const { onChange } = props;
   const words = labelLine(props.label);
@@ -183,6 +183,6 @@ export function describeCheckbox(
     checkboxes,
     (host) => (CHECKBOXES.has(host) ? host : undefined),
     () => [{ description: __`toggle`, keys: 'space', priority: 1 }],
-    __`Expected an element that Checkbox() returned`
+    `Expected an element that Checkbox() returned`
   );
 }

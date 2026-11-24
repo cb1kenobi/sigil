@@ -204,12 +204,12 @@ export interface ListSelection<K> {
 export function createListSelection<K>(opts: ListSelectionOptions<K> = {}): ListSelection<K> {
   if (opts.selected !== undefined && !(opts.selected instanceof State)) {
     if (typeof (opts.selected as Iterable<K>)[Symbol.iterator] !== 'function') {
-      throw new TypeError(__`Expected list selected to be an iterable of keys or a State`);
+      throw new TypeError(`Expected list selected to be an iterable of keys or a State`);
     }
   }
   const follow = opts.follow ?? true;
   if (typeof follow !== 'boolean' && follow !== 'first' && !(follow instanceof State)) {
-    throw new TypeError(__`Expected list follow to be a boolean, 'first' or a State`);
+    throw new TypeError(`Expected list follow to be a boolean, 'first' or a State`);
   }
   /** What the cursor stays with now: a `State`'s value is read at each change. */
   const following = (): ListFollow => {
@@ -225,7 +225,7 @@ export function createListSelection<K>(opts: ListSelectionOptions<K> = {}): List
   const multiple = opts.multiple === true;
   const current = controlState<K | undefined>(
     opts.current,
-    __`Expected list current to be a key or a State, not a Computed, since the list writes it`
+    `Expected list current to be a key or a State, not a Computed, since the list writes it`
   );
   const selected =
     opts.selected instanceof State
@@ -286,9 +286,7 @@ export function createListSelection<K>(opts: ListSelectionOptions<K> = {}): List
     return at === undefined ? -1 : at - base;
   };
   const duplicate = (key: K): TypeError =>
-    new TypeError(
-      __`Expected every list row to have a key of its own: ${String(key)} is used twice`
-    );
+    new TypeError(`Expected every list row to have a key of its own: ${String(key)} is used twice`);
 
   /**
    * Takes new rows that are the old ones with some dropped off the front and some
@@ -741,11 +739,11 @@ export function ListView<T, K = T>(props: ListViewProps<T, K>): Element {
   refuseOwnedHooks('ListView', props.props, ['onFocusChange', 'onKey']);
   const source = props.items;
   if (!Array.isArray(source) && typeof (source as ListItems<T> | undefined)?.get !== 'function') {
-    throw new TypeError(__`Expected list items to be an array, a State or a Computed`);
+    throw new TypeError(`Expected list items to be an array, a State or a Computed`);
   }
   for (const name of ['disabled', 'key', 'label', 'onActivate', 'row', 'rowClass'] as const) {
     if (props[name] !== undefined && typeof props[name] !== 'function') {
-      throw new TypeError(__`Expected list ${name} to be a function`);
+      throw new TypeError(`Expected list ${name} to be a function`);
     }
   }
   if (
@@ -753,9 +751,7 @@ export function ListView<T, K = T>(props: ListViewProps<T, K>): Element {
     typeof props.empty !== 'string' &&
     typeof props.empty !== 'function'
   ) {
-    throw new TypeError(
-      __`Expected list empty to be a string or a function that builds an element`
-    );
+    throw new TypeError(`Expected list empty to be a string or a function that builds an element`);
   }
   if (props.find && props.vim) {
     throw new TypeError(__`A list takes type-to-find or vim keys, and not both`);
@@ -765,7 +761,7 @@ export function ListView<T, K = T>(props: ListViewProps<T, K>): Element {
     typeof props.tail !== 'boolean' &&
     !(props.tail instanceof State)
   ) {
-    throw new TypeError(__`Expected list tail to be a boolean or a State`);
+    throw new TypeError(`Expected list tail to be a boolean or a State`);
   }
 
   const read = (): readonly T[] =>
@@ -1491,7 +1487,7 @@ export function describeListView(
   const found = hosts.map((host) => {
     const model = MODELS.get(host);
     if (model === undefined) {
-      throw new TypeError(__`Expected an element that ListView() returned`);
+      throw new TypeError(`Expected an element that ListView() returned`);
     }
     return { keys: model.keys, scope: host };
   });

@@ -851,7 +851,7 @@ export function hunkLinesPatch(
   const chosen = new Set<number>();
   for (const at of selected) {
     if (!Number.isInteger(at) || at < 0 || at >= hunk.lines.length) {
-      throw new RangeError(__`Expected a selected line to be a position in the hunk's lines`);
+      throw new RangeError(`Expected a selected line to be a position in the hunk's lines`);
     }
     if (hunk.lines[at]!.kind !== 'context') {
       chosen.add(at);
@@ -1607,7 +1607,7 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffTree {
   const numbered = opts.lineNumbers !== false;
   const wrap = opts.wrap ?? 'columns';
   if (wrap !== 'columns' && wrap !== 'words' && wrap !== 'none') {
-    throw new TypeError(__`Expected diff wrap to be columns, words or none`);
+    throw new TypeError(`Expected diff wrap to be columns, words or none`);
   }
   const cutting: Cutting =
     wrap === 'none'
@@ -1750,8 +1750,15 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffTree {
     }
   }
 
+  // appended one at a time: a diff has a row per line and `box()` takes its
+  // children as arguments, which a long enough one cannot (SIG-417)
+  const element = box({ class: 'sigil-diff', 'flex-direction': 'column' });
+  for (const row of rows) {
+    element.append(row);
+  }
+
   return {
-    element: box({ class: 'sigil-diff', 'flex-direction': 'column' }, ...rows),
+    element,
     hunks,
     layout,
     overflow,

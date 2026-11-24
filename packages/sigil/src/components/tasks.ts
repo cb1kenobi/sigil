@@ -531,7 +531,7 @@ function concurrencyOf(value: number | undefined): number {
   if (value === Infinity || (Number.isInteger(value) && value >= 1)) {
     return value;
   }
-  throw new TypeError(__`Expected concurrency to be a positive integer or Infinity`);
+  throw new TypeError(`Expected concurrency to be a positive integer or Infinity`);
 }
 
 /**
@@ -546,10 +546,10 @@ function retryOf(value: Task['retry']): Required<TaskRetry> {
   }
   const { delay = 0, tries } = typeof value === 'number' ? { tries: value } : value;
   if (!Number.isInteger(tries) || tries < 0) {
-    throw new TypeError(__`Expected retry to be a whole number of tries`);
+    throw new TypeError(`Expected retry to be a whole number of tries`);
   }
   if (!Number.isFinite(delay) || delay < 0) {
-    throw new TypeError(__`Expected a retry delay in milliseconds`);
+    throw new TypeError(`Expected a retry delay in milliseconds`);
   }
   return { delay, tries };
 }
@@ -844,12 +844,20 @@ function createRun(opts: TasksOptions): Run {
     const lines = [settledLine(node)];
     if (node.view.outcome.get() === 'error') {
       if (node.window) {
-        lines.push(
-          ...failureLines(node.window.kept, node.window.dropped, node.depth * INDENT + INDENT)
-        );
+        // one at a time rather than spread into `push()`: a failed task's window
+        // and its subtree are as long as the output was (SIG-417)
+        for (const line of failureLines(
+          node.window.kept,
+          node.window.dropped,
+          node.depth * INDENT + INDENT
+        )) {
+          lines.push(line);
+        }
       }
       for (const child of node.children) {
-        lines.push(...block(child));
+        for (const line of block(child)) {
+          lines.push(line);
+        }
       }
     }
     return lines;

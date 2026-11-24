@@ -246,23 +246,23 @@ function read<T>(source: DiffViewProps<T>['content']): DiffViewContent<T> {
 export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
   refuseOwnedHooks('DiffView', props.props, ['onKey']);
   if (props.content === undefined || props.content === null) {
-    throw new TypeError(__`Expected a diff view to have content`);
+    throw new TypeError(`Expected a diff view to have content`);
   }
   if (
     props.current !== undefined &&
     !(props.current instanceof State) &&
     !Number.isInteger(props.current)
   ) {
-    throw new TypeError(__`Expected diff view current to be a whole number or a State`);
+    throw new TypeError(`Expected diff view current to be a whole number or a State`);
   }
   if (props.position !== undefined && !(props.position instanceof State)) {
-    throw new TypeError(__`Expected diff view position to be a State`);
+    throw new TypeError(`Expected diff view position to be a State`);
   }
   if (
     props.lines !== undefined &&
     !(props.lines.cursor instanceof State && props.lines.selected instanceof State)
   ) {
-    throw new TypeError(__`Expected diff view lines to hold a cursor and a selected State`);
+    throw new TypeError(`Expected diff view lines to hold a cursor and a selected State`);
   }
   const picking = props.lines;
   /** How many cells the marks take: the hunk's, and the line's where there are lines. */
@@ -273,7 +273,7 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
     !(props.wrap instanceof State) &&
     typeof props.wrap !== 'boolean'
   ) {
-    throw new TypeError(__`Expected diff view wrap to be a boolean or a State`);
+    throw new TypeError(`Expected diff view wrap to be a boolean or a State`);
   }
   const current = props.current instanceof State ? props.current : new State(props.current ?? 0);
   const wrapping = props.wrap instanceof State ? props.wrap : new State(props.wrap ?? true);
@@ -1335,7 +1335,7 @@ export function describeDiffView(
 ): () => void {
   for (const host of views) {
     if (!HOSTS.has(host)) {
-      throw new TypeError(__`Expected an element that DiffView() returned`);
+      throw new TypeError(`Expected an element that DiffView() returned`);
     }
   }
   const off: Array<() => void> = [];

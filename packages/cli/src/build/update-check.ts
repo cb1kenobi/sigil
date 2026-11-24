@@ -227,6 +227,66 @@ export type SchemaUpdateCheck =
    */
   | 'wrapped';
 
+/**
+ * Whether a module reaches `check()` from `@ttylabs/sigil/updates`, as opposed to
+ * a builder or a type (SIG-609).
+ *
+ * The bundler's watch sees the specifier and not what was imported from it, so an
+ * app that writes `updateCheck: githubChecker({ repo })` and an app that also calls
+ * `check()` by hand look the same to it -- and only the second has a call that
+ * reads `sigil.json` instead of the schema. This is the question asked of one
+ * module's own imports and exports: a named import of `check`, a namespace import,
+ * and a re-export of `check`, of everything (`export *`) or of the namespace.
+ *
+ * It is asked of the **import**, not of a use site, which is why it does not go
+ * through `importBindings()`: that gives up a name the module binds again anywhere,
+ * and `check` is as generic a name as there is -- a module with
+ * `items.filter((check) => ...)` beside the import would have the warning turned
+ * off for it, which is the ticket's own symptom. Here a wrong yes costs one note and
+ * a wrong no costs the hole, so the answer is "was it imported". What stays silent:
+ * a dynamic `import()` and a `require()` have no name to read, and a module that
+ * does not read or parse is not one this can say anything about. A namespace import
+ * counts without asking which member is used, so an app that only calls
+ * `ns.githubChecker()` is told about a call it does not make; it costs one line and a
+ * `sigil.json` entry, the price `wrappedCheckWarning()` already charges.
+ *
+ * @param file - The module that imports `@ttylabs/sigil/updates`.
+ * @returns Whether it reaches `check()`.
+ */
+export function importsCheckFunction(file: string): boolean {
+  let parsed: ReturnType<typeof parseModule>;
+  try {
+    parsed = parseModule(file, readFileSync(file, 'utf-8'));
+  } catch {
+    return false;
+  }
+
+  const imported = parsed.module.staticImports.some(
+    (declaration) =>
+      declaration.moduleRequest.value === UPDATE_CHECK_SPECIFIER &&
+      declaration.entries.some(
+        (entry) =>
+          !entry.isType &&
+          (entry.importName.kind === 'NamespaceObject' ||
+            (entry.importName.kind === 'Name' && entry.importName.name === 'check'))
+      )
+  );
+  if (imported) {
+    return true;
+  }
+
+  return parsed.module.staticExports.some((declaration) =>
+    declaration.entries.some(
+      (entry) =>
+        !entry.isType &&
+        entry.moduleRequest?.value === UPDATE_CHECK_SPECIFIER &&
+        (entry.importName.kind === 'All' ||
+          entry.importName.kind === 'AllButDefault' ||
+          (entry.importName.kind === 'Name' && entry.importName.name === 'check'))
+    )
+  );
+}
+
 /** The checker builders an app may call in its schema. */
 const CHECKER_BUILDERS = ['githubChecker', 'npmChecker'] as const;
 
@@ -441,6 +501,46 @@ export function wrappedCheckWarning(
     "This app's updateCheck names its checker through a call, and the build cannot see what that call returns. " +
     `It imports ${UPDATE_CHECK_SPECIFIER}, so if it also calls check() with no checker of its own, the binary's update check does nothing. ` +
     'Declare "updateCheck" in sigil.json -- "npm", "github" or "custom" for where to look, or "none" -- to settle it.'
+  );
+}
+
+/**
+ * What `sigil package` says when a schema names its checker and the app calls `check()`.
+ *
+ * The schema's checker serves the **automatic** check, and `check()` reads only
+ * its own `checker` option or the one `sigil.json` bakes -- so an app that writes
+ * `updateCheck: githubChecker({ repo })` and also calls `check()` with no checker
+ * of its own ships a binary whose hand-called check answers `{ current }` with no
+ * `latest`. The build cannot see which arguments a call was given, so it cannot
+ * tell that app from one that passes its own `checker`; it says why the check
+ * would be empty and leaves it to the author (SIG-609). Declaring `updateCheck` in
+ * `sigil.json` is both the fix and the silence, the way it is for
+ * `wrappedCheckWarning()`.
+ *
+ * Asked of `'names'` only, and only once the bundle reaches `check` itself: a
+ * schema that names its checker and imports nothing but the builder is the
+ * documented path, and it is not warned about.
+ *
+ * @param config - The app's `sigil.json`.
+ * @param importsCheck - Whether a module of the bundle reaches `check()`.
+ * @param schema - What `readSchemaUpdateCheck()` made of the schema.
+ * @returns The warning, or `undefined` when there is nothing to say.
+ */
+export function handCalledCheckWarning(
+  config: SigilConfig,
+  importsCheck: boolean,
+  schema: SchemaUpdateCheck | undefined
+): string | undefined {
+  if (!importsCheck || schema !== 'names' || config.updateCheck) {
+    return undefined;
+  }
+
+  return (
+    "This app's updateCheck names its checker in the schema, and the app imports check() from " +
+    `${UPDATE_CHECK_SPECIFIER}. The schema's checker serves the automatic check only: a check() called with no ` +
+    'checker of its own reads sigil.json, which declares nothing, so in this binary it does nothing. ' +
+    'Declare "updateCheck" in sigil.json -- "npm", "github" or "custom" for where to look -- to give it one. ' +
+    'An app that passes a checker to check() does not need to, and "none" says so.'
   );
 }
 

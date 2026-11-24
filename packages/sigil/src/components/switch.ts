@@ -84,7 +84,7 @@ function stateName(value: unknown, fallback: string): string {
     return fallback;
   }
   if (typeof value !== 'string' || labelLine(value) === '') {
-    throw new TypeError(__`Expected a switch state name to be a non-empty string`);
+    throw new TypeError(`Expected a switch state name to be a non-empty string`);
   }
   return labelLine(value);
 }
@@ -98,21 +98,21 @@ function stateName(value: unknown, fallback: string): string {
 export function Switch(props: SwitchProps = {}): Element {
   refuseOwnedHooks('Switch', props.props, ['onKey', 'onMouse', 'onFocusChange']);
   if (props.label !== undefined && typeof props.label !== 'string') {
-    throw new TypeError(__`Expected a switch label to be a string`);
+    throw new TypeError(`Expected a switch label to be a string`);
   }
   if (props.onChange !== undefined && typeof props.onChange !== 'function') {
-    throw new TypeError(__`Expected a switch onChange to be a function`);
+    throw new TypeError(`Expected a switch onChange to be a function`);
   }
   const active = stateName(props.active, __`on`);
   const inactive = stateName(props.inactive, __`off`);
   // two states with one name are a choice nobody can read
   if (active === inactive) {
-    throw new TypeError(__`Expected a switch's two states to have different names`);
+    throw new TypeError(`Expected a switch's two states to have different names`);
   }
-  const value = controlFlag(props.value, __`Expected switch value to be a boolean or a State`);
+  const value = controlFlag(props.value, `Expected switch value to be a boolean or a State`);
   const disabled = controlCondition(
     props.disabled,
-    __`Expected switch disabled to be a boolean, a State, a Computed or a function`
+    `Expected switch disabled to be a boolean, a State, a Computed or a function`
   );
   const { onChange } = props;
   const words = props.label === undefined ? '' : labelLine(props.label);
@@ -274,6 +274,6 @@ export function describeSwitch(
         { description: on, keys: 'right' },
       ];
     },
-    __`Expected an element that Switch() returned`
+    `Expected an element that Switch() returned`
   );
 }
