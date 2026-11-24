@@ -41,6 +41,12 @@ describe('selectedCharacters()', () => {
     expect(selectedCharacters('a😀b', { anchor: at(0, 0), caret: at(0, 3) })).toBe(2);
   });
 
+  it('should count over the text the area holds, which has no control character, and not throw', () => {
+    // a form feed is dropped from the area's lines, so the places are into `ab\nc`
+    expect(selectedCharacters('a\u000Cb\nc', { anchor: at(0, 0), caret: at(1, 1) })).toBe(4);
+    expect(selectedCharacters('ab', { anchor: at(0, 0), caret: at(9, 9) })).toBe(2);
+  });
+
   it('should start each document collapsed at the top', () => {
     const doc = createDoc('/tmp/x.txt', 'abc');
     expect(selectedCharacters('abc', doc.selection.get())).toBe(0);

@@ -9,6 +9,7 @@
 
 import {
   codeLanguage,
+  pastedBlock,
   type TextAreaCaret,
   type TextAreaSelection,
 } from '@ttylabs/sigil/components';
@@ -89,15 +90,23 @@ export function createDoc(path: string, text: string): Doc {
 /**
  * How many characters a selection holds, a line break counting one.
  *
- * Characters rather than the code units the places are in, which is what the
- * "Copied" message counts too -- an emoji is one however many units it takes.
+ * Code points rather than the code units the places are in, which is what the
+ * "Copied" message counts too. The places are into the text as the area holds it,
+ * which is `pastedBlock()` of the value: a control character the file came with is
+ * not in it, and an unedited value still is.
  *
- * @param text - The text, with `\n` line endings: the text area's value.
+ * @param text - The text, as the document holds it.
  * @param selection - What is selected, its ends in either order.
  * @returns The count, or 0 while the two ends are one place.
  */
 export function selectedCharacters(text: string, selection: TextAreaSelection): number {
-  const { anchor, caret } = selection;
+  const lines = pastedBlock(text).split('\n');
+  // a place the text no longer has is the nearest one, as the area reads it
+  const near = (at: TextAreaCaret): TextAreaCaret => {
+    const line = Math.max(0, Math.min(at.line, lines.length - 1));
+    return { col: Math.max(0, Math.min(at.col, lines[line].length)), line };
+  };
+  const [anchor, caret] = [near(selection.anchor), near(selection.caret)];
   if (anchor.line === caret.line && anchor.col === caret.col) {
     return 0;
   }
@@ -105,7 +114,6 @@ export function selectedCharacters(text: string, selection: TextAreaSelection): 
     anchor.line < caret.line || (anchor.line === caret.line && anchor.col < caret.col)
       ? [anchor, caret]
       : [caret, anchor];
-  const lines = text.split('\n');
   const held =
     from.line === to.line
       ? lines[from.line].slice(from.col, to.col)
