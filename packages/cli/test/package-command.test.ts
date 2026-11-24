@@ -1468,6 +1468,102 @@ describe('sigil package', () => {
     );
   });
 
+  describe.skipIf(process.platform === 'win32')(
+    'a file too deeply nested to parse (SIG-645)',
+    () => {
+      // the same fixtures `sigil build` is tested with, through the same
+      // function: 513 unbalanced `(` inside strings is past the shake's ceiling
+      // by the naive count and is nothing the parser is ever given, so nothing
+      // here can segfault `oxc-parser` (SIG-639). A stub `node` answers
+      // `--version` and fails `--build-sea`, which is after the note and means
+      // no compiler is needed -- the shape of `should compile with the node it
+      // checked`, and skipped on Windows for the same reason: a shell script
+      const deep = `export const a = [${Array.from({ length: 513 }, () => `':('`).join(', ')}];\n`;
+      let fakebin: string;
+      let path: string | undefined;
+
+      beforeEach(() => {
+        path = process.env.PATH;
+        fakebin = mkdtempSync(join(tmpdir(), 'sigil-stubnode-deep-'));
+
+        const name = [...candidates('node', { path: fakebin })].find((one) =>
+          one.startsWith(fakebin)
+        );
+
+        expect(name, 'candidates() offered nothing inside the fixture directory').toBeDefined();
+        writeExecutable(
+          name as string,
+          '#!/bin/sh\ncase "$1" in\n  --version) echo v99.0.0 ;;\n  *) exit 1 ;;\nesac\n'
+        );
+        process.env.PATH = `${fakebin}${delimiter}${path ?? ''}`;
+      });
+
+      afterEach(() => {
+        process.env.PATH = path;
+        rmSync(fakebin, { force: true, maxRetries: 5, recursive: true });
+      });
+
+      const pack = (app: string, ...rest: string[]) =>
+        sigil(
+          'package',
+          app,
+          '--out',
+          out,
+          '--runtime',
+          'node',
+          '--target',
+          label(hostTarget()),
+          ...rest
+        );
+
+      it('should name the file and what it keeps, as sigil build does', async () => {
+        const app = linkedFixture(join(fixtures, 'styled'), 'sigil-pkg-deep-');
+        writeFileSync(join(app, 'src', 'deep.ts'), deep);
+
+        const { err } = await pack(app);
+
+        expect(err).toMatch(/src\/deep\.ts\s+was\s+read\s+without\s+parsing/);
+        expect(err).toMatch(/keeps\s+\d+\s+of\s+383\s+utility\s+rules/);
+        expect(err).toContain('--no-shake');
+      }, 120_000);
+
+      it('should say nothing about a file under the ceiling', async () => {
+        const app = linkedFixture(join(fixtures, 'styled'), 'sigil-pkg-shallow-');
+        writeFileSync(
+          join(app, 'src', 'shallow.ts'),
+          `export const data = [${Array.from({ length: 400 }, () => `':('`).join(', ')}];\n`
+        );
+
+        const { err } = await pack(app);
+
+        // the run got as far as the compiler, so a silence is not an early exit
+        expect(err).not.toContain('read without parsing');
+        expect(err).toContain('--build-sea');
+      }, 120_000);
+
+      it('should escape what a file is called', async () => {
+        const app = linkedFixture(join(fixtures, 'styled'), 'sigil-pkg-deep-name-');
+        writeFileSync(join(app, 'src', 'a\nforged line.ts'), deep);
+
+        const { err } = await pack(app);
+
+        expect(err).toContain('src/a\\x0Aforged line.ts was read without parsing');
+        expect(err).not.toContain('a\nforged line');
+      }, 120_000);
+
+      it('should say nothing under --quiet', async () => {
+        const app = linkedFixture(join(fixtures, 'styled'), 'sigil-pkg-deep-quiet-');
+        writeFileSync(join(app, 'src', 'deep.ts'), deep);
+
+        const { err } = await pack(app, '--quiet');
+
+        // as far as the compiler, so the silence is not an option refused
+        expect(err).toContain('--build-sea');
+        expect(err).not.toContain('read without parsing');
+      }, 120_000);
+    }
+  );
+
   describe('the utility sheet it embeds', () => {
     // either compiler proves it, and both are skipped where neither can run, as
     // the rest of this file's compiling tests are: CI installs no Bun, and

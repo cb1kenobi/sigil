@@ -3123,8 +3123,17 @@ other is refused with numbers.
   does not strip a control character the way a canvas does. `build.safelist` is
   deliberately not offered as the fix: it adds rules and this is about having
   too many. What does work is making the file shallow enough to parse, or
-  `--no-shake`, which keeps every rule anyway. Only `sigil build` says it;
-  `sigil package` reads the same files the same way and is silent.
+  `--no-shake`, which keeps every rule anyway. `sigil package` says it too
+  (SIG-645), through the same function: `warnUnparsed()` lives in
+  `commands/_inspect.ts` beside `utilityRules()`, which is the other thing both
+  commands say about a shake, rather than in `build.ts` with a copy in
+  `package.ts`. It prints after the update-check refusals, so an app that is not
+  going to be packaged is not also told what its sheet would have cost, and
+  before anything is compiled. It is tested with a stub `node` that fails
+  `--build-sea`, so no compiler is needed and the test is skipped on Windows
+  with the other tests that use one. That run ends before the summary, so
+  "not counted as a warning" is not asserted for `package`: it holds because a
+  note never touches the counts, and `build`'s test reaches its summary.
 
   **Windows was measured, and its default stack is not the 1 MB one**
   (SIG-638). A throwaway test spawned one `node` per depth on the Windows runner
