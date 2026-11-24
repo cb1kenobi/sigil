@@ -12,7 +12,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * `app completion` end to end: does it detect, ask, write and say what is left?
@@ -84,6 +84,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   rmSync(box, { force: true, recursive: true });
 });
 
@@ -120,11 +121,20 @@ function run(
     ? ['--import', TTY_PRELOAD, '--input-type=module', '-e', app]
     : ['--input-type=module', '-e', app];
 
+  // what the installer reads that this does not set, and so would otherwise
+  // take from whoever ran the suite. `ZDOTDIR` is the one: it moves zsh's
+  // startup file off `HOME`, so a parent shell exporting it sent the child to
+  // that shell's real `.zshrc`. Nothing here spawns a shell, so `BASH_ENV`,
+  // `ENV` and the rest of what a shell reads at startup are never read -- the
+  // child is node, and `installTarget()` reads `XDG_DATA_HOME`, `ZDOTDIR` and
+  // `HOME` only, of which this sets two and removes the third
+  const { ZDOTDIR: _inherited, ...inherited } = process.env;
+
   return new Promise((settle, fail) => {
     const child = spawn(process.execPath, [...node, 'completion', ...args], {
       cwd: join(root, 'demos'),
       env: {
-        ...process.env,
+        ...inherited,
         COLUMNS: '80',
         HOME: join(box, 'home'),
         NO_COLOR: '1',
@@ -195,6 +205,25 @@ describe('app completion on a terminal', () => {
     // zero, because it did something -- which is the whole of what SIG-139
     // could not say
     expect(ran.code).toBe(0);
+  }, 30_000);
+
+  it("should not follow the parent shell's ZDOTDIR to a startup file that is not the box's", async () => {
+    // an agent shell exports it, pointing at a real `.zshrc` that may already hold
+    // the block: the child then found the block present and the assertions about
+    // what it added failed -- 7 of 24 -- while nothing said why
+    const decoy = join(box, 'decoy');
+    mkdirSync(decoy, { recursive: true });
+    const decoyRc = join(decoy, '.zshrc');
+    writeFileSync(decoyRc, "# the parent shell's own startup file\n");
+    vi.stubEnv('ZDOTDIR', decoy);
+
+    const ran = await run([], { keys: [CR, CR] });
+
+    expect(ran.code).toBe(0);
+    expect(readFileSync(decoyRc, 'utf8')).toBe("# the parent shell's own startup file\n");
+    expect(readFileSync(join(box, 'home', '.zshrc'), 'utf8')).toContain(
+      '# zsh completion for `probecli`, added by sigil.'
+    );
   }, 30_000);
 
   it('should say nothing to do on a second run that has nothing to do', async () => {
