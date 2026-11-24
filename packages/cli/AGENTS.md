@@ -7708,9 +7708,9 @@ measurements are in
   `latest`. `readSchemaUpdateCheck()` now answers `'wrapped'` for a literal that
   only a call hands over (`options !== expression`, so a builder call or a
   literal written out stays `'names'`), and `wrappedCheckWarning()` is what
-  `sigil package` writes when the app imports `check()` (SIG-666; it was the
-  specifier until then), the schema is
-  `'wrapped'` and `sigil.json` declares no `updateCheck`. Declaring one is the
+  `sigil package` writes when the schema is `'wrapped'` and `sigil.json` declares
+  no `updateCheck` -- about the wrapper in every case, and about `check()` too
+  when the app imports it (SIG-666, SIG-676, below). Declaring one is the
   fix and the silence: it bakes the checker the hand-called `check()` reads.
 
   Warning was chosen over keeping the import signal, which would refuse, because
@@ -7761,23 +7761,54 @@ measurements are in
   `.filter((check) => ...)` beside the import would have turned the warning off. A namespace import counts
   without asking which member is used. `--quiet` silences both, which is `writeNote()`'s rule.
 
-  **`'wrapped'` is asked of `importsCheck` too, not of the specifier (SIG-666).**
-  SIG-609 left the SIG-593 warning on the specifier, and the specifier is what
+  **`'wrapped'` is asked of `importsCheck` for what it says about `check()`, and
+  of nothing for what it says about the wrapper (SIG-666, SIG-676).** SIG-609 left
+  the SIG-593 warning on the specifier, and the specifier is what
   `updateCheck: wrap({ checker: githubChecker(...) })` puts in the graph by itself:
-  a wrapped schema that imports only the builder never calls `check()` by hand
-  and was warned about a hollow check it does not have.
-  `wrappedCheckWarning()` now takes `importsCheck` and the message says it is
-  `check()` that is imported. What it costs is one case, known and accepted: a wrap
-  that returns something truthy without the checker, in an app that imports no
-  `check`, is the `'asks'` shape at run time -- `beginUpdateCheck()` finds no
-  checker and the automatic check does nothing -- and the specifier signal's note
-  was the only thing that said so, in words about `check()`. Everything else it
-  stopped saying was noise: the warning is about a hand-called `check()` with no
-  checker, and an app that does not import `check` has none to call. `should say nothing for a
-  wrapped schema that imports only a builder` packages one and failed on the
-  specifier version. Left as it was: a schema checker written as a plain literal
-  is still not baked, for the reason above, so a wrapped one that does import
-  `check` is still told to declare `updateCheck` in `sigil.json`.
+  a wrapped schema that imports only the builder never calls `check()` by hand and
+  was warned about a hollow `check()` it does not have. SIG-666 narrowed the
+  warning to `importsCheck`, and that left one case silent: a wrap that returns
+  something truthy without the checker, in an app that imports no `check`, is the
+  `'asks'` shape at run time -- `beginUpdateCheck()` finds no checker and the
+  **automatic** check does nothing -- and the old specifier note had been the only
+  thing that said so, in words about `check()`. SIG-666 recorded that as known and
+  accepted; SIG-676 reversed it, because the build can say it at the price of one
+  line.
+
+  `wrappedCheckWarning()` is therefore asked of every wrapped schema that declares
+  nothing in `sigil.json`, whatever the app imports, and its words follow what the
+  app reaches: always that the call's result is not visible and that the automatic
+  check does nothing if it hands back no checker, and a second sentence about
+  `check()` only when `importsCheck`. A reader who never wrote a `check()` is not
+  told about one, which was the defect SIG-666 fixed and is pinned (`should warn
+  about the wrapper, and not about check()`). The cost is the one SIG-666 set out
+  to remove, in a different form: a wrapper that **does** pass the checker through,
+  in an app that imports only the builder, is warned too, because the build cannot
+  tell it from one that drops it. That is one note and a `sigil.json` entry, where
+  the silent case was an app that shipped with no update notice and no word.
+
+  **It is a warning and not the `'asks'` refusal, which is the reason `'wrapped'`
+  exists.** Treating `'wrapped'` plus an empty `sigil.json` as `'asks'` would refuse
+  every app whose wrapper hands the checker back, which is the correct and usual
+  one -- the false refusal this entry's rule exists to avoid. `'asks'` is a schema
+  with no checker anywhere in it, and a refusal can say so because it is true; a
+  wrapped one is an unknown, and the most this can honestly do is say it is one.
+  Still not baked: a schema checker written as a plain literal is left alone, for
+  the reason above, so a wrapped app is told to declare `updateCheck` in
+  `sigil.json` rather than having the build read the checker out of the call.
+
+  **The decision is `updateCheckVerdict()`, which takes the bundle result itself.**
+  `sigil package` used to pick `result.importsCheck` or `result.usesUpdateCheck`
+  inline, and the only test that could see it pick wrongly was a packaged binary,
+  which needs bun -- so a revert to the specifier would have passed everywhere bun
+  is not installed. One function now answers both halves, whether to demand a
+  declaration and which notes to write, from the bundle's two flags and the schema,
+  and `what sigil package decides about the update check` asks it with every
+  combination and no runtime. Swapping either warning back onto `usesUpdateCheck`
+  fails two of those cases; narrowing the wrapper warning back to `importsCheck`
+  fails three. What it does not pin is `package.ts` calling it at all, which the
+  bun-gated cases still cover: `should warn about the wrapper, and not about
+  check(), for a wrapped schema that imports only a builder` packages one.
 
 - **A checker the schema writes out is asked of `checkedChecker()` at build time,
   so the author is told where they are already looking (SIG-564).**

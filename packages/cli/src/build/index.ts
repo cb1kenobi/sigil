@@ -172,11 +172,13 @@ export {
   readSchemaUpdateCheck,
   schemaWantsUpdateCheck,
   updateCheckDefine,
+  updateCheckVerdict,
   UPDATE_CHECK_DEFINE,
   UPDATE_CHECK_SPECIFIER,
   wrappedCheckWarning,
   type BakedUpdateCheckOptions,
   type UpdateCheckUse,
+  type UpdateCheckVerdict,
 } from './update-check.ts';
 export {
   bunTargetRuntime,

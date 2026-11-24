@@ -11,6 +11,7 @@ import {
   resolveCommandTree,
   updateCheckDefine,
   UPDATE_CHECK_DEFINE,
+  updateCheckVerdict,
   wrappedCheckWarning,
 } from '../src/build/index.ts';
 import { binaryName, hostTarget } from '../src/build/index.ts';
@@ -1531,7 +1532,21 @@ describe('a checker named through a call the build cannot read', () => {
     const warning = wrappedCheckWarning({}, true, 'wrapped');
     expect(warning).toContain('through a call');
     expect(warning).toContain('@ttylabs/sigil/updates');
+    expect(warning).toContain('imports check()');
     expect(warning).toContain('"updateCheck"');
+  });
+
+  // SIG-676: a wrapper that drops the checker, in an app that imports no check(), is
+  // the 'asks' shape at run time. The build cannot tell it from a wrapper that passes
+  // the checker through, which is why it is a warning and not the refusal 'asks' gets
+  it('should warn about the wrapper when the app imports no check()', () => {
+    const warning = wrappedCheckWarning({}, false, 'wrapped');
+    expect(warning).toContain('through a call');
+    expect(warning).toContain('automatic update check does nothing');
+    expect(warning).toContain('"updateCheck"');
+    // about the wrapper, which is all there is to say: no check() is imported
+    expect(warning).not.toContain('check()');
+    expect(warning).not.toContain('@ttylabs/sigil/updates');
   });
 
   it.each([
@@ -1542,12 +1557,100 @@ describe('a checker named through a call the build cannot read', () => {
       true,
       'wrapped',
     ],
-    ['the app never imports check() itself', {}, false, 'wrapped'],
+    [
+      'sigil.json declares where to look and no check() is imported',
+      { updateCheck: { type: 'none' } },
+      false,
+      'wrapped',
+    ],
     ['the checker is confirmed', {}, true, 'names'],
+    ['the checker is confirmed and no check() is imported', {}, false, 'names'],
     ['the schema asks and says nothing, which is refused instead', {}, true, 'asks'],
     ['the schema does not ask', {}, true, undefined],
+    ['the schema does not ask and no check() is imported', {}, false, undefined],
   ] as const)('should say nothing when %s', (_what, config, importsCheck, schema) => {
     expect(wrappedCheckWarning(config as SigilConfig, importsCheck, schema)).toBeUndefined();
+  });
+});
+
+// SIG-676: what `sigil package` decides, asked without a runtime to package with. The
+// bun-gated cases below prove the same through a real build; these are the ones that
+// run everywhere, and the ones that fail when the decision reads the specifier where it
+// should read check() (SIG-666) or stops asking about a wrapper at all
+describe('what sigil package decides about the update check', () => {
+  const verdict = (
+    config: SigilConfig,
+    bundle: { importsCheck: boolean; usesUpdateCheck: boolean },
+    schema: Parameters<typeof updateCheckVerdict>[2]
+  ) => updateCheckVerdict(config, bundle, schema);
+
+  it('should read check() and not the specifier, for a wrapped schema that imports a builder', () => {
+    // SIG-666: the specifier is in the graph for the builder alone. What is said is
+    // the wrapper's and not check()'s, which this app does not import
+    const { declare, notes } = verdict(
+      {},
+      { importsCheck: false, usesUpdateCheck: true },
+      'wrapped'
+    );
+    expect(declare).toBe(false);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain('through a call');
+    expect(notes[0]).not.toContain('check()');
+  });
+
+  it('should add check() to what it says once the app imports it', () => {
+    const { declare, notes } = verdict(
+      {},
+      { importsCheck: true, usesUpdateCheck: true },
+      'wrapped'
+    );
+    expect(declare).toBe(false);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain('imports check()');
+  });
+
+  it('should warn a wrapped schema that imports nothing from the updates subpath', () => {
+    const { declare, notes } = verdict(
+      {},
+      { importsCheck: false, usesUpdateCheck: false },
+      'wrapped'
+    );
+    expect(declare).toBe(false);
+    expect(notes).toHaveLength(1);
+  });
+
+  it('should say nothing once sigil.json declares the check, whatever the app imports', () => {
+    for (const importsCheck of [true, false]) {
+      expect(
+        verdict(
+          { updateCheck: { type: 'none' } },
+          { importsCheck, usesUpdateCheck: true },
+          'wrapped'
+        )
+      ).toEqual({ declare: false, notes: [] });
+    }
+  });
+
+  it('should say the handCalled note for a confirmed checker only when check() is imported', () => {
+    expect(verdict({}, { importsCheck: false, usesUpdateCheck: true }, 'names')).toEqual({
+      declare: false,
+      notes: [],
+    });
+    const { declare, notes } = verdict({}, { importsCheck: true, usesUpdateCheck: true }, 'names');
+    expect(declare).toBe(false);
+    expect(notes).toEqual([handCalledCheckWarning({}, true, 'names')]);
+  });
+
+  it('should demand a declaration for an import that names nothing, and for a schema that asks', () => {
+    expect(verdict({}, { importsCheck: true, usesUpdateCheck: true }, undefined).declare).toBe(
+      'import'
+    );
+    expect(verdict({}, { importsCheck: false, usesUpdateCheck: false }, 'asks').declare).toBe(
+      'schema'
+    );
+    expect(verdict({}, { importsCheck: false, usesUpdateCheck: false }, undefined).declare).toBe(
+      false
+    );
   });
 });
 
@@ -1675,10 +1778,12 @@ describe('a packaged binary that asks in its schema', () => {
       expect(flat(err)).not.toContain('through a call');
     }, 180000);
 
-    // SIG-666: the warning is about a hand-called check(), and a wrapped schema that
-    // imports only the builder never calls one. It was keyed
-    // on the specifier, which a builder import puts in the graph all the same
-    it('should say nothing for a wrapped schema that imports only a builder', async () => {
+    // SIG-666 narrowed the warning to an app that imports check(), and SIG-676 put back
+    // what that left silent: a wrapped schema that imports only the builder has no
+    // check() to be told about, but its wrapper may still drop the checker, and then the
+    // automatic check does nothing. The words are the wrapper's, so a reader who never
+    // wrote a check() is not told about one
+    it('should warn about the wrapper, and not about check(), for a wrapped schema that imports only a builder', async () => {
       const root = variant(
         'wrapped-builder-only',
         undefined,
@@ -1698,7 +1803,9 @@ describe('a packaged binary that asks in its schema', () => {
       try {
         const { code, err } = await sigil('package', root, '--runtime', 'bun', '--out', out);
         expect(code, err).toBeFalsy();
-        expect(flat(err)).not.toContain('through a call');
+        expect(flat(err)).toContain('through a call');
+        expect(flat(err)).toContain('automatic update check does nothing');
+        expect(flat(err)).not.toContain('imports check()');
       } finally {
         rmSync(out, { force: true, recursive: true });
       }
