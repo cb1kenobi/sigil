@@ -11241,20 +11241,22 @@ field joins like anything else focusable.
   one field and before the last word in another. Chris decided the table is
   shared by all of them (2026-11-24), so those five keys are new to six fields.
 
-  **A masked field keeps character-only editing**, which is `{ words: false }`:
-  `password()` (that is `text()` with a `mask`) and a `TextField` with a `mask`.
-  Jumping or deleting by word on a masked value reveals where its spaces are, which
-  is the one thing a mask is for hiding. With it off Ctrl-W, Ctrl-K, Alt-D, Alt-B
-  and Alt-F are not editing keys at all, and Ctrl or Alt with Backspace, Delete,
-  Left or Right is the single character it always was; Ctrl-U stays, since it
-  names no word. Asked of `mask` rather than of which function was called, so a
-  field built another way is held to the same rule. What follows for a masked
-  `TextField` is that the five keys are no longer claimed: `editLine()` answers
-  `undefined`, a printable-key check declines them too, and they go on to the form,
-  dialog or app binding around it -- where a masked field used to swallow them.
-  Deliberate for want of a reason to swallow a key that edits nothing, and it is
-  the one place the decision reaches an app: a dialog whose login field is masked
-  and whose app binds Ctrl-W sees that binding fire.
+  **A masked field keeps character-only editing, and still claims the word keys**
+  (Chris, 2026-11-24). `password()` (that is `text()` with a `mask`) and a
+  `TextField` with a `mask` pass `{ words: false }`. Jumping or deleting by word on
+  a masked value reveals where its spaces are, which is the one thing a mask is
+  for hiding -- so Ctrl-W, Ctrl-K, Alt-B, Alt-F, Alt-D and Alt-Backspace, and the
+  same keys on Backspace, Delete, Left and Right held with Ctrl or Alt, edit
+  nothing there. They are claimed all the same: `editLine()` answers an edit that
+  changes nothing for each of them, from the one `isWordKey()` beside it, rather
+  than `undefined`. Why: which keys a focused field owns must not change with its
+  `mask` prop, and a habitual Ctrl-W while typing a secret must not fire an app's
+  own "close". The first version answered `undefined` and let them bubble, which
+  review caught as the one place the shared table reached an app. A prompt stops
+  every key it reads, so for `password()` the claim was already total and its test
+  says so rather than proving a guard; for `TextField` it is the one that matters.
+  Ctrl-U stays, since it names no word. Asked of `mask` rather than of which
+  function was called, so a field built another way is held to the same rule.
 
   **A list's highlight goes back to the top only when an edit changed the value.**
   The palette and `path()` reset it on Backspace, Delete and Ctrl-U whether or not

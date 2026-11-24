@@ -520,26 +520,22 @@ describe('editLine()', () => {
   describe('with words off, which is what a masked field asks for', () => {
     const off = { words: false };
 
-    it('should not answer the keys that name a word', () => {
+    it('should claim every key that names a word, and change nothing', () => {
       for (const k of [
         key({ ctrl: true, name: 'w' }),
         key({ ctrl: true, name: 'k' }),
         key({ meta: true, name: 'd' }),
         key({ meta: true, name: 'b' }),
         key({ meta: true, name: 'f' }),
+        key({ meta: true, name: 'backspace' }),
+        key({ ctrl: true, name: 'backspace' }),
+        key({ meta: true, name: 'delete' }),
+        key({ ctrl: true, name: 'delete' }),
+        key({ ctrl: true, name: 'left' }),
+        key({ meta: true, name: 'right' }),
       ]) {
-        expect(editLine(k, at(4), off)).toBeUndefined();
+        expect(editLine(k, at(4), off)).toEqual(at(4));
       }
-    });
-
-    it('should read a modifier on Backspace, Delete and the arrows as the plain key', () => {
-      expect(editLine(key({ meta: true, name: 'backspace' }), at(11), off)).toEqual({
-        cursor: 10,
-        value: 'foo bar ba',
-      });
-      expect(editLine(key({ ctrl: true, name: 'delete' }), at(0), off)?.value).toBe('oo bar baz');
-      expect(editLine(key({ ctrl: true, name: 'left' }), at(11), off)?.cursor).toBe(10);
-      expect(editLine(key({ meta: true, name: 'right' }), at(0), off)?.cursor).toBe(1);
     });
 
     it('should keep the keys that name no word', () => {
@@ -548,6 +544,9 @@ describe('editLine()', () => {
         value: ' bar baz',
       });
       expect(editLine(key({ name: 'home' }), at(3), off)?.cursor).toBe(0);
+      expect(editLine(key({ name: 'backspace' }), at(11), off)?.value).toBe('foo bar ba');
+      expect(editLine(key({ name: 'left' }), at(11), off)?.cursor).toBe(10);
+      expect(editLine(key({ name: 'x' }), at(3), off)).toBeUndefined();
     });
   });
 });

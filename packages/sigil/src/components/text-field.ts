@@ -241,7 +241,8 @@ export function TextField(props: TextFieldProps = {}): Element {
     const now = value.get();
     // Enter is the field's own key, and the rest of the table is `editLine()`'s --
     // by character alone when masked, since a word jump or a word delete on a
-    // masked value shows where its spaces are
+    // masked value shows where its spaces are. The word keys are still claimed
+    // there and change nothing, so what reaches an app does not depend on `mask`
     const edited =
       k.name === 'enter'
         ? undefined

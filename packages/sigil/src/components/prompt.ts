@@ -1333,7 +1333,7 @@ export function text(opts: TextOptions): Promise<string> {
         }
 
         // by character alone when masked, since a word jump or a word delete on
-        // a masked value shows where its spaces are
+        // a masked value shows where its spaces are; the word keys do nothing there
         const edited = editLine(k, { cursor, value }, { words: opts.mask === undefined });
         if (edited !== undefined) {
           ({ cursor, value } = edited);

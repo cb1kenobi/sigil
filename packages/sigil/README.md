@@ -3151,7 +3151,8 @@ are the usual ones, and the same in every single-line field -- `text()`,
 arrows, Home/End, Ctrl-A/E/U, Backspace and Delete, and by word Ctrl-W, Ctrl-K,
 Alt-B, Alt-F, Alt-D and Alt-Backspace (Ctrl or Alt with an arrow, Backspace or
 Delete is a word too). `password()` keeps to one character at a time, since
-jumping or deleting by word on a masked value would show where its spaces are.
+jumping or deleting by word on a masked value would show where its spaces are:
+the word keys do nothing there, and are still the field's rather than the app's.
 A paste arrives as one chunk and is read as the keys it carries, not just the
 first.
 
@@ -6515,7 +6516,8 @@ wider than the field scrolls sideways to keep the caret in view.
 The keys are the prompt's: Left and Right by a character and with Ctrl or Alt by a
 word, Home and End (Ctrl-A, Ctrl-E), Backspace and Delete by a character or with
 Ctrl or Alt by a word, Ctrl-W and Alt-D, Ctrl-U and Ctrl-K, and Alt-B and Alt-F --
-all but the word keys when it is masked, as in `password()`. A
+but the word keys do nothing when it is masked, as in `password()`, and are not
+passed on to an app binding. A
 bracketed paste goes in at the caret with its line breaks flattened, and reaches
 the field before any `onPaste()` handler on the router -- inside a modal, before
 one under the dialog.

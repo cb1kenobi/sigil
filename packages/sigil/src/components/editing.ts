@@ -362,13 +362,34 @@ export function typedText(k: Key): string | undefined {
 /** What `editLine()` may be asked to leave out. */
 export interface EditLineOptions {
   /**
-   * Whether the keys that move or delete by word are the field's.
+   * Whether the keys that move or delete by word do it.
    *
    * On unless `false`. A masked field turns it off: jumping or deleting by word
-   * on a value drawn as bullets reveals where its spaces are, so the field
-   * keeps to editing one character at a time.
+   * on a value drawn as bullets reveals where its spaces are. The keys are still
+   * the field's -- `editLine()` answers an edit that changes nothing for each of
+   * them, rather than `undefined` -- because which keys a focused field owns must
+   * not depend on whether it is masked: a habitual Ctrl-W while typing a secret
+   * is not a reason for the app's own Ctrl-W to fire.
    */
   words?: boolean;
+}
+
+/**
+ * Whether a key moves or deletes by word, which is what a masked field refuses.
+ *
+ * Ctrl-W, Ctrl-K, Alt-B, Alt-F and Alt-D, and Backspace, Delete, Left and Right
+ * held with Ctrl or Alt. Written once, beside the table it describes, so that
+ * the keys a masked field claims and does nothing with cannot come apart from
+ * the keys the table gives a word to.
+ */
+function isWordKey(k: Key): boolean {
+  if (k.name === 'backspace' || k.name === 'delete' || k.name === 'left' || k.name === 'right') {
+    return k.ctrl || k.meta;
+  }
+  return (
+    (k.ctrl && (k.name === 'w' || k.name === 'k')) ||
+    (k.meta && (k.name === 'd' || k.name === 'b' || k.name === 'f'))
+  );
 }
 
 /**
@@ -388,6 +409,9 @@ export interface EditLineOptions {
  * Enter, Tab, Escape and the arrows a list answers to are the caller's own keys
  * for the same reason, and are why each field keeps a line or two of its own.
  *
+ * With `words: false` every key that names a word is still claimed and changes
+ * nothing, so a masked field neither edits by word nor lets the key through.
+ *
  * @param k - The key.
  * @param edit - The value and where the cursor is.
  * @param options - What to leave out.
@@ -397,9 +421,11 @@ export interface EditLineOptions {
  */
 export function editLine(k: Key, edit: Edit, options: EditLineOptions = {}): Edit | undefined {
   const { cursor, value } = edit;
-  const words = options.words !== false;
-  const word = words && (k.ctrl || k.meta);
+  const word = k.ctrl || k.meta;
 
+  if (options.words === false && isWordKey(k)) {
+    return { cursor, value };
+  }
   if (k.name === 'backspace') {
     return word
       ? deleteRange(value, wordBefore(value, cursor), cursor)
@@ -408,16 +434,16 @@ export function editLine(k: Key, edit: Edit, options: EditLineOptions = {}): Edi
   if (k.name === 'delete') {
     return word ? deleteRange(value, cursor, wordAfter(value, cursor)) : deleteAfter(value, cursor);
   }
-  if (words && k.ctrl && k.name === 'w') {
+  if (k.ctrl && k.name === 'w') {
     return deleteRange(value, wordBefore(value, cursor), cursor);
   }
-  if (words && k.meta && k.name === 'd') {
+  if (k.meta && k.name === 'd') {
     return deleteRange(value, cursor, wordAfter(value, cursor));
   }
-  if (k.name === 'left' || (words && k.meta && k.name === 'b')) {
+  if (k.name === 'left' || (k.meta && k.name === 'b')) {
     return { cursor: word ? wordBefore(value, cursor) : boundary(value, cursor, -1), value };
   }
-  if (k.name === 'right' || (words && k.meta && k.name === 'f')) {
+  if (k.name === 'right' || (k.meta && k.name === 'f')) {
     return { cursor: word ? wordAfter(value, cursor) : boundary(value, cursor, 1), value };
   }
   if (k.name === 'home' || (k.ctrl && k.name === 'a')) {
@@ -429,7 +455,7 @@ export function editLine(k: Key, edit: Edit, options: EditLineOptions = {}): Edi
   if (k.ctrl && k.name === 'u') {
     return deleteRange(value, 0, cursor);
   }
-  if (words && k.ctrl && k.name === 'k') {
+  if (k.ctrl && k.name === 'k') {
     return deleteRange(value, cursor, value.length);
   }
   return undefined;

@@ -386,15 +386,31 @@ describe('editing', () => {
     const value = new State('foo bar baz');
     const s = scene(TextField({ mask: '*', value }));
 
-    await s.term.press(ctrl('w'));
+    // every key that names a word is still the field's, and changes nothing
+    await s.term.press(ctrl('w'), ctrl('k'), alt('d'), alt('b'), `${ESC}\u007f`);
     expect(value.get()).toBe('foo bar baz');
-    await s.term.press(KEYS.home, ctrl('k'), alt('d'));
-    expect(value.get()).toBe('foo bar baz');
-    // Home put the caret at the start, and Alt-F did not move it by a word
-    await s.term.press(alt('f'), 'x');
+    await s.term.press(KEYS.home, alt('f'), ctrl('w'), 'x');
     expect(value.get()).toBe('xfoo bar baz');
-    await s.term.press(`${ESC}\u007f`);
+    await s.term.press(KEYS.backspace);
     expect(value.get()).toBe('foo bar baz');
+  });
+
+  it('should claim every word key when masked, so that none reaches an app binding', async () => {
+    // a habitual Ctrl-W while typing a secret must not fire the app's own "close",
+    // and which keys a field owns does not depend on its mask prop: the root
+    // records whatever reaches it, as a binding would
+    const value = new State('foo bar baz');
+    const word = [ctrl('w'), ctrl('k'), alt('b'), alt('f'), alt('d'), `${ESC}\u007f`];
+    const masked = scene(TextField({ mask: '*', value }));
+
+    await masked.term.press(...word);
+    expect(masked.seen).toEqual([]);
+    expect(value.get()).toBe('foo bar baz');
+
+    // and the unmasked field claims the same six, which is the point
+    const plain = scene(TextField({ value: new State('foo bar baz') }));
+    await plain.term.press(...word);
+    expect(plain.seen).toEqual([]);
   });
 });
 

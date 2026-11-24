@@ -4,6 +4,7 @@ import { number } from '../../src/components/number.js';
 import { commandPalette } from '../../src/components/palette.js';
 import { path } from '../../src/components/path.js';
 import { password, type PromptError, text } from '../../src/components/prompt.js';
+import { createInput } from '../../src/input/index.js';
 import { parse } from '../../src/parser/parse.js';
 import type { ParseState } from '../../src/types.js';
 import { type ScreenHarness, screenSetup, tick } from './helpers.js';
@@ -192,36 +193,36 @@ describe('number()', () => {
 
 describe('password()', () => {
   // jumping or deleting by word on a masked value reveals where its spaces are,
-  // so it keeps to one character at a time: every word key is a key it does not
-  // have, and nothing it does have changed
+  // so it edits one character at a time. Every word key is still claimed and does
+  // nothing: a prompt stops every key it reads, so none reaches the app's own
+  // handler on a router the prompt shares
   async function held(...keys: string[]): Promise<string | undefined> {
     const ui = screenSetup({ columns: 60 });
-    const answer = password({ ansi: ui.ansi, message: 'Secret', terminal: ui.terminal });
+    const router = createInput({ terminal: ui.terminal });
+    const app: string[] = [];
+    const answer = password({ ansi: ui.ansi, message: 'Secret', router, terminal: ui.terminal });
+    router.bind((event) => app.push(event.key.name));
     await type(ui.stdin, ...VALUE, ...keys, ENTER);
+    router.stop();
+    expect(app).toEqual([]);
     return answer;
   }
 
-  it('should ignore ctrl-w', async () => {
+  it('should claim ctrl-w and ctrl-k and do nothing', async () => {
     expect(await held(CTRL_W)).toBe(VALUE);
-  });
-
-  it('should ignore ctrl-k', async () => {
     expect(await held(HOME, CTRL_K)).toBe(VALUE);
   });
 
-  it('should ignore alt-d', async () => {
+  it('should claim alt-d and alt-backspace and do nothing', async () => {
     expect(await held(HOME, ALT_D)).toBe(VALUE);
+    expect(await held(ALT_BACKSPACE)).toBe(VALUE);
   });
 
-  it('should not move by word with alt-b or alt-f', async () => {
-    // each is a key nothing types, so the caret is where it was: at the end
-    // for the first, and at the start for the second, which Home moved it to
+  it('should claim alt-b and alt-f, leaving the caret where it was', async () => {
+    // the caret is at the end for the first, and at the start for the second,
+    // which Home moved it to
     expect(await held(ALT_B, 'x')).toBe(`${VALUE}x`);
     expect(await held(HOME, ALT_F, 'x')).toBe(`x${VALUE}`);
-  });
-
-  it('should take a character off with alt-backspace, not a word', async () => {
-    expect(await held(ALT_BACKSPACE)).toBe('foo bar ba');
   });
 
   it('should still edit a character at a time', async () => {
