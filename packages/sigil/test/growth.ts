@@ -96,6 +96,9 @@ export const now: () => number =
 export const SPAN = 3;
 export const MOST_READS = 4096;
 
+/** How many times each side is read, taking turns, the best of which is kept. */
+const RUNS = 7;
+
 /**
  * What one measurement is, whichever way it reads: how many reads of the small
  * side fill the span and how many of the large side make the same work. One
@@ -149,7 +152,7 @@ export function growthOf<Input = string>(
   const largeReads = largeReadsFor(smallReads, factor);
   let bestSmall = Infinity;
   let bestLarge = Infinity;
-  for (let run = 0; run < 7; run++) {
+  for (let run = 0; run < RUNS; run++) {
     bestSmall = Math.min(bestSmall, time(small, smallReads) / smallReads);
     bestLarge = Math.min(bestLarge, time(large, largeReads) / largeReads);
   }
@@ -194,7 +197,7 @@ export async function growthOfAsync<Input = string>(
   const largeReads = largeReadsFor(smallReads, factor);
   let bestSmall = Infinity;
   let bestLarge = Infinity;
-  for (let run = 0; run < 7; run++) {
+  for (let run = 0; run < RUNS; run++) {
     bestSmall = Math.min(bestSmall, (await time(small, smallReads)) / smallReads);
     bestLarge = Math.min(bestLarge, (await time(large, largeReads)) / largeReads);
   }

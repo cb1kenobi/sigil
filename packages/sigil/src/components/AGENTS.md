@@ -12616,8 +12616,8 @@ there is the bars, which are drawn on every line.
   linear-time check reads at two sizes as well. `choice-window.test.ts` opens a
   `groupMultiselect()` through it, and a read is the open _and_ the cancel, which
   is not what the old check timed (the synchronous call alone): a read carries a
-  screen and two ticks that do not grow with the list, so linear reads about 2
-  rather than 8, and the sizes were found by planting the old quadratic -- 28 at
+  screen and two ticks that do not grow with the list, so linear reads 2 to 4
+  rather than 8, against a bound of 16 and not the usual 24, and the sizes were found by planting the old quadratic -- 28 at
   2,000 choices, 51 at 3,000, and at 8,000 the planted side took long enough to
   time the test out rather than fail it. The 2,000 ms bound on `*a ` in
   `markdown.test.ts` is a ratio now, over both `*a ` and `a* `: `*a ` has no closer
@@ -12625,7 +12625,7 @@ there is the bars, which are drawn on every line.
   shape its comment is about. The paste check in `input.test.ts` and the
   re-match check in `style/invalidate.test.ts` are ratios too. The inflate bomb in
   `png/decode.test.ts` keeps its 1,000 ms, as a hang guard with the reason beside
-  it: the whole bomb inflates in about 20 ms and stopping early is under one, so
+  it: the whole bomb inflates in about ten milliseconds and stopping early is under one, so
   no deadline and no ratio tells them apart, and the message -- "more than the 2
   bytes" -- is what says the inflate stopped. Each was checked by planting the
   defect it names.

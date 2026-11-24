@@ -73,11 +73,16 @@ describe('growthOf()', () => {
 
     it('should wait for a read that finishes after the call returns', async () => {
       // a read that returns at once and does its work later would time as
-      // nothing, which is `the clock read nothing`, and not as slow
+      // nothing, which is `the clock read nothing`, and not as slow. The work is
+      // repeated so that it is most of a read on both sides: one turn of the event
+      // loop costs tens of microseconds on a clock that counts waiting, and a
+      // quadratic walk of 256 characters is six, which pulled the ratio under 24
       const later = (source: string): Promise<void> =>
         new Promise((resolve) => {
           setImmediate(() => {
-            quadratic(source);
+            for (let again = 0; again < 100; again++) {
+              quadratic(source);
+            }
             resolve();
           });
         });

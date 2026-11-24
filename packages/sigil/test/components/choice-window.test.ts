@@ -347,15 +347,17 @@ describe('groupMultiselect() opening a long list', () => {
   // choices with every row already windowed. Not a count of element writes,
   // since the reading wrote nothing, so it is two sizes compared, as
   // `highlight.test.ts` does it (SIG-429): eight times the choices must cost less
-  // than three times eight, where linear is eight and this was sixty-four. It is
+  // than twice eight, where linear is eight and this was sixty-four. It is
   // `growthOfAsync()` rather than a clock of its own (SIG-657): CPU time where the
   // platform can say it, the small side read over a span instead of floored at two
   // milliseconds, and the best of seven. A read is the prompt opened and then
   // cancelled, so what is timed is everything the open caused. The sizes are the
   // smallest that tell the shapes apart: a read carries a screen and two ticks
-  // that do not grow, so linear reads near 2 rather than 8 and the quadratic
-  // read 50 at 3,000 choices where it read 28 at 2,000, and a larger one makes
-  // the quadratic side take seconds a read.
+  // that do not grow, so linear reads 2 to 4 rather than 8 and the quadratic
+  // read 51 at 3,000 choices where it read 28 at 2,000, and a larger one makes
+  // the quadratic side take seconds a read. The bound is 16 and not the usual 24
+  // for the same reason: with most of a read constant, 24 would pass a growth of
+  // five or six times what linear costs.
   it('should open in time linear in the number of groups', async () => {
     const SIZE = 3000;
 
@@ -375,7 +377,7 @@ describe('groupMultiselect() opening a long list', () => {
 
     expect(
       await growthOfAsync(open, grouped(SIZE), grouped(SIZE * 8), 8, 'groupMultiselect')
-    ).to.be.lessThan(24);
+    ).to.be.lessThan(16);
   });
 });
 

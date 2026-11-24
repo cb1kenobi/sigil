@@ -531,14 +531,18 @@ describe('the size of the naive answer', () => {
   // times eight, where linear is eight and a re-match that reads every element
   // for each one is sixty-four. `growthOf()` reads CPU time where it can, over a
   // span, and takes the best of seven.
+  // What this no longer says is how long a re-match takes: a linear one a hundred
+  // times slower than this passes. That claim is a clock's and the clock is what
+  // moved, so it is left to the profile this architecture was chosen to be
+  // measured against.
   it('should re-match the whole tree in time linear in its size', () => {
     const small = fixture(5);
     const large = fixture(40);
     expect(large.size).toBeGreaterThan(150);
 
-    const rematch = (it: ReturnType<typeof fixture>): void => {
-      it.restyler.touchSheets();
-      expect(it.restyler.update(as(it.root)).restyled).toBe(it.size);
+    const rematch = (tree: ReturnType<typeof fixture>): void => {
+      tree.restyler.touchSheets();
+      expect(tree.restyler.update(as(tree.root)).restyled).toBe(tree.size);
     };
 
     expect(growthOf(rematch, small, large, 8, 'rematch')).toBeLessThan(24);

@@ -199,10 +199,10 @@ describe('decodePng()', () => {
       // the 2 bytes a 1x1 image needs" when `maxOutputLength` cut it off, and
       // inflating all 64 MiB reads "inflates to 67108864 bytes rather than 2".
       // The bound below is a **hang guard** and not a measure (SIG-657): inflating
-      // the whole of this bomb is about 20 ms and stopping early is under one, so no
+      // the whole of this bomb is about ten milliseconds and stopping early is under one, so no
       // deadline can tell the two apart and a ratio of two sizes cannot either, the
-      // compressed side growing with the bomb. 1000 ms is fifty times the cost of
-      // not stopping at all, which is to say it fails on an implementation that
+      // compressed side growing with the bomb. 1000 ms is fifty times or more the cost
+      // of not stopping at all, which is to say it fails on an implementation that
       // loops or waits and on nothing a loaded machine does to a sub-millisecond
       // call
       const bomb = chunk('IDAT', deflateSync(new Uint8Array(64 * 1024 * 1024)));
