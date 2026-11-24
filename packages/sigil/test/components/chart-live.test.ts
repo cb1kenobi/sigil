@@ -448,6 +448,20 @@ describe('BarChart', () => {
     }
   });
 
+  it('should ask for its natural width when that fits the terminal, so a row of them is not squeezed', () => {
+    vi.stubEnv('COLUMNS', '200');
+    try {
+      const data = Array.from({ length: 36 }, (_, i) => ({ label: `m${i % 10}x`, value: i + 1 }));
+      const chart = BarChart({ ascii: false, data, direction: 'vertical', showValues: false });
+      const lines = picture(row(chart), 200, 9);
+
+      // 36 columns of three and 35 gaps, where capping the ask at 100 had them at one
+      expect(lines.at(-1)?.length).toBe(36 * 3 + 35);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('should draw a bar in the role it names over the chart’s', () => {
     const chart = BarChart({
       ascii: false,

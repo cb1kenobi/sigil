@@ -111,7 +111,8 @@ export interface BarChartOptions extends ChartOptions, ScaleOptions {
   /** `horizontal` bars grow rightwards, `vertical` upwards. Defaults to `horizontal`. */
   direction?: 'horizontal' | 'vertical';
   /**
-   * The widest the chart may be. Defaults to `terminalWidth()`. A vertical chart
+   * The widest the chart may be. Defaults to `terminalWidth()` for a horizontal
+   * chart, and to the terminal's own width for a vertical one. A vertical chart
    * that has more bars than this has columns for shows the latest of them, as a
    * sparkline shows its latest samples: bars are narrowed to fit first, down to a
    * column each, and only then dropped from the left.
@@ -817,6 +818,19 @@ function gapOf(opts: { gap?: number }): number {
 }
 
 /**
+ * The most a vertical chart can be shown in when nothing says: the terminal's own
+ * width, and not `terminalWidth()`'s default cap of 100, which is a width to wrap
+ * prose at. A chart over a wide terminal that was held to 100 would narrow its
+ * columns for room that is there.
+ *
+ * @param env - The environment to read `COLUMNS` from.
+ * @returns The columns.
+ */
+function terminalRoom(env?: Record<string, string | undefined>): number {
+  return terminalWidth({ env, max: Infinity });
+}
+
+/**
  * Fits a vertical chart to its width: which of the bars it shows, and how wide
  * each one is.
  *
@@ -870,8 +884,8 @@ function verticalBars(bars: Bars, opts: BarChartOptions): Row[] {
   const { column, shown: data } = fitBars(
     bars,
     gaps,
-    count(opts.width, terminalWidth({ env: opts.env })),
-    opts.barWidth === undefined ? undefined : count(opts.barWidth, 1),
+    count(opts.width, terminalRoom(opts.env)),
+    count(opts.barWidth, 0) > 0 ? count(opts.barWidth, 0) : undefined,
     (shown) => naturalColumn(shown, opts)
   );
   // the scale is over the bars shown, as a sparkline's is over its samples
@@ -2010,7 +2024,7 @@ export interface BarChartProps extends ChartElementProps, ScaleOptions {
   /**
    * The columns asked for where the layout does not decide. Defaults to 40
    * across, and to the bars' own width upwards, which is never more than
-   * `terminalWidth()`. Bars that do not fit what the layout gave are narrowed to a
+   * the terminal's width. Bars that do not fit what the layout gave are narrowed to a
    * column each and then dropped from the left, so a chart shows its latest bars.
    */
   width?: number;
@@ -2728,17 +2742,30 @@ export function BarChart(props: BarChartProps): Element {
           width: props.width ?? DEFAULT_WIDTH,
         };
       }
-      // what it asks for is what it draws, so it is fitted to the terminal where
-      // the bars would run past it: 200,000 of them ask for no more than there is
-      // room to show, rather than for a width that is drawn before the layout
-      // has said how much it has
-      const { column, shown } = fitBars(bars, gap, terminalWidth(), props.barWidth, (some) =>
-        naturalColumn(some, props)
-      );
-      return {
-        height: (props.height ?? DEFAULT_HEIGHT) + below,
-        width: props.width ?? Math.max(1, shown.length * column + gap * (shown.length - 1)),
-      };
+      // what it asks for is what it draws until the layout has spoken, so it is
+      // fitted to the terminal where the bars would run past it: 200,000 of them
+      // ask for the room there is to show, rather than for a width that is drawn
+      // once and thrown away. Bars that do not all fit ask for the whole of it, and
+      // the layout shares out what it gives
+      const room = terminalRoom();
+      let width = props.width;
+      if (width === undefined) {
+        const { shown } = fitBars(bars, gap, room, props.barWidth, (some) =>
+          naturalColumn(some, props)
+        );
+        width =
+          shown.length < bars.length
+            ? room
+            : Math.max(
+                1,
+                Math.min(
+                  room,
+                  shown.length * (props.barWidth ?? naturalColumn(shown, props)) +
+                    gap * (shown.length - 1)
+                )
+              );
+      }
+      return { height: (props.height ?? DEFAULT_HEIGHT) + below, width };
     },
     (size) => {
       const list = barsOf(read(props.data));

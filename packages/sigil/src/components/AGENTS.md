@@ -7719,12 +7719,17 @@ labels at `width: 40`, the first row was 195 columns at 100 bars, 1,987 at 1,000
 since a drawing is `height` rows of a segment per bar. It was the other half of SIG-417's ticket
 and not the stack overflow that one fixed: no spread was involved.
 
-- **`width` is the widest the chart may be, and it defaults to `terminalWidth()`
-  as a horizontal chart's does.** It was documented as the horizontal chart's
-  alone. The default is the half that moves a pre-existing picture: a printed
-  vertical chart wider than the terminal used to come out as wide as its bars, and
-  is now fitted to it. Left unbounded the large-n case would still have been
-  unbounded for a caller who passed no width, which is most of them.
+- **`width` is the widest the chart may be, and it defaults to the terminal's own
+  width.** It was documented as the horizontal chart's alone. The default is the
+  half that moves a pre-existing picture: a printed vertical chart wider than the
+  terminal used to come out as wide as its bars, and is now fitted to it. Left
+  unbounded the large-n case would still have been unbounded for a caller who
+  passed no width, which is most of them. It is `terminalWidth()` with its
+  `max` lifted, which is `terminalRoom()`, and not the function's default: that
+  caps at 100 because it is the width to wrap prose at, and review found 36 month
+  bars over a 200-column terminal narrowed to a column each, every label an
+  ellipsis, for room that was there. A horizontal chart and `lineChart()` keep the
+  capped default, as they always had.
 - **Bars give way in a fixed order: the column, then the bars.** `fitBars()` is
   the one definition and both forms call it. The bars share the width out first,
   each keeping its column and its `gap`, and a label or a value wider than the
@@ -7760,10 +7765,14 @@ and not the stack overflow that one fixed: no spread was involved.
   asks for is fitted too.** Before the layout has reported a size `liveChart()`
   draws at the ask, and a vertical chart's natural ask was a column and a gap per
   bar -- 400,000 columns for 200,000 bars, drawn once and thrown away. The ask is
-  now `fitBars()` at `terminalWidth()`, which is what no layout could show more of
-  anyway. An explicit `width` is the caller's and is not capped. A layout wider
-  than the terminal, such as a horizontally scrolled area, gets a chart no wider
-  than the terminal asked for and the layout's own `flex-grow` to say otherwise.
+  the bars' natural width where that fits `terminalRoom()`, and the whole of
+  `terminalRoom()` where it does not or where bars would be dropped, for the
+  layout to share out. An explicit `width` is the caller's and is not capped. The
+  ask reads the process's terminal and not the render target, so a chart rendered
+  at a width above it, with no terminal, asks for no more than the terminal has:
+  the layout's own `flex-grow` or a stretch is what widens it, as for any chart
+  that asks for less than it is given. It also reads `COLUMNS`, so a test of a
+  live ask stubs it.
 - **The four spreads SIG-417's review listed are `maxOf()`.** `chart.ts`'s axis
   label width and its readout bubble's, `large-text.ts`'s glyph width and `diff.ts`'s
   longest common tail were each `Math.max(...x.map())` over a line's worth, so

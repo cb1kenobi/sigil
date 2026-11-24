@@ -385,6 +385,31 @@ describe('barChart()', () => {
       expect(rows.at(-1)).to.equal('5 6 7 8 9');
     });
 
+    it('should not hold a chart to the 100 columns prose wraps at when the terminal has more', () => {
+      const data = Array.from({ length: 36 }, (_, i) => ({ label: `m${i % 10}x`, value: i + 1 }));
+      const rows = barChart(data, {
+        ...plain,
+        direction: 'vertical',
+        env: { COLUMNS: '200' },
+        height: 1,
+        showValues: false,
+      }).split('\n');
+
+      // 36 columns of three and 35 gaps are 143, which fits 200 and not 100
+      expect(rows.at(-1)).to.not.contain('…');
+      expect(stringWidth(rows.at(-1) as string)).to.equal(36 * 3 + 35);
+    });
+
+    it('should read a barWidth that is not a width as none, as it always did', () => {
+      const data = ['Jan', 'Feb', 'Mar'].map((label, i) => ({ label, value: i + 1 }));
+
+      for (const barWidth of [0, -2, Number.NaN]) {
+        expect(
+          bars(data, { barWidth, direction: 'vertical', height: 1, showValues: false }).at(-1)
+        ).to.equal('Jan Feb Mar');
+      }
+    });
+
     // counted rather than timed, and then compared at two sizes: the elements a
     // chart builds are the thing that ran out of heap, and they are the same at
     // 200,000 bars as at sixty
