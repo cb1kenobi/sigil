@@ -8051,7 +8051,9 @@ have.
   entry. Left alone, each for a reason: this chart's legend, because a series label
   has been through `labelLine()` in `plotSeries()` before `legendRow()` sees it; the
   tab row, badge, rule, note and border label, which `labelLine()` as well; the
-  toggle's two state names, which `fault()` refuses a control character in; a key-help
+  toggle's two state names, which `fault()` refuses a control character in; the help's
+  `Usage:` and `Alias:` labels in `hanging()`, which are the framework's own translated
+  words; a key-help
   entry that came from a binding, whose label is a canonical key spelling and whose
   description is folded to single spaces -- only one built by hand for `fitKeyHelp()`
   could hold a tab, which is why that is measured too; the tree and the outline,

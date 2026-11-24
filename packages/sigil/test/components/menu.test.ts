@@ -355,6 +355,12 @@ describe('openMenu()', () => {
     expect(picture(s.root)[4]).to.equal('  │─ Re cent ─│');
   });
 
+  it('should draw a separator of only control characters as a plain line (SIG-670)', () => {
+    const s = scene();
+    menuOn(s, { items: [{ label: 'A' }, { separator: '\u0007' }, { label: 'B' }] });
+    expect(picture(s.root)[4]).to.match(/^ {2}│─+│$/);
+  });
+
   it('should be at least as wide as it was asked to be', () => {
     const s = scene();
     menuOn(s, { items: [{ label: 'A' }], minWidth: 20 });

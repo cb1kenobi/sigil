@@ -486,7 +486,8 @@ function hintOf<T>(item: MenuItem<T>): string | undefined {
 function separatorWords(entry: Separator): string {
   // what the line is painted with is cell by cell, which refuses a control character
   // outright, so a tab or a break in the words is the element layer's one line of it
-  return LINE_ONLY.test(entry.separator) ? '' : ` ${toDisplayLine(entry.separator).trim()} `;
+  const words = toDisplayLine(entry.separator).trim();
+  return LINE_ONLY.test(words) ? '' : ` ${words} `;
 }
 
 /**
