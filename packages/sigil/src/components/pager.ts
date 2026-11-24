@@ -55,6 +55,7 @@ import { __ } from '../i18n/index.js';
 import {
   canReadKeys,
   createInput,
+  hiddenBySheet,
   type InputRouter,
   type InputStream,
   isAbort,
@@ -1195,6 +1196,7 @@ export function page(content: string | readonly string[], opts: PageOptions = {}
     let input: InputRouter | undefined;
 
     const backend = createFullscreenCanvas({ terminal });
+    const cascade = themedCascade(opts);
     view = render(
       () => {
         pager = createPager({
@@ -1207,7 +1209,7 @@ export function page(content: string | readonly string[], opts: PageOptions = {}
       },
       {
         backend,
-        cascade: themedCascade(opts),
+        cascade,
         colorLevel: colorLevelOf(opts, opts.terminal),
         colorScheme: opts.colorScheme,
         frameMs: opts.frameMs,
@@ -1221,6 +1223,7 @@ export function page(content: string | readonly string[], opts: PageOptions = {}
       return;
     }
     input = createInput({
+      hiddenBySheet: hiddenBySheet(cascade),
       root: view.root,
       stdin,
       terminal,

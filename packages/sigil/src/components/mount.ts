@@ -39,6 +39,7 @@ import { type CanvasBackend, createSinkCanvas } from '../canvas/index.js';
 import type { Element } from '../element/index.js';
 import { render, type Renderer } from '../renderer/index.js';
 import { type OutputLevel, resolveOutput } from '../style/index.js';
+import type { Cascade } from '../style/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { colorLevelOf } from './color-level.js';
@@ -93,6 +94,11 @@ export interface MountOptions extends StyledOptions {
 export interface Mounted {
   /** Where frames are going. */
   readonly backend: CanvasBackend;
+  /**
+   * The cascade the component is drawn through, for a router built over its tree to ask
+   * whether an `!important` rule hides an element (SIG-661).
+   */
+  readonly cascade: Cascade;
   /** Leaves the last frame where it was drawn and gives the screen back. */
   done(): void;
   /** Paints a frame now, whatever the pacing says. */
@@ -239,6 +245,8 @@ export function mountLive(
     get backend() {
       return renderer.backend;
     },
+
+    cascade,
 
     done(): void {
       renderer.dispose();

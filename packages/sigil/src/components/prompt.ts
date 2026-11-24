@@ -13,6 +13,7 @@ import {
   type BindingInfo,
   canReadKeys,
   createInput,
+  hiddenBySheet,
   formatKey,
   type InputRouter,
   type InputStream,
@@ -618,7 +619,14 @@ function run<T>(opts: PromptOptions, make: () => Handlers<T>): Promise<T> {
     let router: InputRouter;
     const ownRouter = opts.router === undefined;
     try {
-      router = opts.router ?? createInput({ root: mounted.renderer.root, stdin, terminal });
+      router =
+        opts.router ??
+        createInput({
+          hiddenBySheet: hiddenBySheet(mounted.cascade),
+          root: mounted.renderer.root,
+          stdin,
+          terminal,
+        });
     } catch (error) {
       // the frame is already on screen, so it has to come off: a router that
       // could not be built leaves a question nobody can answer, and leaving it

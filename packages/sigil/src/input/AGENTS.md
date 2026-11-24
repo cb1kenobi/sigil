@@ -241,6 +241,23 @@ the entry it belongs to.
   `runApp()` fills from its own cascade. An app that draws its own frames and has an
   important `display` in a sheet passes it; without one a shown element is shown, which is
   the right answer for nearly every app, since an `!important` display is rare.
+
+  **Every router the framework builds over a tree passes it, and the answer is written
+  once (SIG-661).** The first version left the limit standing for the prompt and the pager,
+  which build routers of their own, on the argument that nothing shipped declares an
+  important `display`. That was the wrong line to draw: a user theme is exactly where one
+  comes from, and the pager and the prompts take `theme` and `sheets` like everything else,
+  so under `.gone { display: none !important }` a box with an inline `display: flex` was a
+  Tab stop nobody could see. `hiddenBySheet(cascade)` is exported from this module beside
+  `createInput()` -- it takes the cascade as a type only, so the barrel stays light, and it
+  has to live in a published subpath because a prompt and the pager are registry entries,
+  whose relative imports are rewritten to subpaths -- and `runApp()` (through a getter, its
+  cascade being built after its router), `page()` and the prompts' router all call it. The
+  prompt gets the cascade from `Mounted.cascade`, which `mountLive()` already held. The
+  one router built over no tree, the line-mode prompts' (`runLine()`), has no element to
+  ask about and passes nothing. `test/components/hidden-by-sheet.test.ts` is the guard,
+  over the pager and a prompt: a focusable box with an inline `flex` under an important
+  `none` is not in `router.focus.ring()`, and both fail without the option.
   `should keep the focus put in a box shown in the same read as the keys that follow` and
   its neighbours in `test/input/input.test.ts` are the guards, and the log browser's, the
   file manager's and the editor's own one-read tests are the end-to-end ones: each had a

@@ -63,6 +63,7 @@ import type { DetectOptions } from '../input/capabilities.js';
 import {
   canReadKeys,
   createInput,
+  hiddenBySheet,
   type InputRouter,
   type InputStream,
   isAbort,
@@ -1062,8 +1063,7 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
     // now and for that property alone, so that a box a handler has just shown is
     // shown to the next key in the same read and not after a frame (SIG-384). The
     // cascade is built below, after the router, and is there by the first key
-    hiddenBySheet: (element) =>
-      cascade?.important(element, 'display', element.parent?.style) === 'none',
+    hiddenBySheet: hiddenBySheet(() => cascade),
     mouse: mouse
       ? { motion: mouse !== true && mouse.motion === true, surface: lateSurface(() => view) }
       : undefined,
