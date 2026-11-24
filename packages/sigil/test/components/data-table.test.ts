@@ -294,6 +294,33 @@ describe('DataTable()', () => {
     expect(rowElement(0)).toBeUndefined();
   });
 
+  it('should hand out the row a move in the same turn went to, once it is revealed, with no frame between (SIG-462)', () => {
+    // a double click or End and Enter in one read: the cursor moves and a menu opens in
+    // one handler, and the view follows the cursor only from an effect, at the next frame
+    const many = Array.from({ length: 50 }, (_, i) => ({
+      cpu: i,
+      name: `p${i}`,
+      pid: i,
+      user: 'root',
+    }));
+    const host = procs({ rows: many }, 6);
+    picture(host, 48);
+    const { reveal, rowElement, selection } = control(host);
+
+    selection.last();
+    expect(rowElement()).toBeUndefined();
+
+    expect(reveal()).toBe(true);
+    const row = rowElement();
+    expect(row?.classes).toContain('sigil-list-row');
+    expect(every(row as Element).some((e) => e.text?.trim() === 'p49')).toBe(true);
+    // and the frame that follows lays that very element out, which is what an
+    // overlay anchored to it reads
+    picture(host, 48);
+    expect(rowElement()).toBe(row);
+    expect(row?.box).toBeDefined();
+  });
+
   it('should line the heading up past the marks of a multiple table too', () => {
     const host = procs({ multiple: true, selected: [7] });
     expect(picture(host, 48).slice(0, 3)).toEqual([

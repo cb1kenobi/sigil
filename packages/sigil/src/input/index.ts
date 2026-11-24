@@ -835,6 +835,20 @@ export interface InputOptions {
    */
   onError?: (error: unknown) => void;
   /**
+   * Whether an `!important` rule of a stylesheet hides an element, asked of the cascade
+   * as it is now (SIG-384).
+   *
+   * The router reads an inline `display` that is not `none` as the element's
+   * display the moment it is written, which a handler that shows a box and focuses
+   * something inside it needs: the resolved style still says `none` until a frame
+   * restyles the box. What an inline `display` cannot beat is an `!important` sheet
+   * rule, and that is the one question this is for. `runApp()` supplies it from its
+   * cascade; an app that draws its own frames and has a sheet with an important
+   * `display` passes `cascade.important(element, 'display', element.parent?.style)
+   * === 'none'`. Without it, a shown element is shown.
+   */
+  hiddenBySheet?: (element: Element) => boolean;
+  /**
    * Whether a paste arrives whole.
    *
    * On by default. Off means a pasted block arrives as though it had been
@@ -959,18 +973,55 @@ function ringPosition(
 }
 
 /**
+ * What an element's own `display` prop says, read as the word it is.
+ *
+ * `undefined` for no prop, and for a value that is not one of the two words --
+ * a wide keyword, or text the style would refuse -- which is the resolved style's
+ * to answer: nothing here can say what `inherit` came to.
+ */
+function inlineDisplay(element: Element): 'none' | 'shown' | undefined {
+  const value = element.props.display;
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const word = value.trim().toLowerCase();
+  return word === 'none' ? 'none' : word === 'flex' ? 'shown' : undefined;
+}
+
+/**
  * Whether an element is drawn: neither it nor anything above it is `display: none`.
  *
  * Read off the resolved style, the way the ring is, so it is only as current as the
  * last frame -- which is the right age, since a key is dispatched against what the
- * user saw.
+ * user saw. With one exception, in both directions, which is an inline `display`: a
+ * prop is current the moment it is written, so what a component sets on its own box
+ * is what the box is, and waiting for the frame that would resolve it only leaves a
+ * window. `none` hides at once. Anything else shows at once -- the resolved style
+ * still says `none` until a frame restyles it, and a box just shown by a handler that
+ * also moved the focus into it would otherwise have the focus taken back by the next
+ * key in the same read (SIG-384) -- unless an `!important` sheet rule hides it, which
+ * outranks every prop. That is asked of the cascade, for the one property, and only
+ * where the resolved style says `none` and there is a prop to doubt it: where the
+ * style says drawn there is nothing to doubt.
+ *
+ * @param element - The element.
+ * @param hiddenBySheet - Whether an `!important` rule of a sheet hides an element.
  */
-function displayed(element: Element): boolean {
+function displayed(
+  element: Element,
+  hiddenBySheet: ((element: Element) => boolean) | undefined
+): boolean {
   for (let at: Element | undefined = element; at; at = at.parent) {
-    // the resolved style is as old as the last frame, and an inline `display` is
-    // current the moment it is written, which is what a component that hides its
-    // own body sets: asking both is what closes the window before the frame
-    if (at.style.display === 'none' || at.props.display === 'none') {
+    const inline = inlineDisplay(at);
+    if (inline === 'none') {
+      return false;
+    }
+    if (at.style.display !== 'none') {
+      continue;
+    }
+    // the style says hidden: it stands unless a prop has shown the element since
+    // and nothing important takes the prop back
+    if (inline === undefined || hiddenBySheet?.(at) === true) {
       return false;
     }
   }
@@ -1590,7 +1641,7 @@ export function createInput(opts: InputOptions = {}): InputRouter {
     // not put the focus anywhere yet should have its first Tab land on the
     // first element rather than on the second, which is what grabbing it here
     // quietly did
-    if (!at || (attached(at, root) && displayed(at))) {
+    if (!at || (attached(at, root) && displayed(at, opts.hiddenBySheet))) {
       return false;
     }
 

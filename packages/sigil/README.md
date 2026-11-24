@@ -7554,7 +7554,13 @@ that took its place, the way a browser blurs one. `runApp()` does it in the fram
 the layout, so the key help and `:focus` agree with the screen before a key is typed; an
 app that draws its own frames calls `input.reconcile()` there, which answers whether the
 focus moved. A key and a paste ask as well, so nothing reaches a hidden element in the
-window before a frame.
+window before a frame, and a box a handler has just shown with an inline `display` is
+shown to the very next key in the same read, so a handler that shows a box and focuses
+something inside it keeps that focus. The one thing an inline `display` cannot beat is an
+`!important` rule in a sheet; `runApp()` asks its cascade for it, and an app that draws
+its own frames passes `hiddenBySheet` to `createInput()` -- `(el) => cascade.important(el,
+'display', el.parent?.style) === 'none'` -- if it has such a rule. Without it a shown
+element is shown.
 
 A bracketed paste goes the other way round, which is the mouse's order: the
 focused element's `onPaste` and then each ancestor's are offered it first, the

@@ -143,6 +143,60 @@ describe('!important', () => {
   });
 });
 
+describe('important()', () => {
+  // the one property's answer, for a reader that has to know whether a prop is
+  // the value before a frame has resolved it (SIG-384)
+  const hidden = (source: string, target = button, parent?: Style) =>
+    new Cascade([sheet(source)]).important(target, 'display', parent);
+
+  it('should answer what an important declaration says, with no style resolved', () => {
+    expect(hidden('.button { display: none !important }')).toBe('none');
+  });
+
+  it('should answer nothing for a declaration that is not important, which a prop beats', () => {
+    expect(hidden('.button { display: none }')).toBeUndefined();
+  });
+
+  it('should answer nothing for an important declaration of another property', () => {
+    expect(hidden('.button { color: red !important }')).toBeUndefined();
+  });
+
+  it('should answer nothing for a rule that does not match', () => {
+    expect(hidden('.other { display: none !important }')).toBeUndefined();
+  });
+
+  it('should pick the winner the way a resolve does', () => {
+    // the more specific selector wins inside the important band, whatever the order
+    expect(hidden('#go { display: none !important } .button { display: flex !important }')).toBe(
+      'none'
+    );
+    expect(hidden('.button { display: flex !important } #go { display: none !important }')).toBe(
+      'none'
+    );
+    // and the origin is read backwards, so the app's reaches past the framework's
+    const cascade = new Cascade([
+      sheet('.button { display: none !important }', { origin: 'framework' }),
+      sheet('.button { display: flex !important }', { origin: 'app' }),
+    ]);
+    expect(cascade.important(button, 'display')).toBe('none');
+    expect(cascade.resolve(button).display).toBe('none');
+  });
+
+  it('should read the element as it is now, and a sheet as it is now', () => {
+    const cascade = new Cascade([sheet('.gone { display: none !important }')]);
+    expect(cascade.important(button, 'display')).toBeUndefined();
+    expect(cascade.important(node({ classes: ['gone'], type: 'box' }), 'display')).toBe('none');
+    cascade.add(sheet('.button { display: flex !important }'));
+    expect(cascade.important(button, 'display')).toBe('flex');
+  });
+
+  it('should read a wide keyword against the parent', () => {
+    const parent = declare({ display: 'none' });
+    expect(hidden('.button { display: inherit !important }', button, parent)).toBe('none');
+    expect(hidden('.button { display: initial !important }', button, parent)).toBe('flex');
+  });
+});
+
 describe('props', () => {
   it('should beat every normal declaration', () => {
     expect(resolve('#go { color: red }', button, { color: 'blue' }).color).toEqual(palette(4));

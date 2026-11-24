@@ -1058,6 +1058,12 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
 
   const mouse = opts.mouse;
   const router = createInput({
+    // the one thing an inline `display` cannot beat, asked of the cascade as it is
+    // now and for that property alone, so that a box a handler has just shown is
+    // shown to the next key in the same read and not after a frame (SIG-384). The
+    // cascade is built below, after the router, and is there by the first key
+    hiddenBySheet: (element) =>
+      cascade?.important(element, 'display', element.parent?.style) === 'none',
     mouse: mouse
       ? { motion: mouse !== true && mouse.motion === true, surface: lateSurface(() => view) }
       : undefined,

@@ -132,25 +132,11 @@ export function createEditor(): Editor {
   const areas = new Map<Doc, { readonly dispose: () => void; readonly element: Element }>();
 
   let parts: Parts | undefined;
-  let mounted = false;
-
-  /**
-   * Paints a frame now, so the router sees what was just shown: it reads a box
-   * hidden a moment ago as hidden until a frame has restyled it, so a key that
-   * arrives in the same read as the one that showed an area -- a paste, fast
-   * typing -- would be taken from the area. The log browser's `redraw()`, for the
-   * same reason; SIG-384 is the ticket for the router reading an inline `display`.
-   */
-  const redraw = (): void => {
-    if (mounted) {
-      app.view.frame();
-    }
-  };
 
   /**
    * Shows the active document's area and hides the rest, and the preview with
    * it. The `display` prop rather than a class, because the router reads a prop
-   * that hides the moment it is written and a class only once a frame has run.
+   * as current the moment it is written and a class only once a frame has run.
    */
   const display = (): void => {
     if (parts === undefined) {
@@ -174,7 +160,6 @@ export function createEditor(): Editor {
     const doc = untrack(current);
     const area = doc === undefined ? undefined : areas.get(doc);
     input.focus.focus(area?.element ?? parts.tree);
-    redraw();
   };
 
   /** Builds a document's text area, highlighted where the lexer reads its language. */
@@ -520,7 +505,6 @@ export function createEditor(): Editor {
     });
 
     onMount(() => {
-      mounted = true;
       input.focus.focus(given.tree);
     });
   };

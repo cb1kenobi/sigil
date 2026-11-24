@@ -205,6 +205,37 @@ the entry it belongs to.
   window: it is hidden when the frame has run. `Pane`'s own `collapsed` state written from
   outside is the same, until its effect runs.
 
+  **...and an inline `display` that is not `none` is read as current too, which is the
+  other direction of the same window (SIG-384).** `displayed()` had the hiding half: a
+  prop that hides is current the moment it is written. Showing was left to the frame, so
+  a handler that showed a box and moved the focus into it lost the focus to the next key
+  in the same read -- `:pods` typed fast or pasted is `:` and four keys in one chunk, and
+  the four went to the table -- because the resolved style still said `none` and the
+  repair took the focus away from a box nobody could yet see was shown. It is one rule
+  per element now, walked up the ancestors: the prop says `none`, hidden; the resolved
+  style does not say `none`, shown; the style says `none` and the prop says `flex`, shown
+  **unless an `!important` rule of a sheet says `none`**, since that outranks every prop
+  and is the one thing a prop cannot show. The prop is read as the word (trimmed, any
+  case) and anything but `none` and `flex` -- `inherit`, a value the style would refuse --
+  is no answer at all, so the resolved style stands, as it did before.
+
+  The important rule is asked of the cascade, for that one property, as it is now
+  (`Cascade.important()`; the style `AGENTS.md` has it): not read off the
+  `CascadeResult` the last frame kept, whose `locked` set is as old as the frame and would
+  miss a class added since, and not by resolving the whole style, which is the frame's
+  work done for one answer. It is asked only where the style says `none` and a prop says
+  otherwise, so a key against a tree that is all drawn matches nothing. The router cannot
+  import the cascade -- `scroll.js` is imported by name for the same reason, and the
+  input barrel is deliberately light -- so it is `InputOptions.hiddenBySheet`, which
+  `runApp()` fills from its own cascade. An app that draws its own frames and has an
+  important `display` in a sheet passes it; without one a shown element is shown, which is
+  the right answer for nearly every app, since an `!important` display is rare.
+  `should keep the focus put in a box shown in the same read as the keys that follow` and
+  its neighbours in `test/input/input.test.ts` are the guards, and the log browser's, the
+  file manager's and the editor's own one-read tests are the end-to-end ones: each had a
+  forced `app.view.frame()` after showing something and none has one now, which is how
+  the sabotage was run -- restoring the old rule fails all three.
+
 - **A paste arrives whole, and bracketed paste joins the restore list.** Without
   the markers a pasted block arrives as though it had been typed, so a newline in
   the middle of an address is Enter and a text input submits half of it. With

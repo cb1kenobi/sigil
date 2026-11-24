@@ -885,15 +885,16 @@ screen of code.
   scrolls builds its rows fresh and would pass without the refresh. Measured:
   with the refresh removed, it fails and nothing else does.
 
-- **A view or the prompt line is shown with an inline `display`, and then a
-  frame is forced.** The router hides an element the moment an inline `display:
-  none` is written, but only shows one once a frame has restyled it. So focus
-  moved into a box just shown is taken back by a key that arrives in the same
+- **A view or the prompt line is shown with an inline `display`, and nothing
+  forces a frame.** The router hides an element the moment an inline `display:
+  none` is written, and since SIG-384 it shows one the same way. Before that, focus
+  moved into a box just shown was taken back by a key that arrives in the same
   read: `:pods` pasted, or typed fast, sent `pods` to the table, and the `l` in
-  it opened a pod's logs. `redraw()` calls `app.view.frame()` after showing,
-  which is public and says what it does. `should take a command typed in one
-  read` fails without it. SIG-384 asks the router to read a shown inline
-  `display` as current, at which point `redraw()` goes.
+  it opened a pod's logs, so `redraw()` called `app.view.frame()` after showing.
+  It is gone, and so are the same workaround in the file manager's filter bar and
+  the editor's text areas. The `display` is still a prop and not a class, because a
+  class is only read once a frame has run. `should take a command typed in one
+  read` is the guard, and fails with the router's old rule restored.
 
 - **The world is an injected environment, and the cluster keeps its own
   time.** `EnvironmentContext` carries the clock, the history size, the cap,
@@ -1083,8 +1084,8 @@ in half blocks from the start.
   picture asks for no more than its own pixels and no more than the pane, inside
   `contain`.
 
-- **The filter bar is shown with an inline `display` and a forced frame**, the
-  log browser's workaround for SIG-384. The rename dialog's field is a `body`
+- **The filter bar is shown with an inline `display`**, which the router reads as
+  current at once (SIG-384; it used to force a frame). The rename dialog's field is a `body`
   function and the dialog opens on it with `initial: 'body'` (SIG-337).
 
 - **The lit column is the sheet's: `.sigil-panel:focus-within`.** The git
@@ -1218,10 +1219,11 @@ dark -- built from sigil's own components, with its own data, names and colours.
   the same reason, so `p` still pauses the row the menu is about. A move and Enter
   arriving in one read -- End and Enter, or a double click -- activate before the
   frame that scrolls the table to the row has run, so that row may not be built
-  yet: the menu settles a frame with `app.view.frame()` before it asks, which
-  scrolls and lays the row out -- `flush()` from the signals is not enough, since
-  the renderer runs its own effects. Both keys have to arrive in one read for the
-  gap to show, which is how the tests send them, and removing the frame fails
+  yet: the menu calls `reveal(id)` before it asks, which builds the row and scrolls to it
+  -- `flush()` from the signals is not enough, since the renderer runs its own
+  effects. No frame is forced (SIG-462): the menu reads the row's box when the next
+  layout places it. Both keys have to arrive in one read for the gap to show, which
+  is how the tests send them, and removing the `reveal()` fails
   `should open the menu beside a row the same read scrolled to`.
 
 - **A card's badge follows its figure, and is written to in place.** `Badge` takes
@@ -1307,8 +1309,8 @@ below with the measurements.
   another file shows. Each is built under a branch of the component's owner,
   because it is built from a key handler, and disposed when its tab closes -- a
   text area is not a dialog's body, so `openModal()`'s `body` function (SIG-335) is
-  not the answer here. Showing one paints a frame before the next key, the log browser's
-  `redraw()` for SIG-384.
+  not the answer here. Showing one is a prop write the router reads at once (SIG-384),
+  so there is no frame between a show and the next key.
 
 - **A file opens at its first line, and the status line says where the caret
   is, through the area's `caret` (SIG-466).** A text area puts the caret at the

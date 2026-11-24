@@ -114,5 +114,4 @@ it leaves its box empty, as `imageView()` does everywhere.
 - The Windows hidden attribute: Node does not read it, so a file Explorer hides
   is shown unless its name starts with a dot.
 - What the library does not do yet, and this does by hand: a dialog that opens
-  on a field in its body (SIG-337), and a bar that takes the focus the moment it
-  is shown (SIG-384).
+  on a field in its body (SIG-337).
