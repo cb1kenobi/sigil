@@ -703,7 +703,11 @@ commit message in a text area. What it settled:
   `toggleLines()` stays what it was: it reads `lines.selected` and hands the set
   to `hunkLinesPatch()`. The client owns none of it; a range across an unchanged
   line is in `should stage a range of lines picked with v, across an unchanged
-  line`, run against a real git.
+  line`, run against a real git. Dragging the mouse over lines picks the same range
+  (SIG-623), and the client owns none of that either: `should stage a range of lines
+  dragged over with the mouse, the range v would pick` sends the press, the motion and
+  the release through the real router, and `should unstage a range of lines picked with
+  v, under Staged` is the other half of the same path.
 
   **The footer's diff entries follow where the cursor is, rather than adding to a
   row that is full.** The pane's row was already as wide as a 110-column terminal
@@ -1166,9 +1170,11 @@ dark -- built from sigil's own components, with its own data, names and colours.
   otherwise and would punch a black hole in a white screen. Truecolor, since an
   app's own theme may use it. Each also names a `scheme` and an effect hands it to
   `view.setColorScheme()` (SIG-461), so a `@media (prefers-color-scheme)` rule
-  follows the theme rather than the terminal; it waits on a `mounted` State because
-  `app.view` is not there while the body runs, and an effect created inside
-  `onMount()` ran once and did not run again (unfiled; the effect lives in the body).
+  follows the theme rather than the terminal; the effect is made inside `onMount()`
+  because `app.view` is not there while the body runs, and it re-runs on every theme
+  change there. (It used to wait on a `mounted` State in the body, because an effect made in
+  `onMount()` ran once and stopped. That was not `onMount()`: `App.view` threw on the
+  first frame and the throw killed the effect, which SIG-603 fixed.)
   What it does not reach is a component that reads the scheme from its own options;
   `qrcode()` the string is one, while `qrcodeView()` in a tree follows it (SIG-604). Swapped with `app.setTheme()` from an effect over the
   theme's State, so `t`, the account menu and a test all reach the screen one way.
