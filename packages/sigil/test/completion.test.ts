@@ -448,7 +448,7 @@ describe('completionSpec()', () => {
         help: false,
         quiet: false,
       })
-    ).rejects.toThrow(`The "two${ESC}lines" command's alias "go" is the name of a sibling command`);
+    ).rejects.toThrow('The "two\\x1Blines" command\'s alias "go" is the name of a sibling command');
   });
 
   it('should leave a hidden option out', async () => {

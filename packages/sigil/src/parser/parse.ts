@@ -104,7 +104,7 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
     }
     for (const [name, hook] of Object.entries(schema.hooks ?? {})) {
       if (hook !== undefined && typeof hook !== 'function') {
-        throw new TypeError(`Expected "${name}" hook to be a function`);
+        throw new TypeError(`Expected "${escapeControls(name)}" hook to be a function`);
       }
     }
 
@@ -855,8 +855,10 @@ function adoptDefault(adopted: Map<unknown, string>, cmd: InternalCommand): void
     // from where the cycle starts, found by source: two different defaults
     // can share a name, so a name cannot say which one it was
     const from = [...adopted.keys()].indexOf(source);
-    const chain = [...[...adopted.values()].slice(from), cmd.name].map((n) => `"${n}"`);
-    const again = first === cmd.name ? '' : `, which is "${first}" again`;
+    const chain = [...[...adopted.values()].slice(from), cmd.name].map(
+      (n) => `"${escapeControls(n)}"`
+    );
+    const again = first === cmd.name ? '' : `, which is "${escapeControls(first)}" again`;
     throw new Error(
       `Default commands form a cycle: ${chain.join(' -> ')}${again}. A default command cannot lead back to itself, so remove "default" from one of them`
     );

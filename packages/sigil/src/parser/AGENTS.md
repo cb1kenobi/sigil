@@ -1242,12 +1242,57 @@ The sites judged not to need it, with the reason:
 - **`Unknown shell "…"` in `completionScript()`.** The parse refuses an unknown
   shell first through the argument's `choices`, which is escaped. This guard is
   reached only by an app calling the function directly.
-- **Messages about the schema, a command module, or a route on disk.** These are
-  bug reports in the app's own declaration, in English and not translated, which
-  is the line the i18n work already draws. The exception is a route's name:
-  `assertRouteName()`'s refusals and `resolveRoutes()`'s collision echo a file,
-  directory or manifest name the file system chose, which can hold an `ESC`, so
-  those are escaped (SIG-389).
+- **Messages about the schema, a command module, or a route on disk are
+  covered too, which this entry first judged they did not need** (SIG-650). They
+  are bug reports in the app's own declaration, in English and not translated,
+  which is the line the i18n work already draws -- and that is a statement about
+  who writes them, not about who reads them. A schema is usually the app's own
+  source and is not always: `sigil build`, `sigil reference` and `sigil check`
+  load a schema and print what it throws, a routed directory's file and
+  directory names are the file system's, and so are the paths in a load error.
+  Through `commandSurface()` a declared alias holding `ESC` printed
+  `Invalid option alias "--al<ESC>ias"` with the `ESC` live (found by the SIG-643
+  builder). So every throw site in `src/parser` that quotes a declared name,
+  alias, option format, data type, hook name, module path or directory escapes it
+  where it is thrown, with `escapeControls()` and never at the sink: the option
+  format, alias, name and data type in `init-option.ts`, an option registry's
+  spelling collision, an argument's name and data type, the command name in
+  `init-command.ts`, `declaration.ts` (shared with `sigil build`),
+  `command-registry.ts`, `format.ts` and `parse.ts`, the module and directory
+  paths in `init-command.ts` and `load-command.ts`, and `routes.ts`. A route's
+  name was already escaped (SIG-389). A message built around a value the
+  caller hands in -- `assertRouteName()`'s `source`, `normalizeArgs()`'s `where`,
+  `optionDeclarations()`'s `where` -- is escaped by the caller that assembled it,
+  so the helper does not escape twice, and escaping is idempotent besides.
+
+  **Where a site already quoted through `JSON.stringify()` it still does, and
+  the result goes through `escapeControls()`:** `JSON.stringify` writes a C0
+  control as `\u001b` itself and leaves `DEL`, C1 and every format character raw,
+  so the quoting is kept and only what it leaves is escaped -- an existing
+  message does not change for a value that was already inert. That is
+  `Invalid argument name`, `Invalid option name` and the `topicSeparator`
+  refusal.
+
+  **What is not escaped, and why.** The label of an option and the name of an
+  argument in a runtime message (`Missing value for option`, `Missing required
+  arguments`, `Missing required options`, `Invalid value … for option --mode`)
+  are the ones validated against `\w[\w-]*` before they exist, so they cannot
+  hold a control or a format character -- measured by trying one, since the
+  claim is cheap to get wrong. An argument's name is validated against a
+  pattern whose `\s` is wider than a space, so the one place it can carry a
+  format character is trailing padding such as U+2028, which is why the
+  data type and description messages that quote it are escaped. `Did you mean`
+  still offers what the schema declared, unescaped, as the entry above records;
+  a route name from the file system can hold a control character and reach that
+  suggestion, which this ticket did not change. And `errorMessage(e)` after
+  `Failed to load command module (…)` and `Failed to JSON parse …` is the
+  thrown error's own message, which is the module's or Node's and not a
+  declaration -- the paths in the wrapping text are escaped, what Node
+  quotes inside `e` is not (`inertError()` is the tool for that, as the config
+  stores use it). Covered by `test/parser/init-errors-echo.test.ts`, one test
+  per kind of site and per class of character, and each fails with its source
+  change taken out.
+
 - **A `.env` reader.** The framework has none. An environment value reaches a
   message only through `transformValue()`, and that is escaped.
 

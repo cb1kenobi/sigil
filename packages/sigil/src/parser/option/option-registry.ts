@@ -1,4 +1,5 @@
 import { Internal, InternalOption, Option } from '../../types.js';
+import { escapeControls } from '../../util/escape-controls.js';
 import { initOption } from './init-option.js';
 
 /**
@@ -32,7 +33,7 @@ export class OptionRegistry extends Map<string, InternalOption> {
     const { name } = opt;
 
     if (!name || typeof name !== 'string') {
-      throw new TypeError(`Invalid option name: ${JSON.stringify(it.name)}`);
+      throw new TypeError(`Invalid option name: ${escapeControls(JSON.stringify(it.name))}`);
     }
 
     const negate = !!opt.negate;
@@ -117,7 +118,7 @@ export class OptionRegistry extends Map<string, InternalOption> {
         return;
       }
       throw new Error(
-        `Options "${other.format}" and "${opt.format}" both declare ${spelling}: an option's spelling must be its own`
+        `Options "${escapeControls(other.format)}" and "${escapeControls(opt.format)}" both declare ${escapeControls(spelling)}: an option's spelling must be its own`
       );
     };
 

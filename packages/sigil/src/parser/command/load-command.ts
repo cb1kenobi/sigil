@@ -1,6 +1,7 @@
 import debug from '../../debug/index.js';
 import { Command, Internal, InternalCommand } from '../../types.js';
 import { errorMessage } from '../../util/error-message.js';
+import { escapeControls } from '../../util/escape-controls.js';
 import { importModule } from './import-module.js';
 import { initCommand, loadCommandDir } from './init-command.js';
 import { existsSync } from 'node:fs';
@@ -52,7 +53,7 @@ async function fetchModule(
       mod = await internal.load();
     } catch (e: unknown) {
       throw new Error(
-        `Failed to load command module (the "${cmd.name}" command's loader): ${errorMessage(e)}`,
+        `Failed to load command module (the "${escapeControls(cmd.name)}" command's loader): ${errorMessage(e)}`,
         { cause: e }
       );
     }
@@ -75,7 +76,7 @@ async function fetchModule(
     log(`Loading command: ${internal.path}`);
 
     if (!existsSync(internal.path)) {
-      throw new Error(`Command module not found: ${internal.path}`);
+      throw new Error(`Command module not found: ${escapeControls(internal.path)}`);
     }
 
     try {
@@ -89,9 +90,12 @@ async function fetchModule(
         .default;
       return { def, entryFile: internal.path };
     } catch (e: unknown) {
-      throw new Error(`Failed to load command module (${internal.path}): ${errorMessage(e)}`, {
-        cause: e,
-      });
+      throw new Error(
+        `Failed to load command module (${escapeControls(internal.path)}): ${errorMessage(e)}`,
+        {
+          cause: e,
+        }
+      );
     }
   }
 
@@ -143,7 +147,7 @@ async function announceLoaded(
   // hook re-entered on its own answer
   if (replacement.path !== undefined || replacement.load !== undefined) {
     throw new Error(
-      `The "${parent.name}" command's subcommandLoaded hook returned a command declaring "${
+      `The "${escapeControls(parent.name)}" command's subcommandLoaded hook returned a command declaring "${
         replacement.path !== undefined ? 'path' : 'load'
       }": the module has already been loaded, so a replacement is a command rather than another module to fetch`
     );
@@ -208,7 +212,9 @@ export async function loadCommand(
     // recorded as done so it was never retried -- `main()` then did nothing at
     // all, which is a worse answer than the error a string export already gets
     if (!def || typeof def !== 'object' || Array.isArray(def)) {
-      throw new TypeError(`Command module default export is not a valid command object: ${source}`);
+      throw new TypeError(
+        `Command module default export is not a valid command object: ${escapeControls(source)}`
+      );
     }
 
     const decl = def as Command;
