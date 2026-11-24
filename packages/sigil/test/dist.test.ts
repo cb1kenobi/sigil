@@ -1179,7 +1179,7 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   // SIG-668 took five more -- see "src/i18n/keys.ts is
   // generated" in `src/i18n/AGENTS.md`. `the i18n-keys entry` below is what
   // says the figure is the key table and not something pulled in beside it
-  'i18n-keys': [18, 8_610],
+  'i18n-keys': [18, 8_251],
   // SIG-324: a `commands.json` is read with the config module's JSONC reader,
   // which brings `__` and the debug logger with it -- 2,604 B over two before
   'internal/routes': [32, 16_234],

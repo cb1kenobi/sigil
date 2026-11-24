@@ -163,6 +163,10 @@ describe('the committed key set', () => {
   // is a `UsageError` or an `Error` (a `PromptError`, a config layer's refusal),
   // which this leaves alone: 87 tagged `new Error(...)` sites were read for it and
   // are not all one kind, so no rule over them is made here
+  // what it reads is a tag lexically inside the constructor's call: a tagged message
+  // handed to a helper that throws, or built into a variable first, is not seen, and
+  // a file that never writes the two characters is skipped unread. No such site
+  // exists today; the `Expected ` test above is the other net
   it('should tag no TypeError or RangeError', () => {
     const tagged: string[] = [];
 
