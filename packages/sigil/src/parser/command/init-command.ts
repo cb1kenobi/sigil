@@ -303,7 +303,7 @@ export async function initCommand(
     cmd,
     ['args', 'commands', 'options'],
     (prop) =>
-      `Cannot set "${prop}" on the initialized "${parsed.name}" command: the parser reads cmd[Internal].${prop}, so change that instead`
+      `Cannot set "${prop}" on the initialized "${escapeControls(parsed.name)}" command: the parser reads cmd[Internal].${prop}, so change that instead`
   );
 
   // `afterRun`, `beforeError` and `help` are fired elsewhere -- by `main()`, by

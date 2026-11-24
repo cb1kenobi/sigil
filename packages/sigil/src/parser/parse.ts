@@ -582,7 +582,7 @@ function checkChoices(
     const [outside] = outsideChoices(it.choices, value);
     if (outside) {
       throw new Error(
-        __`The default "${escapeControls(outside.value)}" for ${label} is not one of its choices`
+        __`The default "${escapeControls(outside.value)}" for ${escapeControls(label)} is not one of its choices`
       );
     }
     return;
@@ -1063,7 +1063,10 @@ async function parseArgv(state: ParseState): Promise<void> {
             // must appear, `[value]` means it need not -- and neither says the
             // value may be left out. `--port=` is the way to give an empty one,
             // and then the data type decides whether empty is a value it has
-            throw new UsageError(__`Missing value for option ${label}`, 'missing-value');
+            throw new UsageError(
+              __`Missing value for option ${escapeControls(label)}`,
+              'missing-value'
+            );
           }
         }
 
@@ -1387,7 +1390,7 @@ export function validateArgs(state: ParseState): void {
 
   if (missingArguments.length && !asked(state)) {
     throw new UsageError(
-      __`Missing required arguments: ${missingArguments.join(' ')}`,
+      __`Missing required arguments: ${escapeControls(missingArguments.join(' '))}`,
       'missing-argument'
     );
   }
@@ -1474,7 +1477,7 @@ export function validateOptions(state: ParseState): void {
 
   if (missingOptions.length && !asked(state)) {
     throw new UsageError(
-      __`Missing required options: ${missingOptions.join(' ')}`,
+      __`Missing required options: ${escapeControls(missingOptions.join(' '))}`,
       'missing-option'
     );
   }

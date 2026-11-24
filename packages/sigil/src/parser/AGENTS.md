@@ -1229,7 +1229,10 @@ The sites judged not to need it, with the reason:
 
 - **`Missing value for option …`, `Missing required arguments`, `Missing required
   options`, and the label in `Invalid value "…" for option --mode`.** Each quotes
-  a name the schema declared, not anything the user supplied.
+  a name the schema declared, not anything the user supplied. They were left raw
+  on that reasoning and are escaped now (SIG-650), for the reason the bullet
+  further down gives: a declared name is not always typed by the person reading
+  the error.
 - **`Integer is too large to be exact: …`.** The value has already matched
   `^-?\d+$` or `^0x[A-Fa-f0-9]+$` to get there, or it is a number.
 - **Config dotted paths** (`"…" in … is not an object`, `Invalid config path
@@ -1270,28 +1273,40 @@ The sites judged not to need it, with the reason:
   control as `\u001b` itself and leaves `DEL`, C1 and every format character raw,
   so the quoting is kept and only what it leaves is escaped -- an existing
   message does not change for a value that was already inert. That is
-  `Invalid argument name`, `Invalid option name` and the `topicSeparator`
-  refusal.
+  `Invalid argument name`, `Invalid option name`, the `topicSeparator` refusal,
+  the package name in `routes.ts` and the schema format name in `format.ts`.
 
-  **What is not escaped, and why.** The label of an option and the name of an
-  argument in a runtime message (`Missing value for option`, `Missing required
-  arguments`, `Missing required options`, `Invalid value … for option --mode`)
-  are the ones validated against `\w[\w-]*` before they exist, so they cannot
-  hold a control or a format character -- measured by trying one, since the
-  claim is cheap to get wrong. An argument's name is validated against a
-  pattern whose `\s` is wider than a space, so the one place it can carry a
-  format character is trailing padding such as U+2028, which is why the
-  data type and description messages that quote it are escaped. `Did you mean`
-  still offers what the schema declared, unescaped, as the entry above records;
-  a route name from the file system can hold a control character and reach that
-  suggestion, which this ticket did not change. And `errorMessage(e)` after
-  `Failed to load command module (…)` and `Failed to JSON parse …` is the
-  thrown error's own message, which is the module's or Node's and not a
-  declaration -- the paths in the wrapping text are escaped, what Node
-  quotes inside `e` is not (`inertError()` is the tool for that, as the config
-  stores use it). Covered by `test/parser/init-errors-echo.test.ts`, one test
-  per kind of site and per class of character, and each fails with its source
-  change taken out.
+  **What is deliberately not escaped.**
+
+  - **An argument's name in a runtime message** (`Missing required arguments`):
+    it is read against `[\w-]+` before it exists, so it cannot hold a control or a
+    format character. The one place it can is trailing padding, since the
+    pattern's `\s` is wider than a space (U+2028, U+FEFF), which is why the
+    messages that quote the name as declared are escaped.
+  - **An option's label is escaped anyway**, because it is only validated when a
+    `format` was given: an option declared by `name` alone, which a hook adds
+    through the registry, is never read against `\w[\w-]*` and its label can hold
+    anything. An options map cannot reach it, since the key is the format. The
+    first version of this entry said the label could not hold one, from reading
+    the pattern rather than trying the other way in, and a review proved it wrong.
+  - **`Did you mean`** still offers what the schema declared, unescaped, as the
+    entry above records; a route name from the file system can hold a control
+    character and reach that suggestion, which this ticket did not change.
+  - **A module's own message.** `Failed to load command module (…)` and
+    `Failed to JSON parse …` wrap what was caught. The path in the wrapping text
+    is escaped, and so is the whole message when the caught error has a string
+    `code`, which is what Node's loader errors carry and which quote the path
+    they failed on (`loaderMessage()` in `load-command.ts`). An error without one
+    is the module's own throw and keeps its SGR, the line SIG-412 drew. The
+    manifest's V8 parse message in `routes.ts` is left alone, as above.
+
+  Covered by `test/parser/init-errors-echo.test.ts`: a table of sites, each run
+  once per class of character (a control character, which becomes `\xNN`, and a
+  format character, which becomes `\u{NNNN}`), plus the file-system cases on a
+  real directory, skipped on Windows where such a name cannot be made. The first
+  round of tests was run against `origin/main`'s source and 92 of 93 failed -- the
+  one that passed is a control character in an argument name, which
+  `JSON.stringify` already wrote inert.
 
 - **A `.env` reader.** The framework has none. An environment value reaches a
   message only through `transformValue()`, and that is escaped.

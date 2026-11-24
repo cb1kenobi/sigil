@@ -95,7 +95,7 @@ export function initArg(it: string | Argument | InternalArgument): InternalArgum
     internal,
     ['env', 'name'],
     (prop) =>
-      `Cannot set "${prop}" on the initialized "${arg.name}" argument: it built the argument's destination and environment fallbacks, so declare another argument and replace this one in cmd[Internal].args instead`
+      `Cannot set "${prop}" on the initialized "${escapeControls(arg.name)}" argument: it built the argument's destination and environment fallbacks, so declare another argument and replace this one in cmd[Internal].args instead`
   );
 
   return internal;

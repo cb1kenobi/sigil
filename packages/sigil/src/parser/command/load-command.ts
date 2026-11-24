@@ -10,6 +10,26 @@ import { pathToFileURL } from 'node:url';
 const { log } = debug('sigil:parser:load-command');
 
 /**
+ * What a failed import or loader said, safe to print.
+ *
+ * Node's own errors -- the ones with a string `code`, `ERR_MODULE_NOT_FOUND`
+ * and the rest -- quote the path they failed on, and a path is the file
+ * system's, so one holding a control character would print it live beside the
+ * escaped copy the wrapping message carries (SIG-650). A module's own throw has
+ * no `code` unless the module gave it one, and its message is the module's: an
+ * app's own styled message keeps its SGR, which is the line SIG-412 drew.
+ *
+ * @param e - What was caught.
+ * @returns The message, escaped when Node wrote it.
+ */
+function loaderMessage(e: unknown): string {
+  const message = errorMessage(e);
+  return typeof (e as { code?: unknown } | null)?.code === 'string'
+    ? escapeControls(message)
+    : message;
+}
+
+/**
  * Fetches the module a command's declaration named, however it named it.
  *
  * `path` is a file to read and `load` is a function to call, and they are the
@@ -53,7 +73,7 @@ async function fetchModule(
       mod = await internal.load();
     } catch (e: unknown) {
       throw new Error(
-        `Failed to load command module (the "${escapeControls(cmd.name)}" command's loader): ${errorMessage(e)}`,
+        `Failed to load command module (the "${escapeControls(cmd.name)}" command's loader): ${loaderMessage(e)}`,
         { cause: e }
       );
     }
@@ -91,7 +111,7 @@ async function fetchModule(
       return { def, entryFile: internal.path };
     } catch (e: unknown) {
       throw new Error(
-        `Failed to load command module (${escapeControls(internal.path)}): ${errorMessage(e)}`,
+        `Failed to load command module (${escapeControls(internal.path)}): ${loaderMessage(e)}`,
         {
           cause: e,
         }

@@ -247,7 +247,7 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
     internal,
     ['alias', 'env', 'format', 'name', 'negate'],
     (prop) =>
-      `Cannot set "${prop}" on the initialized "${label}" option: it built the option's spellings, destination, and environment fallbacks, so declare another option and add it to the registry instead`
+      `Cannot set "${prop}" on the initialized "${escapeControls(label)}" option: it built the option's spellings, destination, and environment fallbacks, so declare another option and add it to the registry instead`
   );
 
   return internal;
