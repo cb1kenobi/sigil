@@ -1,6 +1,7 @@
 import debug from './debug/index.js';
 import { assertSerialized, formatFor, type SerializedError } from './format.js';
 import { __ } from './i18n/index.js';
+import { isStreamGone, writeTo } from './output.js';
 import type { ErrorContext, ErrorHandlerOptions } from './types.js';
 import { errorMessage, readString } from './util/error-message.js';
 import { safeLog as safeLogTo } from './util/safe-log.js';
@@ -220,13 +221,43 @@ export function errorHandler(err: unknown, opts: ErrorHandlerOptions = {}): void
   // a stream that is already gone -- a destroyed socket, a closed pipe --
   // must not turn rendering an error into a second, worse error. This only
   // covers a throwing `write`; an asynchronous EPIPE arrives as an `error`
-  // event on the stream, which is the terminal wrapper's job once there is
-  // one again.
+  // event on the stream, which `guardOutput()` listens for.
+  //
+  // Through `writeTo()`, which is the one place that knows a regular file takes
+  // a write in part: `mycli 2> log` on a full disk lost the message itself, with
+  // nothing to say so, because Node discards the byte count. What it throws on a
+  // cut-off is caught below like any other failed write, because the error path
+  // has nowhere left to report to -- stderr is the thing that failed
+  let code = errorExitCode(err);
+  const target = stderr as Parameters<typeof writeTo>[0] & { readonly isTTY?: boolean };
   try {
-    stderr.write(`${trimTrailingNewlines(text)}\n`);
+    writeTo(target, `${trimTrailingNewlines(text)}\n`);
   } catch (writeErr) {
     safeLog(writeErr);
+    // the verdict is still the error's own, so a usage error is still 2 and the
+    // message that could not be written is not allowed to change that. The one
+    // exception is an exit code of `0`, which an error may ask for -- that is how
+    // a help short-circuit exits cleanly -- and which here would report success
+    // over a message that never landed. A reader who went away is not that: nothing
+    // was cut off, so the code stays what it was
+    if (code === 0 && !isStreamGone(writeErr, target) && !isStreamGone(cause(writeErr), target)) {
+      code = defaultExitCode;
+    }
   }
 
-  process.exitCode = errorExitCode(err);
+  process.exitCode = code;
+}
+
+/**
+ * What an error says it was caused by, without letting a getter throw.
+ *
+ * @param err - The error.
+ * @returns Its `cause`, or `undefined`.
+ */
+function cause(err: unknown): unknown {
+  try {
+    return (err as { cause?: unknown } | null | undefined)?.cause;
+  } catch {
+    return undefined;
+  }
 }

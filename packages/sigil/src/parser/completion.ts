@@ -82,6 +82,7 @@
 // where that happens
 import { SHELL_NAMES } from '../completion/shells.js';
 import { __ } from '../i18n/index.js';
+import { writeOut } from '../output.js';
 import { Internal, type InternalCommand, type ParseState, type Schema } from '../types.js';
 import { initCommand } from './command/init-command.js';
 
@@ -147,7 +148,7 @@ export async function registerCompletion(root: InternalCommand, schema: Schema):
       // *which* installation to take out rather than what to print
       if (named !== undefined && !uninstall) {
         const { completionScript } = await import('../completion/index.js');
-        process.stdout.write(await completionScript(state, named));
+        writeOut(await completionScript(state, named));
         return;
       }
 

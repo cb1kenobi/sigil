@@ -160,6 +160,42 @@ describe('errorHandler', () => {
     expect(process.exitCode).toBe(0);
   });
 
+  // SIG-663: the message is written through `writeTo()`, so a write that fails
+  // is a thrown error here and the exit code is what is left to say so
+  describe('a stderr that refuses the message', () => {
+    const refusing = (code: string): NodeJS.WritableStream =>
+      ({
+        write() {
+          throw Object.assign(new Error(code), { code });
+        },
+      }) as unknown as NodeJS.WritableStream;
+
+    it('should not throw out of the error path, and keep the error’s own code', () => {
+      expect(() =>
+        errorHandler(Object.assign(new Error('nope'), { exitCode: 2 }), {
+          stderr: refusing('EFBIG'),
+        })
+      ).not.toThrow();
+      expect(process.exitCode).toBe(2);
+    });
+
+    it('should not report success over an error that asked for zero and was not written', () => {
+      errorHandler(Object.assign(new Error('help'), { exitCode: 0 }), {
+        stderr: refusing('ENOSPC'),
+      });
+
+      expect(process.exitCode).toBe(1);
+    });
+
+    it('should leave a zero alone when the reader went away, since nothing was cut off', () => {
+      errorHandler(Object.assign(new Error('help'), { exitCode: 0 }), {
+        stderr: refusing('EPIPE'),
+      });
+
+      expect(process.exitCode).toBe(0);
+    });
+  });
+
   it('should honor an exit code on a value that is not an error', () => {
     const out = sink();
     errorHandler({ message: 'nope', exitCode: 3 }, { stderr: out.stream });
