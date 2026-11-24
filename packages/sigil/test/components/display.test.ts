@@ -3,6 +3,7 @@ import { createProgress, renderBar } from '../../src/components/progress.js';
 import { createSpinner, DOTS, LINE } from '../../src/components/spinner.js';
 import { table, tableView, tableWidths } from '../../src/components/table.js';
 import { box, renderToString, text } from '../../src/element/index.js';
+import { themedCascade } from '../../src/theme/index.js';
 import { stringWidth } from '../../src/width/index.js';
 import { runsOf, sourcesOf } from '../runs-of.js';
 import { screenSetup, setup } from './helpers.js';
@@ -621,6 +622,36 @@ describe('tableView()', () => {
     expect(tableWidths(['heading'], cells, [{}], true)).to.deep.equal([9]);
     expect(tableWidths(['heading'], cells, [{}], false)).to.deep.equal([9]);
     expect(tableWidths(['a much longer heading'], cells, [{}], true)).to.deep.equal([21]);
+  });
+});
+
+describe('tableView() and the level it was built at', () => {
+  // SIG-629. A painted qrcodeView() chose its content by the level it was built at,
+  // and drew a negative when the renderer's was different. A table has no content
+  // that depends on the level -- its view reads none, and only the facade passes one
+  // on to the string render -- so the level is the cascade's alone and a view built
+  // at one level draws exactly what the facade does at the one it is shown at
+  it('should draw at the level it is shown at, whatever level it was built at', () => {
+    const rows = [{ name: 'a', size: 1 }];
+    const sheets = ['.sigil-table { color: red }'];
+    for (const [built, shown] of [
+      [0, 3],
+      [3, 0],
+    ] as const) {
+      const { element, width } = tableView(rows, { colorLevel: built });
+      const out = renderToString(element, {
+        cascade: themedCascade({ sheets }),
+        colorLevel: shown,
+        width,
+      });
+      expect(out, `built ${built}, shown ${shown}`).to.equal(
+        table(rows, { colorLevel: shown, theme: sheets[0] })
+      );
+    }
+    // not vacuous: the level really does change what is drawn
+    expect(table(rows, { colorLevel: 3, theme: sheets[0] })).to.not.equal(
+      table(rows, { colorLevel: 0, theme: sheets[0] })
+    );
   });
 });
 

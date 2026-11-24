@@ -33,8 +33,55 @@ const entries = [
 
 /** Somewhere that is not a repository, so that the client has nothing to read but an empty answer. */
 const cwd = mkdtempSync(join(tmpdir(), 'sigil-git-client-entry-'));
+
+/**
+ * Removes a directory the entries were run in, and when Windows will not let it
+ * go, says which git processes are running and where they came from.
+ *
+ * `maxRetries` is what a directory a process has only just let go of needs, and
+ * it is not what this file relies on: `started()` ends every entry with no git of
+ * its own in flight, so nothing is left to let go. A removal that still fails is
+ * a process that is, and Windows will not say which one holds a directory. The
+ * listing gives each git's parent and command line, so one the entry started and
+ * left behind -- a parent that is gone, `rev-parse --show-toplevel` -- reads
+ * differently from another test file's (SIG-641).
+ *
+ * @param dir - A directory this file made.
+ * @throws What `rmSync()` threw, with the git processes appended on Windows.
+ */
+function removeDir(dir: string): void {
+  try {
+    rmSync(dir, { force: true, maxRetries: 5, recursive: true });
+  } catch (err) {
+    if (
+      process.platform !== 'win32' ||
+      !['EBUSY', 'ENOTEMPTY', 'EPERM'].includes((err as NodeJS.ErrnoException).code ?? '')
+    ) {
+      throw err;
+    }
+    let running: string;
+    try {
+      running = execFileSync(
+        'powershell',
+        [
+          '-NoProfile',
+          '-Command',
+          "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'git.exe' } | Select-Object ProcessId,ParentProcessId,CreationDate,CommandLine | Format-List | Out-String",
+        ],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 15_000 }
+      ).trim();
+    } catch (listing) {
+      running = `listing failed: ${(listing as Error).message}`;
+    }
+    throw new Error(
+      `${(err as Error).message}\ngit processes running at the time:\n${running || '(none)'}`,
+      { cause: err }
+    );
+  }
+}
+
 afterAll(() => {
-  rmSync(cwd, { force: true, maxRetries: 5, recursive: true });
+  removeDir(cwd);
 });
 
 /**
@@ -54,7 +101,7 @@ beforeAll(() => {
   writeFileSync(join(repo, 'untracked-marker.txt'), 'x\n');
 });
 afterAll(() => {
-  rmSync(repo, { force: true, maxRetries: 5, recursive: true });
+  removeDir(repo);
 });
 
 /** What the entry showed while it ran, and what it left behind on `q`. */
@@ -71,13 +118,28 @@ interface Started {
 const quiet = { buttons: false, motion: false, sgr: false };
 
 /**
+ * What a directory that is not a repository ends in: the diff pane's note, which
+ * the client writes once the last git it runs has answered.
+ */
+const NOT_A_REPOSITORY = /Run it inside/;
+
+/**
  * The entry, from its start to its exit on `q`, once the screen shows
  * `shows`. `dir` is the positional, and is the working directory unless said.
+ *
+ * `shows` is required, so that a new test cannot inherit a first-frame wait. It has to be what the client draws once every git it started has
+ * finished, never the first frame. The client starts git before it draws, and
+ * `q` ends it with a git still running: it aborts that git and exits, and the
+ * git is still on its way out when the test removes the directory it was started
+ * in. On Windows a process in a directory holds it, so the removal was `EBUSY`
+ * and passed again on the next run (SIG-641) -- and `git.exe` there can be
+ * the launcher for a second `git.exe` that killing the first does not end. Quit
+ * with nothing running and there is nothing to wait for.
  */
 async function started(
   file: string,
   flags: string[],
-  { dir = cwd, shows = /\S/ }: { dir?: string; shows?: RegExp } = {}
+  { dir = cwd, shows }: { dir?: string; shows: RegExp }
 ): Promise<Started> {
   if (file === bin) {
     expect(
@@ -95,9 +157,8 @@ async function started(
     stdin: true,
   });
   try {
-    // the first frame, so that `q` is a key somebody has read. Longer than the
-    // default: four cold node starts at once, on a runner that may be slow
-    await running.waitFor(/\S/, { timeout: 20_000 });
+    // longer than the default: six cold node starts at once, on a runner that may
+    // be slow
     await running.waitFor(shows, { timeout: 20_000 });
     // read while it runs: the mouse is on before the first frame is drawn
     const { alternate, mouse: during } = running.screen;
@@ -114,7 +175,7 @@ async function started(
 describe('the entry', () => {
   for (const { file, label } of entries) {
     it.concurrent(`should report the mouse with --mouse and hand it back on quitting: ${label}`, async () => {
-      const ran = await started(file, ['--mouse']);
+      const ran = await started(file, ['--mouse'], { shows: NOT_A_REPOSITORY });
       expect(ran.during, 'button tracking, in the encoding the app reads').toEqual({
         buttons: true,
         motion: false,
@@ -124,7 +185,7 @@ describe('the entry', () => {
     }, 45_000);
 
     it.concurrent(`should leave the terminal selecting text without --mouse: ${label}`, async () => {
-      const ran = await started(file, []);
+      const ran = await started(file, [], { shows: NOT_A_REPOSITORY });
       expect(ran.alternate, 'the app drew').toBe(true);
       expect(ran.during, 'no tracking mode and no mouse encoding').toEqual(quiet);
     }, 45_000);

@@ -130,6 +130,11 @@
  * characters, with not one escape sequence in it. The quiet zone comes out as a
  * border of drawn blocks there, which is what makes it light on screen.
  *
+ * **The level is the renderer's, not the one the view was built at.** A painted
+ * view holds both forms, the painted body and a box of the borrowed ones, and the
+ * framework's sheet shows one by `@media (color-level: 0)` (SIG-629), so a view
+ * built at one level and drawn at another is not a negative.
+ *
  * `invert` overrides it, for a caller who knows something about the destination
  * that the level and the scheme do not say. Where nobody names a scheme, the string
  * facade reads `schemeFromEnv()`, and `qrcodeView()` leaves it to the media context
@@ -1433,36 +1438,23 @@ export interface QrViewOptions
   extends StyledOptions, QrEncodeOptions, QrLinesOptions, QrPaintOptions {}
 
 /**
- * Whether the caller or the level has already decided which modules to draw.
+ * Whether the caller has already decided which modules to draw.
  *
- * One expression and one place that reads it: at any colour level above zero a
- * painted body has its own black on white and the dark modules are drawn, and at
- * level zero there is nothing to paint with, so the drawn modules have to be the
- * ones whose colour the terminal's foreground already is. That second case is a
- * question about the scheme, and **it is only answered here when somebody named
- * one** -- `invert`, a painted code above level 0, or a `colorScheme` option.
+ * One expression and one place that reads it, and **it never reads the level**:
+ * the level is the renderer's to say and is answered by the sheet (SIG-629), so
+ * what a view was built at cannot disagree with what draws it. The scheme is only
+ * answered here when somebody named one -- `invert` or a `colorScheme` option.
  * Otherwise this answers `undefined` and `qrcodeView()` leaves the choice to the
  * media context of whatever draws the tree, which is the one place that knows what
  * the scheme is *now*: `Renderer.setColorScheme()` writes it, and a tree reading
  * its own options was the one reader that never heard.
  *
- * @param opts - The level, the scheme, and an explicit override.
+ * @param opts - The scheme and an explicit override.
  * @returns Whether to invert, or `undefined` when the media context decides.
  */
 function pinnedPolarity(opts: QrViewOptions): boolean | undefined {
   if (opts.invert !== undefined) {
     return opts.invert;
-  }
-
-  // painting is the one case with two colours of its own to draw with, and it
-  // draws the dark modules on its own white. Everything else borrows the
-  // terminal's two, so the drawn modules have to be the ones whose colour the
-  // foreground already is
-  if (opts.paint === true) {
-    const level = colorLevelOf(opts);
-    if (level > 0) {
-      return false;
-    }
   }
 
   return opts.colorScheme === undefined ? undefined : opts.colorScheme === 'dark';
@@ -1480,13 +1472,14 @@ function pinnedPolarity(opts: QrViewOptions): boolean | undefined {
  * inherit.
  *
  * **Which modules are drawn follows the scheme of whatever draws the tree.** With
- * no `colorScheme`, `invert` or painted level to say, the box holds both
+ * no `colorScheme` or `invert` to say, the box holds both
  * polarities as two bodies and the framework's sheet shows the one that matches
  * `@media (prefers-color-scheme)` -- so a tree mounted in a renderer redraws the
  * right one when `Renderer.setColorScheme()` moves it, with nothing here listening
  * for anything, and the scheme is one answer rather than a second read of the
  * environment. A cascade that does not carry the framework's sheet has no rule to
- * hide either body and draws both; one that wants a single body names the scheme.
+ * hide either body and draws both -- every body, for a painted code -- and one that
+ * wants a single body names the scheme, or an `invert` when it is painted.
  * The scheme a tree is drawn against is the media context's, and
  * `renderToString()` fills that from `colorScheme` or else the cascade's own.
  *
@@ -1500,51 +1493,73 @@ export function qrcodeView(
 ): { code: QrCode; element: Element; width: number } {
   const code = encodeQr(value, opts);
   const pinned = pinnedPolarity(opts);
+  const painted = opts.paint === true;
 
   // the paint class is what carries the two colours, so it is added rather than
   // written into the body's: a code that borrows the terminal's two has no colour
   // of its own to name, and a prop beats a sheet per property, so a colour here is
   // one a theme could not reach
-  const body = (
-    lines: string[],
-    scheme?: 'sigil-qrcode-on-dark' | 'sigil-qrcode-on-light'
-  ): Element => {
-    const classes = ['sigil-qrcode-body'];
-    if (opts.paint === true) {
-      classes.push('sigil-qrcode-paint');
-    }
-    if (scheme !== undefined) {
-      classes.push(scheme);
-    }
-    return textNode(lines.join('\n'), { class: classes.join(' '), 'white-space': 'nowrap' });
-  };
+  const body = (lines: string[], extra: readonly string[] = []): Element =>
+    textNode(lines.join('\n'), {
+      class: ['sigil-qrcode-body', ...extra].join(' '),
+      'white-space': 'nowrap',
+    });
 
   // every line is the same length and every glyph is one column wide -- which is
   // checked rather than assumed, since U+2588 is East Asian Width Ambiguous and a
   // width table that read it as two would draw a code twice as wide as it
   // measures. The two polarities are the same size as well: the pad moves from
   // below the grid to above it and the line count is unchanged
+  //
+  // the bodies the terminal's own two colours draw, which are the whole of a code
+  // that is not painted and are what a painted one falls back to at level 0
+  const borrowed: Element[] = [];
+  let width: number;
   if (pinned === undefined) {
     // the inverted form is the one drawn on a dark scheme: the drawn modules are
     // the light ones, whose colour the foreground already is
     const onDark = qrLines(code, { ...opts, invert: true });
     const onLight = qrLines(code, { ...opts, invert: false });
+    borrowed.push(body(onDark, ['sigil-qrcode-on-dark']), body(onLight, ['sigil-qrcode-on-light']));
+    width = onDark[0]?.length ?? 1;
+  } else {
+    const lines = qrLines(code, { ...opts, invert: pinned });
+    borrowed.push(body(lines));
+    width = lines[0]?.length ?? 1;
+  }
+
+  // an explicit `invert` is the caller's own answer at every level, so it is one
+  // body wearing the paint class if asked and nothing else
+  if (!painted) {
+    return { code, element: box({ class: 'sigil-qrcode' }, ...borrowed), width };
+  }
+  if (opts.invert !== undefined) {
     return {
       code,
       element: box(
         { class: 'sigil-qrcode' },
-        body(onDark, 'sigil-qrcode-on-dark'),
-        body(onLight, 'sigil-qrcode-on-light')
+        body(qrLines(code, { ...opts, invert: opts.invert }), ['sigil-qrcode-paint'])
       ),
-      width: onDark[0]?.length ?? 1,
+      width,
     };
   }
 
-  const lines = qrLines(code, { ...opts, invert: pinned });
+  // a painted code is the level's to decide, and the level is the renderer's:
+  // above 0 the dark modules are drawn on the code's own white, and at level 0 the
+  // paint is dropped with every other colour, so the form that is right there is
+  // the borrowed one. Both are in the box and the sheet shows one by
+  // `@media (color-level)`, so a view built at one level and drawn at another is
+  // not a negative (SIG-629). The painted body is the light-scheme form, which is
+  // the dark modules drawn, so it is right on either scheme above 0
+  const lines = qrLines(code, { ...opts, invert: false });
   return {
     code,
-    element: box({ class: 'sigil-qrcode' }, body(lines)),
-    width: lines[0]?.length ?? 1,
+    element: box(
+      { class: 'sigil-qrcode' },
+      body(lines, ['sigil-qrcode-paint', 'sigil-qrcode-painted']),
+      box({ class: 'sigil-qrcode-borrowed' }, ...borrowed)
+    ),
+    width,
   };
 }
 

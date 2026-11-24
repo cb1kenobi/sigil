@@ -4123,38 +4123,71 @@ whole of it: the encoder, `qrLines()`, `qrcodeView()` and the facade.
   follows puts `qrcodeView()` in a tree. **A cascade without the framework's sheet
   draws both bodies**, there being no rule to hide either -- `themedCascade()` is
   the cascade every built-in is styled by, and a caller who built their own names
-  the scheme. **The level is not live, and it was measured rather than assumed
-  (SIG-621)**: a painted code's level still comes from `colorLevelOf()` at build.
-  Nothing an app calls sets the level a renderer resolves at. `detect()` only
-  _raises_ it, and never off or onto `0` -- `refineColorLevel()` refuses a floor of
-  zero and `detect()` asks again against the level on screen -- and a painted code
-  asks one question of its level, whether it is above `0`, so a reply moving 2 to 3
-  moves no cell (`should draw a painted code the same at every level above 0`).
-  What does move it across `0` is `readMedia()` re-reading the environment, which
-  every `publishMedia()` does -- a resize, `setColorScheme()`, or a reply that moved
-  something -- and only where nothing named a level (not the renderer's
-  `colorLevel`, not the terminal's) and no `detect()` reply has been recorded over
-  it. So it takes `NO_COLOR` or `FORCE_COLOR` being changed in the process while the
-  app runs. Measured: built at 3, the environment set to 0 and the terminal
-  resized, the media level reads 0 and the painted body, which is the form for a
-  level above 0, stays on a dark scheme where level 0 wants the inverted one
-  (`should keep the form it was built at when the media level falls to 0
-  afterwards`).
+  the scheme. **The level is the renderer's, and a painted code asks the sheet for it
+  (SIG-629; SIG-621 measured it and recorded a limit)**. What moves the level a
+  renderer resolves at was measured under SIG-621 and still holds: nothing an app
+  calls sets it. `detect()` only _raises_ it, and never off or onto `0` --
+  `refineColorLevel()` refuses a floor of zero and `detect()` asks again against the
+  level on screen -- and a painted code asks one question of its level, whether it
+  is above `0`, so a reply moving 2 to 3 moves no cell (`should draw a painted code
+  the same at every level above 0`). What does move it across `0` is `readMedia()`
+  re-reading the environment, which every `publishMedia()` does -- a resize,
+  `setColorScheme()`, or a reply that moved something -- and only where nothing
+  named a level and no `detect()` reply has been recorded over it, so it takes
+  `NO_COLOR` or `FORCE_COLOR` being changed in the process while the app runs.
 
-  The view's level and the renderer's are two reads, and they can disagree from the
-  first frame with no environment change: `render({ colorLevel: 0 })` over a view
-  built at 3 draws the painted form at level 0, and a view built at 0 under a
-  renderer above it draws the inverted body wearing the paint class -- black on
-  white, a negative (`should draw the inverted body when a code built at level 0 is
-  mounted above it`). That is `table()` and `largeText()`'s own limit and is
-  unchanged here; the fix for both it and liveness is the same
-  `@media (color-level)` choice in the sheet, and it is not taken because the painted
-  code would hold both polarities too, which is more selectors on the sheet's
-  exception list, and a cascade without the framework's sheet would draw both bodies
-  of a painted code that today draws one. Name the same level for the view and the
-  renderer, and rebuild the view if the environment changes under a running app.
-  The two rules are exceptions in `should declare on a role, bar fifteen exceptions that say why`:
-  they are which polarity takes space, not a look. Pinned by `the scheme a tree
+  A painted code used to take its level from `colorLevelOf()` at build, and that
+  read and the renderer's disagreed from the first frame with no environment
+  change: `render({ colorLevel: 0 })` over a view built at 3 drew the painted form
+  at level 0, and a view built at 0 under a renderer above it drew the inverted
+  body wearing the paint class -- black on white, a negative. Reading the
+  renderer's level at mount was the other design and is not available:
+  `qrcodeView()` returns an `Element` rather than a component, `render()` provides
+  no context a builder could read, and only `runApp()` has an `App`. So the sheet
+  chooses, by `@media (color-level: 0)`. A painted code with no `invert` holds the
+  painted body (`.sigil-qrcode-painted`, the dark modules on its own white) and a box
+  `.sigil-qrcode-borrowed` holding what an unpainted code would hold -- both
+  polarities, or the one a `colorScheme` pinned -- and at level 0 the sheet hides the
+  first and shows the second. The painted body is the light-scheme lines, so it is
+  right above 0 on either scheme; the borrowed bodies wear no paint class.
+  `qrcodeView()` reads no level any more, so `colorLevel` and `ansi` on a view change
+  nothing about what it holds, and a media level that falls to 0 afterwards moves
+  the code with it (`should follow the media level when it falls to 0 afterwards`,
+  which pinned the opposite under SIG-621). The string facade is untouched:
+  `qrcode()` renders the same tree at `colorLevelOf(opts)`.
+
+  **The cost, taken on purpose: a cascade without the framework's sheet draws every
+  body of a painted code**, where it used to draw one when a level above 0 was
+  named (`should draw every body of a painted code where the cascade has no sheet`).
+  It was already so for an unpainted, unpinned code; `themedCascade()` is the
+  cascade every built-in is styled by, and a caller who built their own and wants
+  one body names `invert` when it is painted, and the scheme when it is not. On the sheet it is two new exceptions,
+  `.sigil-qrcode-borrowed` and `.sigil-qrcode-painted`, the second being what hides
+  at level 0. It is a class of its own rather than a `display: none` on
+  `.sigil-qrcode-paint`, because that class is also on a code the caller inverted,
+  which has no borrowed form to fall back to and has to stay drawn at level 0
+  (`should keep a painted code the caller inverted at level 0`).
+
+  **`table()` and `largeText()` do not share the limit.** The limit was a view that
+  made its _content_ from the level it was built at. `tableView()` and
+  `largeTextView()` read none: only the facades call `colorLevelOf()`, to hand it to
+  `renderToString()`, so a view's level is the cascade's alone and one built at a
+  level and shown at another draws what the facade does at the second (`should draw
+  at the level it is shown at, whatever level it was built at`, in `display.test.ts`
+  and `large-text.test.ts`, each with a control that the level changes the output).
+  Views that do read a level when they are built, and so have the SIG-629 limit in
+  full, are `badgeView()` (its brackets) and `markdownView()` (it keeps an OSC 8
+  link only above level 0, so a view built at 3 and shown at 0 loses the URL
+  altogether). Neither is changed here; a `badgeView()` in a table cell is
+  already recorded on `TableCellView`. `imageView()` reads the level at paint time,
+  which is live, so a paint-time read of the renderer's level does exist; a
+  builder-time one does not, and that is what ruled the mount-time design out.
+  Descendant selectors on the painted code are unchanged, but a child selector
+  (`.sigil-qrcode > .sigil-qrcode-body`) no longer reaches the borrowed bodies,
+  which are one box deeper.
+
+  The four rules are exceptions in `should declare on a role, bar seventeen exceptions that say why`:
+  they are which form takes space, not a look. Pinned by `the scheme a tree
   follows` in `test/components/qrcode.test.ts`, which mounts a real renderer and
   flips `setColorScheme()`.
 
@@ -7863,11 +7896,36 @@ have.
 - **A line beats it on the plot, as it beats the rule.** The top cell of the
   pinned column is the highest value's wherever the pinned sample is the highest, so
   there the plot's marker is not drawn and the axis one is the answer. A chart with
-  `axis: false` has only the plot's, and loses it under a line there -- and under
-  the readout's bubble, which sits beside the rule over the plot's top rows, so a pin
-  within about nine columns of the rule is covered while the readout is shown. A
-  limit, recorded rather than fixed, since moving the marker off the plot's top row
-  would make it a thing that wanders with the data.
+  `axis: false` has only the plot's, and loses it under a line there, which is a
+  limit: moving the marker off the plot's top row would make it a thing that wanders
+  with the data. The readout's bubble is not a second one -- see the next entry.
+- **The readout's bubble keeps clear of the pin (SIG-636).** The bubble sits beside
+  the rule over the plot's top rows, so a pin within its width of the rule was under
+  it while the readout showed, and with no axis row nothing else said where the pin
+  was. The tooltip's `area` is the rule's cell, and `follow()` widens it to take in
+  the pin's cell when the pin is within the bubble's reach: the readout's widest
+  line plus the border and padding, capped at the crosshair's `maxWidth` or, where
+  there is none, at 40 -- the tooltip's default, repeated because a chart is
+  ejectable and cannot import the constant, and needed because a longer readout
+  wraps to a bubble no wider than that. A bubble placed on the right then starts
+  past the pin, and one that flips to the left ends before it, because the tooltip
+  places it beside the area and the area runs from the one to the other. Nothing
+  moves when the pin is out of reach, so a pin far from the rule leaves the bubble
+  flush against it as it was. It is not asked of `side: 'top'` or `'bottom'`, where
+  the bubble is above or below the plot and covers none of its cells, nor of a pin
+  where a line has the top cell, since no marker is drawn there for it to cover
+  (`drawing.pinned` is `undefined` for both, and where the rule is in the pin's
+  cell). It applies with an axis too, since the top cell is the marker's there as
+  well.
+  **A limit, recorded rather than fixed:** where neither side of the widened area
+  has room for the bubble, `placeTooltip()` clamps it inside the screen, which
+  covers the pin, or the rule, again -- a narrow terminal with a wide readout. That
+  is the tooltip's own rule that covering the anchor beats being cut off, and
+  changing it would change every tooltip. The reach is an estimate from the words, so
+  a bubble the screen squeezes is narrower than it says, which only keeps it a few
+  cells further out. The SIG-636 tests in `test/components/chart-live.test.ts` pin the reach exactly,
+  the widest line, `maxWidth`, a line under the pin, and `side: 'top'`; each fails
+  with its rule taken out.
 - **The marker and Enter can disagree under `fit`.** The marker is compared by cell
   and Enter by sample (SIG-607), so with the rule on a neighbour of the pin in the
   pin's cell no marker shows and Enter moves the pin rather than clearing it. Both
@@ -12427,6 +12485,48 @@ there is the bars, which are drawn on every line.
   the boxes above it. The parse-time `growth()` tests are left on the clock; they
   have never failed, and a parse has no call to count.
 
+- **The parse-time `growth()` tests were left on the clock, and one timed out
+  (SIG-649).** The sentence above said they had never failed. A macOS runner then
+  timed `a link that never closes` out at the default ten seconds -- the same run
+  passed on Linux and Windows -- and the file had failed once in a full local run
+  of two builders. The timeout itself was not reproduced: the file takes about
+  0.7 s idle. What was reproduced is the other half of the same cause, the ratio
+  failing under load, because this file read the wall clock while the
+  highlighter's linear-time check had already moved to CPU time with a span for
+  the small side (SIG-627, SIG-640). It was a second copy of a measurement whose
+  fixes had landed in the first, and it is one function now, `growthOf()` in
+  `test/growth.ts`, which both files call. The same ratio, the same 24, the same
+  sizes. Under 200 busy loops on 18 cores the old file failed `_*` and its
+  siblings at 31.8 and 31.7 against 24 in two of three runs, and the new one
+  passed every run. The CPU clock is not fine everywhere, and the first push of
+  this change found out how: `process.threadCpuUsage()` is microseconds on macOS
+  and bills in scheduler ticks on the Linux CI runners, about four milliseconds a
+  step. A small read repeated 256 times read as nothing, `the clock read nothing
+  over 256 reads`, in `highlight.test.ts` and in this file on three Ubuntu jobs --
+  and the branch this one is stacked on (SIG-640) failed the same way on Ubuntu,
+  so the flake was already in what this change shared. `growthOf()` therefore asks
+  the clock rather than the platform: it spins on it for up to 40 ms, and if its
+  average step is over a tenth of a millisecond it reads the wall clock instead.
+  Review round 2 found that the first version took the smallest step, which a
+  clock billed at context switches as well as ticks would make one short step of
+  50 microseconds; the average is what a span has to be more than.
+  That covers Windows, which used to be named, and whatever comes next. On a tick
+  clock the load fix is not there, and what is left is the old best of seven over
+  a span. `test/growth.test.ts` stubs two such clocks and fails without the probe.
+
+  A CPU clock does nothing for a wall-clock budget, which is what a test timeout
+  is, and **the budget is the fix for the timeout**: the file's `describe` carries
+  `BUDGET` (120 s), twelve times the default. It is not a limit on how long a
+  linear read takes, which the ratio asks and no budget can; it is there so that a
+  starved runner fails on a quadratic and on nothing else, and a synchronous parse
+  cannot be timed out, so it hides no hang. The work is not smaller than it was.
+  The shared span of 3 ms on the small side made the file do about two and a half
+  times its old work (1.6 s against 0.6 s idle, measured on review), which is why
+  `growthOf()` takes a `span` and this file asks for 1 ms: its smallest document
+  already costs a good part of one, and it is now about 0.7 s, which takes about 1,000
+  times its 110 ms to reach the budget where the old one took about 110 times its
+  91 ms to reach ten seconds, and 430 times for the slowest test, the emphasis one.
+
 - **The ticket's other lazy figure, 0.54 s for 128 KB, was the parser, and is
   left.** `parseMarkdown()` of 64,000 lazy lines took 8 ms unquoted and 493 ms
   under 99 quotes, on both builds. Every level of quote asks `interrupts()` of
@@ -14757,7 +14857,7 @@ measurements, the review findings and the sabotage pass are in
   cursor per run length; and Markdown's searches are made once per document rather
   than per line. That last one was a review finding before any test ran: per line,
   a `[` with no `]` after it scanned to the end of the document from every line
-  that had one. `linear time` in `test/components/highlight.test.ts` reads thirty
+  that had one. `linear time` in `test/components/highlight.test.ts` reads sixty-two
   pathological inputs at 32K characters and at eight times that, best of seven
   with the sizes taking turns, and asks that the larger cost less than three times
   eight -- linear is eight and quadratic sixty-four. The backtick runs are read at
@@ -14768,6 +14868,32 @@ measurements, the review findings and the sabotage pass are in
   macOS runners, while a quadratic made of one `indexOf()` per opener reads the
   same million in 2.4 s on a laptop without coverage. No deadline separates two
   ranges that overlap, and a ratio is what coverage and a slow runner leave alone.
+- **The linear-time check reads lines as well as characters, and its small side
+  is a span rather than a floor (SIG-640).** Thirty shapes were all one line for
+  YAML, so a cost per line in `lexYaml` -- which is a cost per character on a line
+  five characters long -- passed all of them. Every lexer that keeps state across
+  lines now has a document of short lines in the list, YAML six, and `ts` one for
+  the shared script lexer's own reading of a line -- and, after review, a shape for
+  each branch of that state that a line can reach and the others cannot: a diff's
+  `+++` after its `---`, a here-document that is closed, a fence with a body. A deliberate per-line quadratic
+  in `lexYaml` fails all six and a per-line one in each other lexer fails the
+  shapes that lexer was given. The other half was `Math.max(best, 2)` on both
+  sides: while a small read cost under about 0.75 ms the floor stood in for it, and
+  a large one up to twice the allowed ratio of the real one passed. Measured with
+  the old formula against a quadratic in `lexYaml` made small enough to sit under
+  it, the six line shapes grew 14 to 45 times at eight times the size, the old
+  check caught one of them and the new one catches five. The floor is gone, and what replaces it
+  is reading the same text enough times that the clock has something to read: the
+  small side is repeated until it fills 3 ms of the clock the test uses, the large
+  side as often as makes the same work, and what is compared is the cost of one
+  read of each. That keeps what SIG-627 fixed -- CPU time, best of seven, the sizes
+  taking turns -- and was run 20 times in a row and six more at a load average of
+  35 without a failure. `lexYaml` itself turned out to be linear on every shape. The check found a
+  real quadratic elsewhere, in the shell lexer: here-documents were taken off the
+  queue of those opened on a line with `shift()`, which moves every entry after it,
+  so `<<a ` repeated on one line and closed by a line each cost the square of the
+  count past about 16,000 of them -- 55 ms at 197K characters and 941 ms at 786K.
+  It is walked by index now, and `<<a <<a ...` is in the list.
 - **Spans come out in order and never overlap, and two of one token that touch are
   one.** The order is what the text area's filing assumes ("a highlighter emits its
   spans in order, so that is almost always a step or two"), and the merge is why an

@@ -245,6 +245,19 @@ export const CORPUS: readonly CorpusEntry[] = [
     template: `<\${0} children=\${1}><text>real</text></>`,
   },
   {
+    // an own property on both paths: `{ "__proto__": x }` sets the prototype
+    // and adds nothing, which is what the build emitter wrote and what an
+    // assignment does, so the component was handed no prop at all (SIG-634)
+    exprs: ['scope.Echo'],
+    name: 'a component prop named __proto__, which is not prototype sugar',
+    template: `<\${0} __proto__="mine" />`,
+  },
+  {
+    exprs: ['scope.Echo', '42'],
+    name: 'a component prop named __proto__ given a value to interpolate',
+    template: `<\${0} __proto__=\${1} />`,
+  },
+  {
     exprs: ['scope.Kind'],
     name: 'a key on a component, which is a prop like any other',
     template: `<\${0} key="row-1"><text>keyed</text></>`,
