@@ -443,10 +443,11 @@ export function outputFormats(schema: Schema | undefined): Map<string, OutputFor
     }
 
     // and a name reaches a terminal, in the `This command accepts:` list the
-    // refusal prints -- so a control character in one is a sequence waiting for
-    // something to print it, which is the rule this repository keeps for every
-    // byte it emits. `\p{Cc}` names the set rather than enumerating it, which is
-    // the spelling the escape pass already settled on
+    // refusal prints -- so a control or format character in one is a sequence
+    // waiting for something to print it, or a reordering of what is printed,
+    // which is the rule this repository keeps for every byte it emits. `CONTROL`
+    // names the set rather than enumerating it, which is the spelling the escape
+    // pass already settled on
     if (CONTROL.test(name)) {
       throw new TypeError(
         `Expected the schema format named ${escapeControls(JSON.stringify(name))} to have no control or format character in its name`

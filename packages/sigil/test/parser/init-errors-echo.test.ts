@@ -512,6 +512,20 @@ describe.skipIf(process.platform === 'win32')('a name the refusal lets through',
   });
 });
 
+// the one routed name that still reaches `Did you mean`: a blank letter is no
+// sequence and no reordering, so the route is kept and the suggestion escapes it
+describe.skipIf(process.platform === 'win32')('a suggestion offering a routed name', () => {
+  it('should escape what a file name held that the refusal lets through', async () => {
+    const root = tempDir('sigil-init-errors-');
+    const blank = String.fromCodePoint(0x3164);
+    writeFileSync(join(root, `build${blank}.js`), 'export default { run() {} };');
+
+    const message = await messageOf(() => parse({ argv: ['buil'], schema: { commands: root } }));
+    expect(message).toContain('Did you mean "build\\u{3164}"?');
+    expect(message).not.toContain(blank);
+  });
+});
+
 describe.skipIf(process.platform === 'win32')("a module's own message", () => {
   it('should keep its SGR and its lines, because only the path is the file system', async () => {
     const root = tempDir('sigil-init-errors-');

@@ -1020,7 +1020,7 @@ describe('filesystem routing', () => {
         // terminal: a name holding one is a name nobody can type and a sequence
         // waiting for something to print it. U+2028 is `\p{Zl}`, which is neither
         // `\p{Cc}` nor `\p{Cf}`, and `/\s/` already refuses it as whitespace
-        for (const code of [0x07, 0x1b, 0x7f, 0x9b, 0xad, 0x200d, 0x202e]) {
+        for (const code of [0x07, 0x1b, 0x7f, 0x9b, 0xad, 0x200b, 0x202e]) {
           const name = `a${String.fromCodePoint(code)}b`;
           let message = '';
           try {
@@ -1035,6 +1035,17 @@ describe('filesystem routing', () => {
             'contains a control or format character, which a terminal would act on or draw as something else'
           );
           expect(message, shown).not.toMatch(/[\p{Cc}\p{Cf}]/u);
+        }
+      });
+
+      it('should let the two joiners through, since a script spells words with them', () => {
+        // Persian needs U+200C and several Indic scripts U+200D; neither reorders
+        // or hides anything the way the bidi controls and U+200B do
+        for (const code of [0x200c, 0x200d]) {
+          const name = `a${String.fromCodePoint(code)}b`;
+          expect(
+            resolveRoutes('/nowhere', [entry(`${name}.mjs`)]).map((route) => route.name)
+          ).to.deep.equal([name]);
         }
       });
 

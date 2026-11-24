@@ -99,7 +99,7 @@ every app, and a built app gets `--version`. Do not declare them by hand.
   the extension. See [A `commands.json`](../../docs/parser.md#a-commandsjson)
   and [A module's own name does not route](../../docs/parser.md#a-modules-own-name-does-not-route).
 - **A route's name is taken literally.** A file named `!x.ts`, `@x.ts` or
-  `my cmd.ts` is refused rather than read as hidden, aliased or two names.
+  `my cmd.ts`, or one holding a control or format character, is refused rather than read as hidden, aliased or two names.
   Files starting with `.` are skipped, a `.d.ts` is never a route, and a
   `deploy.ts` beside a `deploy.js` (or a `config.ts` beside a `config/`) throws.
 - **A command module's default export is a plain object**, usually wrapped in

@@ -2048,11 +2048,17 @@ read it by the new name.
   message is built, so the build's diagnostic, which reuses the text, is inert in
   its message. Its location prefix is the build's own and is escaped there, by
   `diagnosticLocation()` (SIG-443). **A control or format character is grounds for
-  refusal, since SIG-662**: `assertRouteName()` refuses `\p{Cc}` and `\p{Cf}` in a
+  refusal, since SIG-662**: `assertRouteName()` refuses `\p{Cc}` and `\p{Cf}` (less the joiners) in a
   name, last, so a name refused for its syntax is still said to be and a `!` file
   still gets its advice. U+2028 and U+2029 were already refused as whitespace.
-  `\p{Cf}` includes U+200D, so a file name holding a joined emoji is refused with
-  the rest. The refusal is what stops a hostile file dropped into an installed
+  **U+200C and U+200D are let through**: Persian and several Indic scripts
+  cannot spell some words without them, and an attack needs the bidi controls and
+  the invisible spaces rather than a joiner. They are escaped wherever a name is
+  echoed, like U+3164. A `commands.json` alias is **not** held to it: a dropped
+  manifest is no more the app's own than a dropped file, but an alias is only ever
+  echoed escaped, so it has the one guard where a route name has two. Refusing it
+  would also be a change to what `commands.json` accepts, which this ticket did
+  not take; it is a follow-up. The refusal is what stops a hostile file dropped into an installed
   app's commands directory from being a command at all, and it is the first of two
   guards: a suggestion escapes what it offers whatever the name was (see "A value
   an error echoes"). The rest of what `escapeControls()` names -- U+3164, U+034F,
