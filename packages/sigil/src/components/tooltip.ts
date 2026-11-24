@@ -123,7 +123,7 @@ export interface TooltipHandle {
   readonly element: Element | undefined;
   /** Hides it until the pointer and the focus have both left and come back, as Escape does. */
   hide(): void;
-  /** Changes what it says, re-placing the bubble if it is shown. */
+  /** Changes what it says, re-placing the bubble if it is shown. Escape sequences are dropped. */
   setText(value: string): void;
   /**
    * Whether the bubble is in the tree. Still `true` while the anchor is scrolled
@@ -650,7 +650,7 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
       if (typeof value !== 'string') {
         throw new TypeError(__`Expected tooltip text to be a string`);
       }
-      // dropped rather than drawn: the tree strips an `ESC` and prints the rest
+      // dropped rather than drawn: a text node would print what follows the `ESC`
       const said = strip(value);
       label.setText(said);
       saying = said !== '';
