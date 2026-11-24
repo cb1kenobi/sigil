@@ -858,6 +858,43 @@ command, wired beside `registerHelp()` and `registerVersion()`.
   costs it nothing, which is a thing worth knowing before somebody wonders why
   completion does not need it.
 
+- **The bash drivers run every case of a test in one bash, because the process
+  is what costs on Windows and the function is not (SIG-678).**
+  `should insert only what readline is replacing` timed out at 10 s on CI's
+  node 22 Windows job -- 12.7 s -- over a PR that touched a chart readout. It
+  spawned a `bash` per case, 25 of them, through `execFileSync()`, and the
+  sibling `should complete what the spec says, driven in a real bash` spawned
+  24 and finished the same run in 9.6 s, 0.4 s inside the limit it shares. What
+  the logs of 12 other runs say, read from 36 Windows jobs: the first test took
+  0.86 to 1.84 s and the second 0.85 to 1.85 s, about 35 to 70 ms a spawn. So
+  the test was not slow; the runner was, for a moment -- that job's whole file
+  took 24.9 s against 2.2 to 4.4 s elsewhere -- and the same 25 spawns cost 0.5 s
+  each. That slowdown is not something a test can hold down, and a timeout
+  raised to cover it is a bound on how slow a runner may get, so the lever is the
+  count. Locally a `bash` is 3 ms and both tests take 85 ms, which is why this
+  was never seen on a Mac: a stand-in `bash` that sleeps 0.4 s before it execs
+  the real one reproduced the failure on the old file (10.5 s and 9.4 s) and
+  ran the new one in 0.5 s each, with 16 spawns for the file against 62.
+
+  `driveBash()` in `test/completion.test.ts` sources the script once and runs
+  each case in a **subshell**, which is a `fork` and not a process start, and
+  which is what keeps the cases as independent as separate shells were --
+  `COMP_WORDS`, `COMPREPLY` and `COMP_WORDBREAKS` are set inside it and gone
+  with it. A subshell that fails fails the program, so a case cannot go quiet.
+  It replaced four copies of one driver, which is also why the three tests
+  that had one each now read the same one. Two tests hold it: one asserts that
+  forty cases are one spawn, which is the number to hold because the time is
+  the thing that varies, and one that a case which removed `=` and `:` from
+  `COMP_WORDBREAKS` leaves the next case its defaults. Both fail when the
+  helper is sabotaged -- a spawn per case, and no subshell.
+
+  What is **not** changed, and why. `bash -n` stays its own spawn, since a
+  syntax check is a different process by definition. The interactive-bash
+  describe is one `python3` per call and has its own 60 s timeout. The
+  Windows figures are CI's and the stand-in is a macOS measurement; nothing here
+  was run on Windows, and "a spawn is 35 to 70 ms there" is an average over
+  25 or 24 of them rather than one timed.
+
 - **Seventy-six sabotages, seventy-five caught and one declared, after twelve
   survivors and one defect the pass found plus one it could not.** Counted
   against the shipped tree in one run rather than summed across rounds, which is
