@@ -1880,8 +1880,8 @@ export interface CrosshairLineChartProps extends LineChartBase {
    * the pin is marked on the plot and the axis (`.sigil-chart-pin`).
    */
   crosshair: LineChartCrosshair;
-  /** The chart's own props, without the two hooks it owns. */
-  props?: ElementPropsWithout<'onKey' | 'onResize'>;
+  /** The chart's own props, without the three hooks it owns. */
+  props?: ElementPropsWithout<'onKey' | 'onLayout' | 'onResize'>;
   /**
    * `h` and `l` to step the rule as Left and Right do, which is vim's spelling and
    * the treemap's `vim` less its `j` and `k`: a chart has no up and down. Off by
@@ -2198,7 +2198,7 @@ export function LineChart(props: LineChartProps): Element {
     throw new TypeError('Expected line chart crosshair text to be a function');
   }
   if (crosshair !== undefined) {
-    refuseOwnedHooks('LineChart', props.props, ['onKey']);
+    refuseOwnedHooks('LineChart', props.props, ['onKey', 'onLayout']);
   }
   if (props.vim !== undefined && typeof props.vim !== 'boolean') {
     throw new TypeError('Expected line chart vim to be a boolean');
@@ -2265,10 +2265,12 @@ export function LineChart(props: LineChartProps): Element {
   /**
    * Says what is under the crosshair, and where it is, after a drawing: the words
    * first, so the bubble that moves is the one that says them.
+   *
+   * @returns Whether it wrote the words or the area, which a layout owes a pass.
    */
-  const follow = (drawing: Drawing): void => {
+  const follow = (drawing: Drawing): boolean => {
     if (crosshair === undefined || pointed === undefined) {
-      return;
+      return false;
     }
     drawn = drawing;
     const at = drawing.crosshair;
@@ -2337,8 +2339,10 @@ export function LineChart(props: LineChartProps): Element {
         }
       }
     }
+    let changed = false;
     if (words !== said) {
       // an empty string hides the bubble, which is the tooltip's own rule
+      changed = true;
       said = words;
       tip?.setText(words);
     }
@@ -2358,8 +2362,10 @@ export function LineChart(props: LineChartProps): Element {
       next?.width !== was?.width ||
       next?.height !== was?.height
     ) {
+      changed = true;
       pointed.set(next);
     }
+    return changed;
   };
 
   /** The rows that are not the plot's, given the x labels. */
@@ -2412,14 +2418,12 @@ export function LineChart(props: LineChartProps): Element {
           // the readout's room and the widened area are read from the boxes of the
           // last layout, and a terminal resized with the chart's own size unchanged
           // runs no drawing: so each layout asks again, and `follow()` writes only what
-          // moved. The caller's own `onLayout` is called first and its answer kept
-          const theirs = outer.onLayout;
-          outer.onLayout = (element): boolean => {
-            const theirsChanged = theirs?.(element) === true;
-            if (drawn !== undefined) {
-              follow(drawn);
-            }
-            return theirsChanged;
+          // moved, and says whether it did, which is a layout owed. Untracked, since
+          // a layout may be run from inside something that tracks and the caller's
+          // `text()` is not ours to subscribe it to
+          outer.onLayout = (): boolean => {
+            const was = drawn;
+            return was !== undefined && untrack(() => follow(was));
           };
           // the bubble is the tooltip's, pointed at the rule: at once by default,
           // since a readout that lags the rule it reads is a readout of where the
