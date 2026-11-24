@@ -1171,6 +1171,8 @@ export interface PageOptions extends Omit<PagerOptions, 'content' | 'onQuit'>, S
  * typing into -- the document is **written out as it was given** and the promise
  * resolves, which is what `less` does when its output is not a terminal: the
  * reader is somebody's `grep`, and what they want is the text.
+ * A file that took only part of it rejects the promise (SIG-672), since
+ * `page() > out.txt` is a document and exiting 0 over half of one is the defect.
  *
  * @param content - The document.
  * @param opts - How to show it, and where.

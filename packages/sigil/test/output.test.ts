@@ -285,7 +285,7 @@ describe('writeTo()', () => {
     stream.write('one\n');
     stream.write('two\n');
     writeTo(stream, 'three\n');
-    await new Promise((settle) => stream.end(settle));
+    await new Promise((settle) => stream.once('close', settle).end());
 
     expect(readFileSync(dest, 'utf-8')).toBe('one\ntwo\nthree\n');
   });
@@ -297,7 +297,7 @@ describe('writeTo()', () => {
     await new Promise((settle) => stream.once('open', settle));
 
     writeTo(stream, 'body');
-    await new Promise((settle) => stream.end(settle));
+    await new Promise((settle) => stream.once('close', settle).end());
 
     // a write to the descriptor lands at offset 0 and replaces the head
     expect(readFileSync(dest, 'utf-8')).toBe('HEADbody');

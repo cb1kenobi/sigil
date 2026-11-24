@@ -2763,30 +2763,48 @@ app that had somebody looking. Chris decided on 2026-11-24 that both are
   caller could act on. A throw out of a diagnostic would also be a new way for it
   to fail, in places chosen because they must not. Per writer:
   - **`page()`'s non-terminal branch (`components/pager.ts`): changed.** With no
-    terminal on the other end it writes the document as it was given -- `mycli log
-    > out.txt`-- which is a document by any reading, and one`write()`of it
-    > exited 0 over a cut-off file. It is`writeTo(terminal.stdout, ...)`now, a
-    > **rejection** rather than a sync throw because`page()`returns a promise, and
-    > a terminal over a stream of the caller's is still`write()`. The key-driven
-    > half is a screen and is untouched. Spawned test `page`in`packages/cli/test/output.test.ts`, which fails with the write put back.
+    terminal on the other end it writes the document as it was given, as in
+    `mycli log` redirected to `out.txt`, which is a document by any reading, and
+    one `write()` of it exited 0 over a cut-off file. It is
+    `writeTo(terminal.stdout, ...)` now, and a cut-off is a **rejection** rather
+    than a sync throw because `page()` returns a promise -- which also makes a
+    synchronous `EPIPE` from a pipe's `write()` a rejection where it was a throw.
+    A terminal over a stream of the caller's is still `write()`. The key-driven
+    half is a screen and is untouched. Spawned test `page` in
+    `packages/cli/test/output.test.ts`, which fails with the write put back.
   - **The default effect report (`signals/effect.ts`): left.** It runs in a
     microtask with no one to catch a throw -- the reason it writes a message
     rather than rethrowing -- and it sets `process.exitCode` to non-zero itself,
-    so a lost message cannot turn a failure into a success. `runApp()` replaces it with the real handler, which
-    does go through `writeTo()`.
+    so a lost message cannot turn a failure into a success. What replaces it is
+    not all `writeTo()` either: `render()` defaults to `errorHandler()`, which is,
+    while `runApp()`'s own report is a terminal write on the same reasoning (the
+    exit code is `exited`'s to carry), so a message cut off under `2> log` there is
+    unchecked and the code still says it failed.
   - **`completion/interactive.ts`'s plan, result, `Cancelled` and by-hand text:
-    left.** Interactive output beside a prompt on a terminal. The by-hand text
-    and `Cancelled` accompany an exit code of 1, and the result lines report a
-    file that was already written; a cut-off there loses a sentence, and a throw
-    would turn a completed install into an error. The script itself, which is the
+    left.** Written beside a prompt, mostly on a terminal. The by-hand text is
+    the exception -- it is written exactly when there is **no** terminal to ask on,
+    so `2> log` is a file -- but it and `Cancelled` accompany an exit code of 1,
+    and the result lines (the plan and a "nothing to do" at exit 0 included) report
+    a file that was already written or one that needs no change; a cut-off there
+    loses a sentence nobody can act on, and a throw would turn a completed install
+    into an error. The script itself, which is the
     document, is `writeOut()` since SIG-663.
   - **The update notice (`updates/auto.ts`): left, and cannot be a file.**
     `skipReason()` refuses a stderr that is not a terminal before anything is
     fetched, so the one `write` it makes is to a TTY, and it is wrapped in a
     `catch` that only logs: a notice is the last thing that may fail an app.
-  - **The prompts and the live region (`components/`, `terminal/`): left.** They
-    are drawn to a terminal through `createTerminal()`, whose own guard and
-    best-effort writes are decided in `terminal/AGENTS.md`. A `writeSync` loop
+  - **The prompts, the live region and the non-terminal fallbacks of the
+    components (`components/`, `terminal/`): left.** They are written through
+    `createTerminal()`, whose own guard and best-effort writes are decided in
+    `terminal/AGENTS.md`. That includes the fallbacks that write a line where a
+    frame cannot be drawn -- `tasks`, `multi-progress`, `mount`'s `writeLine()`,
+    each a progress line, which is a diagnostic by the rule -- and `outline`'s
+    `done()`, which writes the whole tree when it is not mounted. That last one is
+    the same shape as `page()` and is the borderline case: it is **left** because
+    it goes through the terminal wrapper, which owns ordering against a live
+    region and swallows errors on purpose, where `page()` has neither on its
+    non-terminal branch. Whether a tree written to a file is a document is the open
+    question, recorded as a follow-up rather than decided here. A `writeSync` loop
     there could block against a full pty and reorder against the stream's queue,
     which is the SIG-671 defect again on the one stream where it would be seen.
   - **`debug/` and the console replay in `renderer/app.ts`: left.** A `DEBUG` line
