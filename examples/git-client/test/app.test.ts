@@ -393,6 +393,82 @@ for (const [syntax, App] of [
     );
 
     it(
+      'should unstage a range of lines picked with v, under Staged',
+      async () => {
+        const repo = repository();
+        repo.write(
+          'a.txt',
+          NUMBERS.map((n) => (n === '2' ? 'two' : n === '4' ? 'four' : n))
+        );
+        repo.git('add', 'a.txt');
+        const client = await mount(App, repo);
+
+        // the same range as staging one, over the staged hunk: `-2`, `+two` and `-4`
+        // are unstaged together, across the unchanged `3`, and `+four` stays staged
+        await client.press('4', KEYS.enter, 'v', KEYS.down, KEYS.down, ' ');
+        expect(client.screen()).toMatch(/Unstaged 3 lines of a\.txt/);
+        expect(repo.git('show', ':a.txt').split('\n').slice(0, 6)).toEqual([
+          '1',
+          '2',
+          '3',
+          '4',
+          'four',
+          '5',
+        ]);
+        expect(repo.git('diff')).toMatch(/-2\n\+two/);
+        expect(repo.git('diff')).toMatch(/-4\n four/);
+
+        await client.press('q');
+        expect(await client.app.exited).toBe(0);
+      },
+      LONG
+    );
+
+    it(
+      'should stage a range of lines dragged over with the mouse, the range v would pick',
+      async () => {
+        const repo = repository();
+        repo.write(
+          'a.txt',
+          NUMBERS.map((n) => (n === '2' ? 'two' : n === '4' ? 'four' : n))
+        );
+        const client = await mount(App, repo, { mouse: true });
+        // where a row of the diff pane is drawn, found by what it says: the pane is
+        // the right-hand side, past the files, branches and commits
+        const pane = 44;
+        const at = (line: string): { x: number; y: number } => {
+          const y = client.term.viewport.findIndex((row) => row.indexOf(line, pane) >= 0);
+          expect(y, client.screen()).toBeGreaterThan(0);
+          return { x: (client.term.viewport[y] ?? '').indexOf(line, pane) + 1, y: y + 1 };
+        };
+
+        await client.press('4', KEYS.enter);
+        const from = at('-2');
+        const to = at('-4');
+        // a press, a motion with the button held, and the release, as the terminal
+        // sends them: `-2` through `-4` is the range `v` and two steps down picks
+        await client.press(
+          `\x1b[<0;${from.x};${from.y}M`,
+          `\x1b[<32;${to.x};${to.y}M`,
+          `\x1b[<0;${to.x};${to.y}m`,
+          ' '
+        );
+        expect(client.screen()).toMatch(/Staged 3 lines of a\.txt/);
+        expect(repo.git('show', ':a.txt').split('\n').slice(0, 5)).toEqual([
+          '1',
+          'two',
+          '3',
+          '5',
+          '6',
+        ]);
+
+        await client.press('q');
+        expect(await client.app.exited).toBe(0);
+      },
+      LONG
+    );
+
+    it(
       'should list the line keys in the footer while the cursor is on the lines, in place of the hunk keys',
       async () => {
         const repo = repository();
