@@ -1,5 +1,7 @@
+import { bindingName, importBindings } from '../src/build/bindings.ts';
 import { keysIn } from '../src/build/i18n.ts';
 import { MODULE_RE, parseModule } from '../src/build/parse-module.ts';
+import { walk } from '../src/build/walk.ts';
 import { SIGIL_KEYS, SIGIL_PLURAL_KEYS } from '@ttylabs/sigil/i18n-keys';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
@@ -51,6 +53,41 @@ function fromSource(): { plurals: string[]; strings: string[] } {
   }
 
   return { plurals: [...plurals].sort(), strings: [...strings].sort() };
+}
+
+/**
+ * Every `__` tag written inside a `new TypeError(...)` or `new RangeError(...)`.
+ *
+ * Read off the tree the way the generator reads it, so the tag is whatever the
+ * module imported from the i18n module rather than the two characters `__`.
+ */
+function taggedProgrammingErrors(file: string, source: string, from?: string): string[] {
+  const parsed = parseModule(file, source);
+  const tags = importBindings(parsed, from ?? '@ttylabs/sigil/i18n', '__');
+  const found: string[] = [];
+
+  walk(parsed.program, (node) => {
+    if (
+      node.type === 'NewExpression' &&
+      node.callee.type === 'Identifier' &&
+      (node.callee.name === 'TypeError' || node.callee.name === 'RangeError')
+    ) {
+      walk(node, (inner) => {
+        if (
+          inner.type === 'TaggedTemplateExpression' &&
+          bindingName(inner.tag, tags) !== undefined
+        ) {
+          found.push(source.slice(inner.start, inner.end));
+        }
+
+        return true;
+      });
+    }
+
+    return true;
+  });
+
+  return found;
 }
 
 describe('the committed key set', () => {
@@ -115,6 +152,49 @@ describe('the committed key set', () => {
     expect(SIGIL_KEYS.filter((key) => key.startsWith('Expected '))).toEqual([
       'Expected a list of values',
     ]);
+  });
+
+  // SIG-668: the test above is a convention -- `Expected ` is how most of them
+  // begin -- and five more had been tagged under other words. This is the other
+  // half, and it is a rule rather than a spelling: a `TypeError` or a
+  // `RangeError` is the runtime saying a caller handed it something it cannot
+  // use, which is a mistake in the app's code and never in its user's argv, so
+  // its reader is the developer and SIG-53's decision applies. A user's mistake
+  // is a `UsageError` or an `Error` (a `PromptError`, a config layer's refusal),
+  // which this leaves alone: 87 tagged `new Error(...)` sites were read for it and
+  // are not all one kind, so no rule over them is made here
+  // what it reads is a tag lexically inside the constructor's call: a tagged message
+  // handed to a helper that throws, or built into a variable first, is not seen, and
+  // a file that never writes the two characters is skipped unread. No such site
+  // exists today; the `Expected ` test above is the other net
+  it('should tag no TypeError or RangeError', () => {
+    const tagged: string[] = [];
+
+    for (const file of modules(root)) {
+      const source = readFileSync(file, 'utf8');
+
+      if (!source.includes('__`')) {
+        continue;
+      }
+
+      for (const text of taggedProgrammingErrors(file, source, specifierFrom(file))) {
+        tagged.push(`${relative(root, file)}: ${text}`);
+      }
+    }
+
+    expect(tagged).toEqual([]);
+  });
+
+  it('should see a tag inside a TypeError, so that the test above can fail', () => {
+    const call = "import { __ } from '@ttylabs/sigil/i18n';\n";
+
+    expect(
+      taggedProgrammingErrors('a.ts', `${call}throw new TypeError(__\`Bad ${'${x}'}\`);\n`)
+    ).toEqual(['__`Bad ${x}`']);
+    expect(
+      taggedProgrammingErrors('a.ts', `${call}throw new RangeError(a ? __\`One\` : 'two');\n`)
+    ).toEqual(['__`One`']);
+    expect(taggedProgrammingErrors('a.ts', `${call}throw new Error(__\`Bad\`);\n`)).toEqual([]);
   });
 
   it('should number a slot per interpolation, never name one', () => {

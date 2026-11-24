@@ -344,7 +344,7 @@ const pkg: AnyCommand = command({
           'import') ||
           (schemaCheck === 'asks' && 'schema')
       );
-      const unconfirmed = wrappedCheckWarning(sigilConfig, result.usesUpdateCheck, schemaCheck);
+      const unconfirmed = wrappedCheckWarning(sigilConfig, result.importsCheck, schemaCheck);
       if (unconfirmed) {
         writeNote([unconfirmed], process.stderr);
       }

@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 305 keys, which is what a catalog has to carry to translate sigil's own
+ * 300 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -34,8 +34,6 @@ export const SIGIL_KEYS: readonly string[] = [
   '(skip)',
   '({0} to submit)',
   '<command>',
-  'A TreeListView reads items.get() inside a Computed, so a source may not write a signal while it is read: write it before, or from an effect',
-  'A list takes type-to-find or vim keys, and not both',
   'A new version of {0} is available: {1} → {2}',
   'Added a block to {0}',
   'Alias:',
@@ -183,9 +181,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Unknown command "{0}". Did you mean "{1}"?',
   'Unknown option "{0}"',
   'Unknown option "{0}". Did you mean "{1}"?',
-  'Unknown outline enumerator {0}',
   'Unknown output format "{0}". This command accepts: {1}',
-  'Unknown tree guide {0}',
   'Unsafe config key "{0}" in {1}',
   'Unsupported PNG: an unknown critical chunk {0}',
   'Unsupported PNG: compression method {0}',
@@ -313,7 +309,6 @@ export const SIGIL_KEYS: readonly string[] = [
   '{0} must hold an object',
   '{0} names it, and sigil did not add that',
   '{0} options:',
-  '{0} sets {1} itself, so an {2} in its props would be replaced: put the handler on an element around it',
   '{0} task failed',
   '{0} was not written by sigil',
   '{0} was stopped by {1}',

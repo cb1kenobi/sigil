@@ -7708,7 +7708,8 @@ measurements are in
   `latest`. `readSchemaUpdateCheck()` now answers `'wrapped'` for a literal that
   only a call hands over (`options !== expression`, so a builder call or a
   literal written out stays `'names'`), and `wrappedCheckWarning()` is what
-  `sigil package` writes when the bundle reached the check, the schema is
+  `sigil package` writes when the app imports `check()` (SIG-666; it was the
+  specifier until then), the schema is
   `'wrapped'` and `sigil.json` declares no `updateCheck`. Declaring one is the
   fix and the silence: it bakes the checker the hand-called `check()` reads.
 
@@ -7719,10 +7720,8 @@ measurements are in
   correct build where a missed one costs a notice that never appears. A note on
   stderr costs a correct app one line and a `sigil.json` entry. It is `package`
   only: `sigil build` leaves a runtime to fall back on, and `check()`'s own
-  default there is npm. The warning cannot say whether `check()` is called --
-  the bundler's watch sees the specifier and not what was imported from it -- so
-  it fires for every wrapped schema whose bundle reaches `@ttylabs/sigil/updates`,
-  which is the limit. It goes through `writeNote()`, so `--quiet` silences it: a
+  default there is npm. The warning cannot say whether `check()` is called, only
+  whether it is imported, which is the limit. It goes through `writeNote()`, so `--quiet` silences it: a
   release script that asked for no prose gets the hollow check with no word,
   which is the ticket's own symptom in the one place binaries are made. Left,
   because routing one note around `--quiet` is a decision about `--quiet` and not
@@ -7760,9 +7759,25 @@ measurements are in
   anything about. It reads the import and **not** through `importBindings()`: that
   drops a name the module binds again anywhere, and `check` is generic enough that
   `.filter((check) => ...)` beside the import would have turned the warning off. A namespace import counts
-  without asking which member is used. `'wrapped'` is left on the specifier signal
-  as SIG-593 wrote it, since narrowing it to `importsCheck` is a change to a warning
-  that has its own tests; `--quiet` silences both, which is `writeNote()`'s rule.
+  without asking which member is used. `--quiet` silences both, which is `writeNote()`'s rule.
+
+  **`'wrapped'` is asked of `importsCheck` too, not of the specifier (SIG-666).**
+  SIG-609 left the SIG-593 warning on the specifier, and the specifier is what
+  `updateCheck: wrap({ checker: githubChecker(...) })` puts in the graph by itself:
+  a wrapped schema that imports only the builder never calls `check()` by hand
+  and was warned about a hollow check it does not have.
+  `wrappedCheckWarning()` now takes `importsCheck` and the message says it is
+  `check()` that is imported. What it costs is one case, known and accepted: a wrap
+  that returns something truthy without the checker, in an app that imports no
+  `check`, is the `'asks'` shape at run time -- `beginUpdateCheck()` finds no
+  checker and the automatic check does nothing -- and the specifier signal's note
+  was the only thing that said so, in words about `check()`. Everything else it
+  stopped saying was noise: the warning is about a hand-called `check()` with no
+  checker, and an app that does not import `check` has none to call. `should say nothing for a
+  wrapped schema that imports only a builder` packages one and failed on the
+  specifier version. Left as it was: a schema checker written as a plain literal
+  is still not baked, for the reason above, so a wrapped one that does import
+  `check` is still told to declare `updateCheck` in `sigil.json`.
 
 - **A checker the schema writes out is asked of `checkedChecker()` at build time,
   so the author is told where they are already looking (SIG-564).**

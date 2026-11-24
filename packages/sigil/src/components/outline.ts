@@ -21,7 +21,6 @@
 
 import { strip } from '../ansi/index.js';
 import { box, type Element, renderToString, text as textNode } from '../element/index.js';
-import { __ } from '../i18n/index.js';
 import { For } from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
@@ -207,7 +206,7 @@ function styled(style: OutlineStyle, position: number, ascii: boolean): string {
     case 'ROMAN':
       return `${toRoman(position).toUpperCase()}.`;
     default:
-      throw new TypeError(__`Unknown outline enumerator ${String(style)}`);
+      throw new TypeError(`Unknown outline enumerator ${String(style)}`);
   }
 }
 

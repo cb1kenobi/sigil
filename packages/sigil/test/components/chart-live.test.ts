@@ -11,13 +11,14 @@ import {
   Sparkline,
   sparkline,
 } from '../../src/components/chart.js';
+import { attachTooltip } from '../../src/components/tooltip.js';
 import { box, type Element, renderToLines, text } from '../../src/element/index.js';
 import { ESCAPE_TIMEOUT, type DescribeOptions, type InputRouter } from '../../src/input/index.js';
 import { runApp, useApp } from '../../src/renderer/app.js';
 import { effect, flush, State } from '../../src/signals/index.js';
 import { createTestTerminal, ctrl, frame, KEYS } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * The live charts: fed from a signal, a `Series` or a function, and drawn at the
@@ -30,6 +31,14 @@ import { afterEach, describe, expect, it } from 'vitest';
  */
 
 const ESC = String.fromCharCode(0x1b);
+
+// wrapped and not replaced, so the tooltip is the real one and a test can read the
+// area the chart handed it: that is the only place a widened span shows when the
+// bubble it was widened for is hidden
+vi.mock('../../src/components/tooltip.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/components/tooltip.js')>();
+  return { ...actual, attachTooltip: vi.fn(actual.attachTooltip) };
+});
 
 /** The tree as it is drawn, as rows: no colour and no trailing blanks. */
 function picture(root: Element, width: number, height?: number): string[] {
@@ -1493,6 +1502,49 @@ describe('LineChart, with a crosshair from the keyboard (SIG-516)', () => {
           expect(wide.join('\n')).not.toContain('[31m');
           const narrow = await farPin(await mountBare(`${esc}[31ma readout${esc}[39m wide`));
           expect((narrow[0] ?? '').indexOf('╭')).toBe(1);
+        });
+
+        it('should reach as far as a readout draws a tab, which is as one space (SIG-665)', async () => {
+          // a tab is a space where the tree draws it and nothing to stringWidth(): 15
+          // columns of words are drawn and 14 were counted, which is one short of the pin
+          const wide = await farPin(await mountBare('a\treadout wide!'));
+          expect((wide[0] ?? '').indexOf('▼')).toBe(19);
+          expect((wide[0] ?? '').indexOf('╭')).toBe(20);
+          expect((wide[0] ?? '').indexOf('╮')).toBe(38);
+          // and the same words with a space in it are the same bubble
+          const spaced = await farPin(await mountBare('a readout wide!'));
+          expect((spaced[0] ?? '').indexOf('╮')).toBe(38);
+        });
+
+        it('should not widen the area, nor draw a bubble, for a readout of only an SGR sequence (SIG-669)', async () => {
+          const calls = vi.mocked(attachTooltip).mock.calls;
+          const areaOf = () => calls.at(-1)?.[1].area?.();
+          // a chart of twenty samples, so the pin is a few columns from the rule and
+          // inside the reach of 4 that a readout of no width has
+          const series = [{ data: Array.from({ length: 20 }, (_, i) => i), label: 'API' }];
+          const near = (say: string) =>
+            mount((input) => ({
+              axis: false,
+              crosshair: { input, text: () => say },
+              props: { height: 6, width: 30 },
+              series,
+              step: 'fit',
+            }));
+          const pinNear = async (m: Awaited<ReturnType<typeof near>>) => {
+            await m.key(KEYS.tab, KEYS.home, KEYS.right, KEYS.right, KEYS.enter, KEYS.home);
+          };
+
+          // the same readout, with something to say: it does widen, which says the
+          // geometry is within reach
+          const said = await near('ab');
+          await pinNear(said);
+          expect(areaOf()?.width).toBeGreaterThan(1);
+
+          const only = await near(`${ESC}[31m${ESC}[39m`);
+          await pinNear(only);
+          expect(areaOf()?.width).toBe(1);
+          // and the tooltip draws nothing for it, the same as for ''
+          expect(only.screen().join('')).not.toMatch(/[╭╮]/);
         });
 
         it('should reach as far as the widest line of a readout of several', async () => {
