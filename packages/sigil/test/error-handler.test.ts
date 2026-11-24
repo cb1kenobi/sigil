@@ -1,7 +1,7 @@
 import { errorExitCode, errorHandler, errorMessage, renderError } from '../src/error-handler.js';
 import type { ErrorContext, ParseState } from '../src/types.js';
 import { Writable } from 'node:stream';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * Collects everything written to it so a test can assert on the rendered text
@@ -163,6 +163,16 @@ describe('errorHandler', () => {
   // SIG-663: the message is written through `writeTo()`, so a write that fails
   // is a thrown error here and the exit code is what is left to say so
   describe('a stderr that refuses the message', () => {
+    let write: ReturnType<typeof vi.spyOn>;
+    afterEach(() => write?.mockRestore());
+
+    /** The process's own stderr refusing: the only one whose failure is a cut-off. */
+    const ownRefusing = (code: string, extra: object = {}) => {
+      write = vi.spyOn(process.stderr, 'write').mockImplementation(() => {
+        throw Object.assign(new Error(code), { code, ...extra });
+      });
+    };
+
     const refusing = (code: string): NodeJS.WritableStream =>
       ({
         write() {
@@ -180,16 +190,37 @@ describe('errorHandler', () => {
     });
 
     it('should not report success over an error that asked for zero and was not written', () => {
-      errorHandler(Object.assign(new Error('help'), { exitCode: 0 }), {
-        stderr: refusing('ENOSPC'),
-      });
+      ownRefusing('ENOSPC');
+      errorHandler(Object.assign(new Error('help'), { exitCode: 0 }));
 
       expect(process.exitCode).toBe(1);
     });
 
     it('should leave a zero alone when the reader went away, since nothing was cut off', () => {
+      ownRefusing('EPIPE');
+      errorHandler(Object.assign(new Error('help'), { exitCode: 0 }));
+
+      expect(process.exitCode).toBe(0);
+    });
+
+    it('should not throw out of the error path over a write error that cannot be read', () => {
+      write = vi.spyOn(process.stderr, 'write').mockImplementation(() => {
+        throw Object.defineProperty(new Error('hostile'), 'code', {
+          get() {
+            throw new Error('getter');
+          },
+        });
+      });
+
+      expect(() => errorHandler(Object.assign(new Error('help'), { exitCode: 0 }))).not.toThrow();
+      // an error that cannot be read is not known to be the reader leaving, so it is
+      // not given the benefit of the doubt
+      expect(process.exitCode).toBe(1);
+    });
+
+    it('should leave a stream the caller supplied to write(), and its failure to the caller', () => {
       errorHandler(Object.assign(new Error('help'), { exitCode: 0 }), {
-        stderr: refusing('EPIPE'),
+        stderr: refusing('ENOSPC'),
       });
 
       expect(process.exitCode).toBe(0);

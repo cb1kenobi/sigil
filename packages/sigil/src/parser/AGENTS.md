@@ -2677,9 +2677,13 @@ app that had somebody looking. Chris decided on 2026-11-24 that both are
   (SIG-663). `app completion bash > file` was `completion.ts`'s own
   `process.stdout.write()` of a document and is `writeOut()` now, so a cut-off is
   the same `The output was cut off` error and exit 1 as `--help`. `errorHandler()`
-  writes the message to its `stderr` option through `writeTo()`, which is the same
-  loop for a real `2> log`, and a stream that is not the real file -- a capture, a
-  test's sink -- is `stream.write()` unchanged. What cannot be done is _report_ a
+  writes the message through `writeTo()` when the stream is the process's own
+  `stderr`, which is the same loop for a real `2> log`. A stream passed as
+  `opts.stderr` is `write()` as it always was, whatever it is: an `fs.WriteStream`
+  has a descriptor and a queue of its own, and `writeTo()` on it wrote round the
+  queue -- ahead of what it held, and at offset 0 for one opened with `start` --
+  which the review of this entry measured. A capture or a test's sink was never
+  affected. What cannot be done is _report_ a
   cut-off message: stderr is the thing that failed, so the handler catches what
   `writeTo()` throws, logs it for `DEBUG=sigil:error`, and **does not throw out of
   the error path or recurse** -- a second handler pass over a message that cannot be
@@ -2687,8 +2691,9 @@ app that had somebody looking. Chris decided on 2026-11-24 that both are
   a usage error is still `2` and a plain one still `1`: that code is the verdict
   and the lost message does not change it. The one case where it matters is an
   error that asked for `0` -- the way an error says it is a clean exit -- which
-  would be success reported over half a message, so a failed write turns it into
-  `1`. A reader that went away (`isStreamGone()`, on the error or its `cause`)
+  would be success reported over half a message, so a failed write to the process's
+  own stderr turns it into `1`; a supplied stream's failure is its owner's and
+  changes nothing. A reader that went away (`isStreamGone()`, on the error or its `cause`)
   is not a cut-off and leaves the `0` alone, since nothing on a closed pipe was
   lost that anyone could read. The spawned tests are in
   `packages/cli/test/output.test.ts` against `fixtures/main-output/app.mjs`, with
