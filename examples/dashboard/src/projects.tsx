@@ -262,11 +262,13 @@ export function buildProjects(d: Dashboard, input: InputRouter): ProjectsView {
     // view. An element and not a point: below it the menu starts on the next
     // line, and flipped above it -- the last rows of a page, a short terminal --
     // it ends on the line before, where a point would have put it over the row.
-    // The table is asked for the row's element by its key. A frame is settled
-    // first, which lays the row out where it is now: a double click moves the
-    // cursor and activates in one handler, and the list may have scrolled to a
-    // row it built only just
-    app.view.frame();
+    // The table is asked for the row's element by its key, after `reveal()`: a
+    // double click moves the cursor and activates in one handler, and End and Enter
+    // arrive in one read, so the list may not have scrolled to a row it builds only
+    // now -- it follows the cursor from an effect, at the next frame. `reveal()`
+    // builds it here. No frame is needed after it: the menu reads the row's box when
+    // the next frame lays it out, which is the frame that places the menu as well
+    control.reveal(p.id);
     const row = control.rowElement(p.id);
     openMenu<() => void>(app.view, {
       at: (row === undefined ? undefined : lastCell(row)) ?? row ?? table,

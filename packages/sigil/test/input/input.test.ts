@@ -18,6 +18,7 @@ import {
 import { Cascade, parseStylesheet, Restyler } from '../../src/style/index.js';
 import { createTerminal, type Terminal } from '../../src/terminal/index.js';
 import { createTestTerminal, tick } from '../../src/testing/index.js';
+import { growthOf } from '../growth.js';
 import { describe, expect, it, vi } from 'vitest';
 
 /**
@@ -1578,6 +1579,172 @@ describe('focus', () => {
     });
   });
 
+  describe('between the showing of an element and the frame that resolves it', () => {
+    /**
+     * A section hidden by an inline `display` and a frame, with a field in it, and
+     * a field outside. The sheet is the app's, and its rules are what a test varies.
+     */
+    function scene(source = '') {
+      const { feed, terminal } = harness();
+      const inside = box({ focusable: true }, text('inside'));
+      const section = box({ display: 'none' }, inside);
+      const outside = box({ focusable: true }, text('outside'));
+      const root = box({}, section, outside);
+      const cascade = new Cascade([parseStylesheet(source)]);
+      const restyler = new Restyler(cascade);
+      resolveStyles(root, restyler);
+      const input = createInput({
+        hiddenBySheet: (element) =>
+          cascade.important(element, 'display', element.parent?.style) === 'none',
+        root,
+        terminal,
+      });
+      const got: string[] = [];
+      inside.onKey = (event) => void got.push(`inside:${event.key.name}`);
+      outside.onKey = (event) => void got.push(`outside:${event.key.name}`);
+      input.focus.focus(outside);
+      // what a command bar's handler does: show the box, and move the focus into it
+      input.bind('ctrl+b', () => {
+        section.setProp('display', 'flex');
+        input.focus.focus(inside);
+      });
+      return { cascade, feed, got, inside, input, outside, restyler, root, section };
+    }
+
+    it('should keep the focus put in a box shown in the same read as the keys that follow', () => {
+      // `:pods` typed fast is `:` and four keys in one chunk: no frame between them, so the
+      // resolved style still says `none` and only the inline `display` says otherwise
+      const { feed, got, inside, input } = scene();
+
+      feed(`${String.fromCharCode(2)}${ESC}[B${ESC}[A`);
+
+      expect(got).toEqual(['inside:down', 'inside:up']);
+      expect(input.focus.current.get()).toBe(inside);
+      input.stop();
+    });
+
+    it('should keep it when the box is shown inside one that was shown', () => {
+      const { feed, got, input, root, section } = scene();
+      const wrap = box({ display: 'none' });
+      section.parent?.append(wrap);
+      wrap.append(section);
+      // a frame, so that the wrapper's resolved style says `none` too: it is the ancestor
+      // case of a style that says hidden and a prop that says shown
+      resolveStyles(root);
+      input.bind('ctrl+c', () => wrap.setProp('display', 'flex'));
+
+      feed(`${String.fromCharCode(3)}${String.fromCharCode(2)}${ESC}[B`);
+
+      expect(got).toEqual(['inside:down']);
+      input.stop();
+    });
+
+    it.each(['initial', 'unset', ' FLEX '])('should read display: %j as shown', (word) => {
+      const { feed, got, input, section } = scene();
+      input.bind('ctrl+c', () => section.setProp('display', word));
+      input.bind('ctrl+d', () => input.focus.focus(section.children[0]));
+
+      feed(`${String.fromCharCode(3)}${String.fromCharCode(4)}${ESC}[B`);
+
+      expect(got).toEqual(['inside:down']);
+      input.stop();
+    });
+
+    it('should leave a box hidden when its prop is cleared, since only a frame can say what that came to', () => {
+      const { feed, got, input, section } = scene();
+      input.bind('ctrl+c', () => section.setProp('display', undefined));
+      input.bind('ctrl+d', () => input.focus.focus(section.children[0]));
+
+      feed(`${String.fromCharCode(3)}${String.fromCharCode(4)}${ESC}[B`);
+
+      expect(got).toEqual(['outside:down']);
+      input.stop();
+    });
+
+    it('should put a box shown in the same read in the ring, so a Tab in it goes to its next stop', () => {
+      // the ring and the repair of a gone focus read one rule: without it the field the
+      // handler focused was held and was no stop for the Tab that followed
+      const { feed, input, inside, section } = scene();
+      const second = box({ focusable: true }, text('second'));
+      section.append(second);
+      input.bind('ctrl+c', () => {
+        section.setProp('display', 'flex');
+        input.focus.focus(inside);
+      });
+
+      feed(`${String.fromCharCode(3)}\t`);
+
+      expect(input.focus.current.get()).toBe(second);
+      input.stop();
+    });
+
+    it('should still take the focus back from a box an ancestor of it is hiding', () => {
+      const { feed, got, input, section } = scene();
+      const wrap = box({ display: 'none' });
+      section.parent?.append(wrap);
+      wrap.append(section);
+      // the section is shown, and what holds it is not
+      feed(`${String.fromCharCode(2)}${ESC}[B`);
+
+      expect(got).toEqual(['outside:down']);
+      input.stop();
+    });
+
+    it('should not show a box a sheet is hiding with !important, which outranks a prop', () => {
+      const { feed, got, input, section } = scene('.gone { display: none !important }');
+      section.addClass('gone');
+
+      feed(`${String.fromCharCode(2)}${ESC}[B`);
+
+      expect(got).toEqual(['outside:down']);
+      input.stop();
+    });
+
+    it('should show a box a sheet is hiding without !important, which a prop beats', () => {
+      const { feed, got, input, section } = scene('.gone { display: none }');
+      section.addClass('gone');
+
+      feed(`${String.fromCharCode(2)}${ESC}[B`);
+
+      expect(got).toEqual(['inside:down']);
+      input.stop();
+    });
+
+    it('should read an important rule that arrived with a class, before any frame', () => {
+      // the cascade is asked as it is now: the class is on the element and no frame has
+      // restyled it, and the answer is still that the rule hides it
+      const { feed, got, input, section } = scene('.gone { display: none !important }');
+      section.addClass('gone');
+      section.removeClass('gone');
+      section.addClass('gone');
+
+      feed(`${String.fromCharCode(2)}${ESC}[B`);
+
+      expect(got).toEqual(['outside:down']);
+      input.stop();
+    });
+
+    it('should trust the show when the router was not told about any sheet', () => {
+      const { terminal, feed } = harness();
+      const inside = box({ focusable: true }, text('inside'));
+      const section = box({ display: 'none' }, inside);
+      const root = box({}, section);
+      resolveStyles(root);
+      const input = createInput({ root, terminal });
+      const got: string[] = [];
+      inside.onKey = (event) => void got.push(event.key.name);
+      input.bind('ctrl+b', () => {
+        section.setProp('display', 'flex');
+        input.focus.focus(inside);
+      });
+
+      feed(`${String.fromCharCode(2)}${ESC}[B`);
+
+      expect(got).toEqual(['down']);
+      input.stop();
+    });
+  });
+
   it('should hand focus on when the element holding it is unmounted', () => {
     // dropping it into nothing reads as an app that stopped responding: every
     // key then goes to the bindings and nowhere else
@@ -1718,29 +1885,37 @@ describe('paste', () => {
       stop();
     });
 
-    it('should hold a large paste in time linear in its size', () => {
+    // a ratio and not a budget (SIG-657): `took < 1000` sat an order of magnitude
+    // from both costs below, which no loaded machine was meant to cross, and said
+    // nothing of how the cost grows. Eight times the reads must cost less than
+    // three times eight, where linear is eight and the join below is sixty-four
+    describe('a large paste', () => {
+      const chunk = 'x'.repeat(1022);
+
+      /** Pastes `reads` reads of `chunk`, then Ctrl-C, and says what arrived. */
+      function paste(reads: number): { keys: string[]; lengths: number[] } {
+        const { feed, keys, pasted, stop } = recording();
+        feed(start);
+        for (let i = 0; i < reads; i++) {
+          feed(chunk);
+        }
+        feed(end);
+        feed('\u0003');
+        stop();
+        return { keys, lengths: pasted.map((text) => text.length) };
+      }
+
+      it('should be held whole, and end, however many reads it came in', () => {
+        const reads = 4000;
+        expect(paste(reads)).toEqual({ keys: ['ctrl-c'], lengths: [reads * chunk.length] });
+      });
+
       // joining what was held to each read and searching the result made V8
       // flatten the whole paste every time, so 16 MB in a macOS pty's 1022-byte
-      // reads took about 9s; searching the held tail takes about 5ms. The budget
-      // sits an order of magnitude from both, so neither a loaded machine nor a
-      // quadratic search lands on the wrong side of it
-      const { feed, keys, pasted, stop } = recording();
-      const chunk = 'x'.repeat(1022);
-      const reads = 16_000;
-
-      const began = performance.now();
-      feed(start);
-      for (let i = 0; i < reads; i++) {
-        feed(chunk);
-      }
-      feed(end);
-      const took = performance.now() - began;
-
-      expect(pasted.map((text) => text.length)).toEqual([reads * chunk.length]);
-      expect(took).toBeLessThan(1000);
-      feed('\u0003');
-      expect(keys).toEqual(['ctrl-c']);
-      stop();
+      // reads took about 9s; searching the held tail takes about 5ms
+      it('should be held in time linear in its size', () => {
+        expect(growthOf(paste, 250, 2000, 8, 'paste')).toBeLessThan(24);
+      });
     });
   });
 

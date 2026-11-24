@@ -48,7 +48,6 @@ import {
   createEffect,
   getOwner,
   onCleanup,
-  onMount,
   runWithOwner,
   useContext,
 } from '@ttylabs/sigil/renderer';
@@ -399,36 +398,14 @@ export function useBrowser(): Browser {
     return dataTableControl(parts.tables[v])?.list;
   };
 
-  /** Whether the app has drawn its first frame, before which there is no frame to force. */
-  let mounted = false;
-  onMount(() => {
-    mounted = true;
-  });
-
-  /**
-   * Draws a frame now, after something was shown and given the focus.
-   *
-   * The router asks whether the focused element is displayed before it routes a
-   * key, and reads that off the style the last frame resolved as well as off an
-   * inline `display`: so a box hidden a moment ago is still hidden to it, inline
-   * `flex` or not, until a frame has restyled it -- and the focus put on something
-   * inside it is taken back at the next key. `:pods` typed fast, or pasted, is
-   * `:` and then four keys in one read, and the four went to the table. A frame
-   * here is what makes the box shown before that read is routed.
-   */
-  const redraw = (): void => {
-    if (mounted) {
-      app.view.frame();
-    }
-  };
-
   /** Shows one view and hides the rest, and gives it the focus. */
   const show = (v: View): void => {
     if (parts === undefined) {
       return;
     }
     // the `display` prop rather than a class, because the router reads a prop
-    // that hides the moment it is written, and a class only once a frame has run
+    // as current the moment it is written, whichever way it goes, and a class only
+    // once a frame has run: a key in the same read as `:` goes to the view just shown
     for (const [name, el] of Object.entries(parts.views)) {
       el.setProps({ display: name === v ? 'flex' : 'none' });
     }
@@ -436,7 +413,6 @@ export function useBrowser(): Browser {
     if (to !== undefined && untrack(() => prompt.get()) === undefined) {
       input.focus.focus(to);
     }
-    redraw();
   };
 
   const go = (v: View, remember = true): void => {
@@ -515,7 +491,6 @@ export function useBrowser(): Browser {
     prompt.set(kind);
     parts.prompt.setProps({ display: 'flex' });
     input.focus.focus(parts.field);
-    redraw();
   };
 
   const closePrompt = (): void => {

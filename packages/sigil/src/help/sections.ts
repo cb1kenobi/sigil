@@ -10,6 +10,7 @@ import {
   type InternalOption,
 } from '../types.js';
 import { assertSectionTitle, isLabel } from '../util/assert-label.js';
+import { escapeControls } from '../util/escape-controls.js';
 
 /**
  * A section of a help screen, with its declarations built.
@@ -53,7 +54,7 @@ export function createSections(): HelpSections & { list: BuiltSection[] } {
       // thing: two platforms that share a title, or a hook run twice, add to
       // what is there rather than repeating it
       const existing = list.find((it) => it.title === title);
-      const where = `the "${title}" help section`;
+      const where = `the "${escapeControls(title)}" help section`;
 
       // everything is built and checked before anything is kept, so an `add()`
       // that throws halfway leaves the section it was merging into alone
@@ -61,7 +62,9 @@ export function createSections(): HelpSections & { list: BuiltSection[] } {
 
       if (args !== undefined) {
         if (!Array.isArray(args)) {
-          throw new TypeError(`Expected help section "${title}" arguments to be an array`);
+          throw new TypeError(
+            `Expected help section "${escapeControls(title)}" arguments to be an array`
+          );
         }
         // the rules are about the list, so they are applied to the whole of the
         // merged one rather than to the piece being added
@@ -73,7 +76,7 @@ export function createSections(): HelpSections & { list: BuiltSection[] } {
       if (options !== undefined) {
         // the same reading of a declaration the schema gets, through the same
         // function -- a thunk description included
-        for (const opt of optionDeclarations(options, `help section "${title}" `)) {
+        for (const opt of optionDeclarations(options, `help section "${escapeControls(title)}" `)) {
           added.push(await initOption(opt));
         }
       }

@@ -1,4 +1,4 @@
-import { growthOf, now } from './growth.js';
+import { growthOf, growthOfAsync, now } from './growth.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -36,6 +36,58 @@ describe('growthOf()', () => {
     // Windows runner, the large side was then 64 of them, and seven turns of that
     // timed out at ten seconds
     expect(growthOf(quadratic, text(512), text(4096), 8, 'quadratic')).toBeGreaterThan(24);
+  });
+
+  // the async form is the same measurement over a read that is awaited, which a
+  // prompt opening is (SIG-657): it has to wait out what the read waits on and
+  // still read the walk's growth, not the wait's
+  describe('growthOfAsync()', () => {
+    const settle = async (walk: (source: string) => number, source: string): Promise<number> => {
+      await Promise.resolve();
+      return walk(source);
+    };
+
+    it('should read an awaited linear walk as the factor and not as its square', async () => {
+      expect(
+        await growthOfAsync(
+          (source) => settle(linear, source),
+          text(4096),
+          text(32768),
+          8,
+          'linear'
+        )
+      ).toBeLessThan(24);
+    });
+
+    it('should read an awaited quadratic walk as more than three times the factor', async () => {
+      expect(
+        await growthOfAsync(
+          (source) => settle(quadratic, source),
+          text(256),
+          text(2048),
+          8,
+          'quadratic'
+        )
+      ).toBeGreaterThan(24);
+    });
+
+    it('should wait for a read that finishes after the call returns', async () => {
+      // a read that returns at once and does its work later would time as
+      // nothing, which is `the clock read nothing`, and not as slow. The work is
+      // repeated so that it is most of a read on both sides: one turn of the event
+      // loop costs tens of microseconds on a clock that counts waiting, and a
+      // quadratic walk of 256 characters is six, which pulled the ratio under 24
+      const later = (source: string): Promise<void> =>
+        new Promise((resolve) => {
+          setImmediate(() => {
+            for (let again = 0; again < 100; again++) {
+              quadratic(source);
+            }
+            resolve();
+          });
+        });
+      expect(await growthOfAsync(later, text(256), text(2048), 8, 'later')).toBeGreaterThan(24);
+    });
   });
 
   it('should read a clock that moves in steps a span can be read over', () => {

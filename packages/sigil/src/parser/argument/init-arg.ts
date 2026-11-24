@@ -2,6 +2,7 @@ import { Argument, InternalState, Internal, InternalArgument } from '../../types
 import { camelCase } from '../../util/camel-case.js';
 import { copyDeclaration } from '../../util/copy-declaration.js';
 import { envNames } from '../../util/env-names.js';
+import { escapeControls } from '../../util/escape-controls.js';
 import { lockDerived } from '../../util/lock-derived.js';
 import { resolveDesc } from '../../util/resolve-desc.js';
 import { DATA_TYPES } from '../../util/transform.js';
@@ -32,7 +33,7 @@ export function initArg(it: string | Argument | InternalArgument): InternalArgum
   }
 
   if (typeof it !== 'string' && (!it || typeof it !== 'object')) {
-    throw new TypeError(`Invalid argument definition: ${it}`);
+    throw new TypeError(`Invalid argument definition: ${escapeControls(it)}`);
   }
 
   // copy the declaration instead of decorating it so the caller's object is
@@ -51,13 +52,15 @@ export function initArg(it: string | Argument | InternalArgument): InternalArgum
 
   const m = name.match(argRequiredRE);
   if (!m) {
-    throw new Error(`Invalid argument name: ${JSON.stringify(arg.name)}`);
+    throw new Error(`Invalid argument name: ${escapeControls(JSON.stringify(arg.name))}`);
   }
 
   const envs = envNames(arg.env, 'argument');
 
   if (arg.type !== undefined && !DATA_TYPES.has(arg.type)) {
-    throw new Error(`Argument "${arg.name}" has unsupported data type "${arg.type}"`);
+    throw new Error(
+      `Argument "${escapeControls(arg.name)}" has unsupported data type "${escapeControls(arg.type)}"`
+    );
   }
 
   if (arg.transform && typeof arg.transform !== 'function') {
@@ -67,7 +70,7 @@ export function initArg(it: string | Argument | InternalArgument): InternalArgum
   // a description may have been written as a thunk; see `DescThunk`. Guarded
   // for the reason `initOption()` guards it: normalizing adds no key
   if (arg.desc !== undefined) {
-    arg.desc = resolveDesc(arg.desc, `the "${arg.name}" argument`);
+    arg.desc = resolveDesc(arg.desc, `the "${escapeControls(arg.name)}" argument`);
   }
 
   arg.multiple ||= !!(m[2] || m[4] || m[6]);
@@ -92,7 +95,7 @@ export function initArg(it: string | Argument | InternalArgument): InternalArgum
     internal,
     ['env', 'name'],
     (prop) =>
-      `Cannot set "${prop}" on the initialized "${arg.name}" argument: it built the argument's destination and environment fallbacks, so declare another argument and replace this one in cmd[Internal].args instead`
+      `Cannot set "${prop}" on the initialized "${escapeControls(arg.name)}" argument: it built the argument's destination and environment fallbacks, so declare another argument and replace this one in cmd[Internal].args instead`
   );
 
   return internal;

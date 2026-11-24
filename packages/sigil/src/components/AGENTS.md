@@ -12704,6 +12704,29 @@ there is the bars, which are drawn on every line.
   times its 110 ms to reach the budget where the old one took about 110 times its
   91 ms to reach ten seconds, and 430 times for the slowest test, the emphasis one.
 
+- **The timing checks outside `growthOf()` joined it, or say why they did not
+  (SIG-657).** SIG-649 listed the five that measured some other way and none had
+  failed; each was a wall clock a loaded runner moves. `growthOfAsync()` sits
+  beside `growthOf()` in `test/growth.ts` and shares its clock probe, span, read
+  counts and ratio -- the loops differ only in an `await` -- and both take any
+  input rather than a string, since a count and a prepared fixture are things a
+  linear-time check reads at two sizes as well. `choice-window.test.ts` opens a
+  `groupMultiselect()` through it, and a read is the open _and_ the cancel, which
+  is not what the old check timed (the synchronous call alone): a read carries a
+  screen and two ticks that do not grow with the list, so linear reads 2 to 4
+  rather than 8, against a bound of 16 and not the usual 24, and the sizes were found by planting the old quadratic -- 28 at
+  2,000 choices, 51 at 3,000, and at 8,000 the planted side took long enough to
+  time the test out rather than fail it. The 2,000 ms bound on `*a ` in
+  `markdown.test.ts` is a ratio now, over both `*a ` and `a* `: `*a ` has no closer
+  and cannot go quadratic at all, so the old check could not have failed on the
+  shape its comment is about. The paste check in `input.test.ts` and the
+  re-match check in `style/invalidate.test.ts` are ratios too. The inflate bomb in
+  `png/decode.test.ts` keeps its 1,000 ms, as a hang guard with the reason beside
+  it: the whole bomb inflates in about ten milliseconds and stopping early is under one, so
+  no deadline and no ratio tells them apart, and the message -- "more than the 2
+  bytes" -- is what says the inflate stopped. Each was checked by planting the
+  defect it names.
+
 - **The ticket's other lazy figure, 0.54 s for 128 KB, was the parser, and is
   left.** `parseMarkdown()` of 64,000 lazy lines took 8 ms unquoted and 493 ms
   under 99 quotes, on both builds. Every level of quote asks `interrupts()` of
@@ -13524,7 +13547,7 @@ How each question was settled, the probes and the sabotage pass are in
   documented rather than worked around: a row the window has not built (there is no
   overscan, so that is any row out of view, **and the current row after a move in
   the same handler**, since the view follows the cursor from an effect -- `reveal(key)`
-  first and, for its layout, a frame), a key that is no row, and a list with no current row. Building
+  first), a key that is no row, and a list with no current row. Building
   a row on demand for the rest was refused: it would leave an element no slot
   holds, with no owner to dispose it and no layout, which is a worse thing to hand
   an app than `undefined`. The element is **one build's**: a row built again for a
@@ -13533,6 +13556,22 @@ How each question was settled, the probes and the sabotage pass are in
   holding -- there is no reactive version, since a stale one cannot be told apart
   from a current one by its holder. Pinned in `test/components/list-view.test.ts`
   and `data-table.test.ts`.
+
+  **`reveal(key)` is all an overlay needs in the same turn as a move, and no frame
+  (SIG-462).** The first version of this entry said "and, for its layout, a frame",
+  and the dashboard forced one for it: a double click moves the cursor and opens the row
+  menu in one handler, and End and Enter arrive in one read. A frame is not needed.
+  `reveal()` builds the row and scrolls to it, which is what the answer to the question
+  "which element" wanted, and an overlay anchored to an element reads that element's box
+  when the next layout places the overlay, which is after that layout has placed the row
+  (the dashboard's tests pin it, at the top, the bottom and a flipped menu). The class the menu used to look for, `is-current`, was the
+  other half of the ticket and went with `rowElement()` itself: nothing the dashboard
+  anchors to depends on an effect any more. Not made automatic: `rowElement()` answering
+  `undefined` for a row nobody built is the rule above, and a getter that scrolled would
+  be a surprise to a tooltip asking about a row out of view. `should hand out the row a
+  move in the same turn went to, once it is revealed, with no frame between` in
+  `data-table.test.ts` and the dashboard's `should open the menu beside a row the same
+  read scrolled to` are the guards; the second fails with the `reveal()` taken out.
 
 **The contract a table and a tree build on.** Either of two layers, and
 `ListView` itself is built on the lower one, which is the evidence it is enough:

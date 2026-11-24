@@ -139,12 +139,12 @@ export async function registerFormats(
   if (accepts !== true) {
     if (!Array.isArray(accepts) || accepts.some((it) => !it || typeof it !== 'string')) {
       throw new TypeError(
-        `Expected format in "${name}" command to be true, false, or a non-empty list of format names`
+        `Expected format in "${escapeControls(name)}" command to be true, false, or a non-empty list of format names`
       );
     }
     if (accepts.length === 0) {
       throw new TypeError(
-        `Expected format in "${name}" command to name at least one format: a command that presents none should not declare one`
+        `Expected format in "${escapeControls(name)}" command to name at least one format: a command that presents none should not declare one`
       );
     }
   }
@@ -182,7 +182,7 @@ export async function registerFormats(
   // with `--json`, exactly as one that claimed `-q` keeps `--quiet`
   if (!added) {
     throw new Error(
-      `The "${name}" command declares "format" and also declares every spelling that would select one, so no format can be asked for. Drop "format", or free "--format"${takesJson ? ' or "--json"' : ''}.`
+      `The "${escapeControls(name)}" command declares "format" and also declares every spelling that would select one, so no format can be asked for. Drop "format", or free "--format"${takesJson ? ' or "--json"' : ''}.`
     );
   }
 
@@ -380,7 +380,7 @@ export function detectFormat(state: ParseState): void {
       // either way: a child that declared nothing under an opted-out parent
       // inherits the opt-out, so it presents none too
       throw new UsageError(
-        __`The "${state.contexts[0].name}" command presents no output formats, so "${escapeControls(selected)}" cannot be asked for.`,
+        __`The "${escapeControls(state.contexts[0].name)}" command presents no output formats, so "${escapeControls(selected)}" cannot be asked for.`,
         'unsupported-format'
       );
     }
@@ -423,7 +423,7 @@ function assertDeclared(
   for (const name of accepts) {
     if (!formats.has(name)) {
       throw new Error(
-        `The "${cmd.name}" command declares the "${name}" output format, which this app does not provide. Add it to "formats" on the schema.`
+        `The "${escapeControls(cmd.name)}" command declares the "${escapeControls(name)}" output format, which this app does not provide. Add it to "formats" on the schema.`
       );
     }
   }

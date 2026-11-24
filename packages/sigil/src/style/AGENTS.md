@@ -985,6 +985,19 @@ toolchain's one reader.
   declaration won says exactly the same thing as giving them a band of their
   own, and it is the fast path rather than a second pass over the rules.
   `CascadeResult.locked` is how that survives being cached.
+- **`Cascade.important()` asks the cascade for one property, and only the important
+  band (SIG-384).** Props sit above every normal declaration and below every important
+  one, so an `!important` rule is the one thing that decides whether a prop's value is the
+  value -- and a reader that has to know before a frame has resolved it (the router, for an
+  inline `display` just written) should not resolve the whole style to find out. It
+  matches the element now and returns what the winning important declaration says, in the
+  cascade's own order inside the band (`outranks()`, origin and layer read backwards), or
+  `undefined`; a wide keyword is read against the parent as `resolve()` reads it. A set of
+  the properties any sheet declares important, built with the bucket index's lifetime and
+  dropped when the sheet set changes, answers `undefined` without matching anything for a
+  property no sheet does -- which is `display`, nearly always. It is not
+  `CascadeResult.locked`, which is the same fact as of the last frame. See
+  `important()` in `test/style/cascade.test.ts`.
 - **A restyle allocates the style it hands back and very little else (SIG-381).**
   On SIG-290's stress workload -- about 900 elements restyled a frame -- a frame
   allocated 22.1 to 22.2 MiB as this change started, and `resolveSheets()` was 20%

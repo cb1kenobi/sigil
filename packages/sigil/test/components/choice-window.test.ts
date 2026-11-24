@@ -1,6 +1,7 @@
 import { groupMultiselect } from '../../src/components/group-multiselect.js';
 import { multiselect, select, separator } from '../../src/components/prompt.js';
 import { Element } from '../../src/element/index.js';
+import { growthOfAsync } from '../growth.js';
 import { screenSetup, tick } from './helpers.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -346,38 +347,37 @@ describe('groupMultiselect() opening a long list', () => {
   // choices with every row already windowed. Not a count of element writes,
   // since the reading wrote nothing, so it is two sizes compared, as
   // `highlight.test.ts` does it (SIG-429): eight times the choices must cost less
-  // than three times eight, where linear is eight and this was sixty-four. Best
-  // of five, the sizes taking turns.
+  // than twice eight, where linear is eight and this was sixty-four. It is
+  // `growthOfAsync()` rather than a clock of its own (SIG-657): CPU time where the
+  // platform can say it, the small side read over a span instead of floored at two
+  // milliseconds, and the best of seven. A read is the prompt opened and then
+  // cancelled, so what is timed is everything the open caused. The sizes are the
+  // smallest that tell the shapes apart: a read carries a screen and two ticks
+  // that do not grow, so linear reads 2 to 4 rather than 8 and the quadratic
+  // read 51 at 3,000 choices where it read 28 at 2,000, and a larger one makes
+  // the quadratic side take seconds a read. The bound is 16 and not the usual 24
+  // for the same reason: with most of a read constant, 24 would pass a growth of
+  // five or six times what linear costs.
   it('should open in time linear in the number of groups', async () => {
-    const SIZE = 8000;
+    const SIZE = 3000;
 
-    /** How long the call that opens a prompt over `count` choices takes. */
-    async function open(choices: Record<string, string[]>): Promise<number> {
+    /** Opens a prompt over `choices`, and cancels it. */
+    async function open(choices: Record<string, string[]>): Promise<void> {
       const ui = screenSetup({ columns: 40, rows: 10 });
-      const started = performance.now();
       const answer = groupMultiselect({
         ansi: ui.ansi,
         choices,
         message: 'Pick',
         terminal: ui.terminal,
       }).catch(() => undefined);
-      const took = performance.now() - started;
       await tick();
       await type(ui.stdin, CTRL_C);
       await answer;
-      return took;
     }
 
-    const small = grouped(SIZE);
-    const large = grouped(SIZE * 8);
-    let bestSmall = Infinity;
-    let bestLarge = Infinity;
-    for (let run = 0; run < 5; run++) {
-      bestSmall = Math.min(bestSmall, await open(small));
-      bestLarge = Math.min(bestLarge, await open(large));
-    }
-
-    expect(Math.max(bestLarge, 2) / Math.max(bestSmall, 2)).to.be.lessThan(24);
+    expect(
+      await growthOfAsync(open, grouped(SIZE), grouped(SIZE * 8), 8, 'groupMultiselect')
+    ).to.be.lessThan(16);
   });
 });
 
