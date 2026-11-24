@@ -24,7 +24,6 @@
 
 import { strip } from '../ansi/index.js';
 import { box, Element, type ElementPropsWithout, text as textNode } from '../element/index.js';
-import { __ } from '../i18n/index.js';
 import type { MouseEvent } from '../input/index.js';
 import { MAX_TIMER_DELAY, onCleanup, timed } from '../renderer/index.js';
 import type { Terminal } from '../terminal/index.js';

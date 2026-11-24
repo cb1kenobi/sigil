@@ -24,7 +24,6 @@ import {
   renderToString,
   text as textNode,
 } from '../element/index.js';
-import { __ } from '../i18n/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { maxOf, stringWidth } from '../width/index.js';
 import { isBreakSpace, terminalWidth } from '../wrap/index.js';

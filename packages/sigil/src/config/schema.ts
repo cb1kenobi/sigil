@@ -173,7 +173,7 @@ function coerceSetting(value: Record<string, unknown>, it: Setting, where: strin
       // scalar there is a mistake worth reporting -- and the environment layer
       // below still wraps, for the parser's reason
       if (!Array.isArray(at)) {
-        throw new Error(`Expected a list of values`);
+        throw new Error(__`Expected a list of values`);
       }
       // through `copyValue()` because a coercion is the **third** door of the
       // prototype guard: `type: 'json'` turns a string into an object, and an

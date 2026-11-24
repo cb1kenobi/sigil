@@ -27,7 +27,6 @@
  */
 
 import { box, type Element, type ElementPropsWithout, text as textNode } from '../element/index.js';
-import { __ } from '../i18n/index.js';
 import type { InputRouter, MouseEvent } from '../input/index.js';
 import { createEffect, onCleanup } from '../renderer/index.js';
 import { State } from '../signals/index.js';

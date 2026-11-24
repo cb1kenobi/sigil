@@ -1153,12 +1153,12 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'error-handler': [21, 10_554],
   help: [344, 175_816],
   i18n: [10, 5_094],
-  // 9,446 B at 306 keys when SIG-328 set a ceiling of 18 KiB, 18,518 B at 480
+  // 9,446 B at 305 keys when SIG-328 set a ceiling of 18 KiB, 18,518 B at 480
   // once the components' `Expected ...` errors had been tagged with `__`, and
-  // 8,582 B at 304 when SIG-658 took them back out -- see "src/i18n/keys.ts is
+  // 8,610 B at 305 when SIG-658 took them back out -- see "src/i18n/keys.ts is
   // generated" in `src/i18n/AGENTS.md`. `the i18n-keys entry` below is what
   // says the figure is the key table and not something pulled in beside it
-  'i18n-keys': [18, 8_582],
+  'i18n-keys': [18, 8_610],
   // SIG-324: a `commands.json` is read with the config module's JSONC reader,
   // which brings `__` and the debug logger with it -- 2,604 B over two before
   'internal/routes': [32, 16_234],
@@ -1187,9 +1187,9 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
 /**
  * What the `i18n-keys` entry is made of, which is its keys and nothing else.
  *
- * The entry doubled between SIG-328 and SIG-635, and SIG-658 asked whether that
+ * The entry doubled between SIG-328 and #646's raise of its ceiling, and SIG-658 asked whether that
  * was growth or a leak. It was neither of the two the ticket offered: the table
- * was exactly what its source declared, and what it declared was 176 developer
+ * was exactly what its source declared, and what it declared was 175 developer
  * errors that SIG-53 had decided to leave English. A ceiling records a size and
  * cannot say that, so these two say what a leak would have to break instead --
  * the entry is one module, and that module costs what its strings cost.

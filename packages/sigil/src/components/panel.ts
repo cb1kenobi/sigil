@@ -35,7 +35,6 @@
  */
 
 import { box, type Element, type ElementProps, text as textNode } from '../element/index.js';
-import { __ } from '../i18n/index.js';
 import { createEffect } from '../renderer/index.js';
 import {
   type BorderAlign,

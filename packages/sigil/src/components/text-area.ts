@@ -50,7 +50,6 @@ import {
   raw,
   type RawPainter,
 } from '../element/index.js';
-import { __ } from '../i18n/index.js';
 import type { MouseEvent } from '../input/index.js';
 import { createEffect } from '../renderer/index.js';
 import { State, untrack } from '../signals/index.js';

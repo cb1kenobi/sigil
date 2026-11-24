@@ -32,8 +32,6 @@
  * between its items or between the blocks of one item.
  */
 
-import { __ } from '../i18n/index.js';
-
 /** How a table column lines its cells up; `undefined` is the reader's default. */
 export type MarkdownAlign = 'left' | 'center' | 'right' | undefined;
 

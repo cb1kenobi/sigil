@@ -41,7 +41,6 @@ import {
   raw,
   type RawPaint,
 } from '../element/index.js';
-import { __ } from '../i18n/index.js';
 import { DOUBLE_CLICK_MS, type KeyEvent, type MouseEvent } from '../input/index.js';
 import { measureSubtree } from '../layout/index.js';
 import { createEffect } from '../renderer/index.js';

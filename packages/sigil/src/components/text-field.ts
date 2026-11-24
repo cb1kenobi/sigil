@@ -31,7 +31,6 @@
  */
 
 import { box, type Element, type ElementPropsWithout, text as textNode } from '../element/index.js';
-import { __ } from '../i18n/index.js';
 import { createEffect } from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import { stringWidth } from '../width/index.js';
