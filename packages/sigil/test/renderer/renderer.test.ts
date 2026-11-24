@@ -2585,6 +2585,28 @@ describe('a frame that failed part way', () => {
  * both undone -- and on the failure path the throw then came back to `fail()`,
  * which had already failed and dropped it.
  */
+/**
+ * Captures what is written to the real stderr, and leaves the exit code alone.
+ *
+ * The effect scope's default report writes a line there and sets
+ * `process.exitCode`, which would otherwise end the worker non-zero.
+ */
+function quietStderr() {
+  const written: string[] = [];
+  const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+    written.push(String(chunk));
+    return true;
+  });
+  const exitCode = process.exitCode;
+  return {
+    restore() {
+      spy.mockRestore();
+      process.exitCode = exitCode;
+    },
+    text: () => written.join(''),
+  };
+}
+
 describe('an onError that throws during a teardown', () => {
   /** A harness whose backend and terminal count, and log, what went back. */
   function counted() {
@@ -2633,26 +2655,25 @@ describe('an onError that throws during a teardown', () => {
     );
 
     n.set(1);
-    let raised: unknown;
+    const written = quietStderr();
     try {
-      view.frame();
-    } catch (error) {
-      raised = error;
+      // not raised: a failure that arrives through an effect's flush is the
+      // effect scope's to report, and what `onError` threw goes to its default
+      // report rather than out of the frame (SIG-660)
+      expect(() => view.frame()).not.toThrow();
+    } finally {
+      written.restore();
     }
 
     expect(view.failed).toBe(true);
     expect(count).toEqual({ done: 0, restore: 1, stop: 1 });
     // the screen first, then every report, the failure last
     expect(order).toEqual(['stop', 'restore', 'reported cleanup broke', 'reported boom']);
-    // what `onError` threw comes out of the frame rather than being dropped
-    expect(raised).toBeInstanceOf(AggregateError);
-    expect((raised as AggregateError).errors.map((e: Error) => e.message)).toEqual([
-      'cleanup broke',
-      'boom',
-    ]);
+    // and what `onError` threw is said, not dropped
+    expect(written.text()).toContain('Error in effect error handler: Errors thrown by onError');
   });
 
-  it('should raise what onError threw from the frame when only the failure is reported', () => {
+  it('should report what onError threw, and not raise it from the frame, when only the failure is reported', () => {
     const { count, h, onError } = counted();
     const n = new State(0);
     const view = render(
@@ -2670,7 +2691,15 @@ describe('an onError that throws during a teardown', () => {
     );
 
     n.set(1);
-    expect(() => view.frame()).toThrow('boom');
+    const written = quietStderr();
+    try {
+      // the throw from `onError` goes to the default report and not out of the
+      // frame, which on a frame timer was an uncaught exception (SIG-660)
+      expect(() => view.frame()).not.toThrow();
+      expect(written.text()).toContain('Error in effect: boom');
+    } finally {
+      written.restore();
+    }
     expect(count).toEqual({ done: 0, restore: 1, stop: 1 });
     // and the renderer has stopped: a later frame neither restores nor raises
     expect(() => view.frame()).not.toThrow();
@@ -2771,10 +2800,12 @@ describe('an onError that throws during a teardown', () => {
     // an effect's first run throws straight out of `createEffect()`, so the way
     // to fail inside the body is a flush of the scope the caller passed: the
     // re-run reports to `fail()`, which gives everything back, and what
-    // `onError` throws there reaches the body's catch on its way out
+    // `onError` throws there goes to the scope's default report (SIG-660) rather
+    // than reaching the body's catch on its way out
     const { count, h, onError } = counted();
     const n = new State(0);
-    expect(() =>
+    const written = quietStderr();
+    try {
       render(
         () => {
           createEffect(() => {
@@ -2787,8 +2818,11 @@ describe('an onError that throws during a teardown', () => {
           return text('x');
         },
         { backend: h.backend, effects, onError, terminal: h.terminal }
-      )
-    ).toThrow('re-run');
+      );
+      expect(written.text()).toContain('Error in effect: re-run');
+    } finally {
+      written.restore();
+    }
     expect(count).toEqual({ done: 0, restore: 1, stop: 1 });
   });
 

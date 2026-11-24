@@ -1436,10 +1436,11 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
       untrack(settle);
     } catch (error) {
       if (failed) {
-        // what `onError` threw while `fail()` reported, on its way out of an
-        // effect's flush: the renderer has already failed, and handing this to
-        // `fail()` again would return early and drop it in silence. Raised from
-        // the frame instead, over a screen that is already back
+        // what `onError` threw while `fail()` reported, on its way out of the
+        // frame: the renderer has already failed, and handing this to `fail()`
+        // again would return early and drop it in silence. Raised from the frame
+        // instead, over a screen that is already back. An effect's flush is not
+        // a way here since SIG-660: the scope reports what its handler threw
         throw error;
       }
       fail(error);

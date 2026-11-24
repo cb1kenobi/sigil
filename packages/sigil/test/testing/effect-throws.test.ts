@@ -168,6 +168,43 @@ describe('a clock whose format throws on a later tick, read by a bare effect', (
   });
 });
 
+describe('a clock whose format throws on a later tick, read by a bare effect whose handler throws', () => {
+  it('should fall back to the default report rather than an uncaught exception (SIG-660)', async () => {
+    const effects = createEffects();
+    effects.setErrorHandler(() => {
+      throw new Error('handler broke');
+    });
+    const written: string[] = [];
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      written.push(String(chunk));
+      return true;
+    });
+    const exitCode = process.exitCode;
+    process.exitCode = undefined;
+    const ui = createTestTerminal();
+    const { source, watch } = brokenLater({ terminal: ui.terminal });
+    watch.start();
+    const stop = effects.effect(() => void watch.text);
+    try {
+      source.broken = true;
+      vi.advanceTimersByTime(1000);
+      // a synchronous flush stands in for the microtask, so a throw out of the
+      // drain fails here rather than as an unhandled error after the test
+      expect(() => effects.flush()).not.toThrow();
+
+      expect(written.join('')).toBe(
+        'Error in effect: format broke\nError in effect error handler: handler broke\n'
+      );
+      expect(process.exitCode).toBe(1);
+    } finally {
+      stop();
+      watch.pause();
+      stderr.mockRestore();
+      process.exitCode = exitCode;
+    }
+  });
+});
+
 describe('a clock whose format throws on a later tick, inside render()', () => {
   it('should be written to stderr by the default handler, which leaves the screen empty', () => {
     const ui = createTestTerminal({ columns: 30, rows: 6 });
@@ -211,5 +248,44 @@ describe('a clock whose format throws on a later tick, inside render()', () => {
     renderer.frame();
 
     expect(errors).toEqual([new Error('format broke')]);
+  });
+
+  it('should fall back to the default report when that onError throws, on a frame timer too (SIG-660)', () => {
+    const ui = createTestTerminal({ columns: 30, rows: 6 });
+    const { source, watch } = brokenLater({ terminal: ui.terminal });
+    watch.start();
+    const heard: unknown[] = [];
+    const off = ui.onTimerError((error) => void heard.push(error));
+    const written: string[] = [];
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      written.push(String(chunk));
+      return true;
+    });
+    const exitCode = process.exitCode;
+    process.exitCode = undefined;
+    try {
+      render(() => watch.view(), {
+        onError: () => {
+          throw new Error('onError broke');
+        },
+        terminal: ui.terminal,
+      });
+      source.broken = true;
+      // the frame the tick asked for runs from a timer, so a throw out of it would
+      // be an uncaught exception on real ones: nothing here may raise
+      expect(() => vi.advanceTimersByTime(1000)).not.toThrow();
+      expect(() => vi.advanceTimersByTime(100)).not.toThrow();
+
+      const out = written.join('');
+      expect(out).toContain('Error in effect error handler: onError broke');
+      expect(process.exitCode).toBe(1);
+      // and it is the signals layer's, not `onTimerError()`'s: nothing was raised
+      // for the test terminal to hear
+      expect(heard).toEqual([]);
+    } finally {
+      off();
+      stderr.mockRestore();
+      process.exitCode = exitCode;
+    }
   });
 });

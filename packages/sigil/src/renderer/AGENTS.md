@@ -606,6 +606,20 @@ the entry it belongs to.
   whatever `onError` did with the one before. What `onError` threw is raised from
   the call that was reporting: `frame()`, `render()` for a first frame, or a
   timer, which makes it an uncaught exception over a screen that is back.
+  **Except for a failure that arrived through an effect's flush (SIG-660).** That
+  is `scope.setErrorHandler((error) => fail(error))`'s, and what `fail()` raised
+  used to travel out of the effect flush and so out of the frame. The effect scope
+  now catches a handler's throw and writes the default report (`Error in effect:
+  ...` and `Error in effect error handler: ...` on the real stderr, exit code `1`),
+  so such a frame returns normally, a frame timer raises nothing, and a mount body
+  that failed through a flush hands `render()` no throw. `onError` still hears the
+  failure and the screen is still given back first. Everything that does not come
+  out of an effect's flush -- a frame handler, a layout, the mount body's own
+  throw, the teardown, `dispose()` -- is raised as before. Reversing the other
+  half was considered and refused: raising from a frame timer is the uncaught
+  exception SIG-660 is about, and a caller of `frame()` was never promised the
+  throw of an effect, which the layer below reports and does not rethrow. See
+  `src/signals/AGENTS.md`.
   One throw is raised as itself and several as an `AggregateError`. `runFrame()`
   rethrows anything it catches once `failed` is set, since only `fail()`
   reporting can produce that. The mount catch still hands the caller the body's

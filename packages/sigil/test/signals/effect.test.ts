@@ -10,7 +10,7 @@ import {
   State,
   unowned,
 } from '../../src/signals/index.js';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 /** Lets the default microtask scheduler run. */
 function tick(): Promise<void> {
@@ -1475,6 +1475,231 @@ describe('createEffects', () => {
     expect((seen[0] as Error).message).toBe('mine');
 
     stop();
+  });
+});
+
+describe('an error handler that throws (SIG-660)', () => {
+  /** Captures the real stderr and puts the exit code back, since the default report sets it. */
+  function quietStderr() {
+    const written: string[] = [];
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      written.push(String(chunk));
+      return true;
+    });
+    const exitCode = process.exitCode;
+    process.exitCode = undefined;
+    return {
+      restore() {
+        spy.mockRestore();
+        process.exitCode = exitCode;
+      },
+      text: () => written.join(''),
+    };
+  }
+
+  it('should fall back to the default report, naming both errors, rather than out of flush()', () => {
+    const own = createEffects();
+    own.setScheduler(() => {});
+    own.setErrorHandler(() => {
+      throw new Error('handler broke');
+    });
+    const stderr = quietStderr();
+    try {
+      const s = new State(0);
+      const stop = own.effect(() => {
+        if (s.get() > 0) {
+          throw new Error('effect broke');
+        }
+      });
+      s.set(1);
+
+      expect(() => own.flush()).not.toThrow();
+      expect(stderr.text()).toBe(
+        'Error in effect: effect broke\nError in effect error handler: handler broke\n'
+      );
+      expect(process.exitCode).toBe(1);
+      stop();
+    } finally {
+      stderr.restore();
+    }
+  });
+
+  it('should say a handler that rethrows what it was given once', () => {
+    const own = createEffects();
+    own.setScheduler(() => {});
+    own.setErrorHandler((error) => {
+      throw error;
+    });
+    const stderr = quietStderr();
+    try {
+      const s = new State(0);
+      const stop = own.effect(() => {
+        if (s.get() > 0) {
+          throw new Error('effect broke');
+        }
+      });
+      s.set(1);
+
+      expect(() => own.flush()).not.toThrow();
+      expect(stderr.text()).toBe('Error in effect: effect broke\n');
+      stop();
+    } finally {
+      stderr.restore();
+    }
+  });
+
+  it('should reach the module-level setErrorHandler() the same way', () => {
+    const scheduler = manualScheduler();
+    const previous = setErrorHandler(() => {
+      throw new Error('handler broke');
+    });
+    const stderr = quietStderr();
+    try {
+      const s = new State(0);
+      const stop = effect(() => {
+        if (s.get() > 0) {
+          throw new Error('effect broke');
+        }
+      });
+      s.set(1);
+
+      expect(() => scheduler.run()).not.toThrow();
+      expect(stderr.text()).toContain('Error in effect error handler: handler broke');
+      stop();
+    } finally {
+      setErrorHandler(previous);
+      scheduler.restore();
+      stderr.restore();
+    }
+  });
+
+  it('should keep the effect armed and the other effects running after the handler threw', () => {
+    const own = createEffects();
+    own.setScheduler(() => {});
+    const handled: unknown[] = [];
+    own.setErrorHandler((error) => {
+      handled.push(error);
+      throw new Error('handler broke');
+    });
+    const stderr = quietStderr();
+    try {
+      const s = new State(0);
+      const seen: number[] = [];
+      const stopBad = own.effect(() => {
+        if (s.get() > 0) {
+          throw new Error(`effect broke ${s.get()}`);
+        }
+      });
+      const stopGood = own.effect(() => void seen.push(s.get()));
+      seen.length = 0;
+
+      s.set(1);
+      own.flush();
+      s.set(2);
+      own.flush();
+
+      // every effect ran each time, and the throwing one was reported each time
+      expect(seen).toEqual([1, 2]);
+      expect(handled).toHaveLength(2);
+      stopBad();
+      stopGood();
+    } finally {
+      stderr.restore();
+    }
+  });
+
+  it('should not leave a handler that throws on the cycle report an uncaught exception', () => {
+    const own = createEffects();
+    own.setScheduler(() => {});
+    own.setErrorHandler(() => {
+      throw new Error('handler broke');
+    });
+    const stderr = quietStderr();
+    try {
+      const a = new State(0);
+      const b = new State(0);
+      const stopA = own.effect(() => b.set(a.get() + 1));
+      const stopB = own.effect(() => a.set(b.get() + 1));
+
+      expect(() => own.flush()).not.toThrow();
+      expect(stderr.text()).toContain('Effects did not settle');
+      expect(stderr.text()).toContain('Error in effect error handler: handler broke');
+      stopA();
+      stopB();
+    } finally {
+      stderr.restore();
+    }
+  });
+
+  it('should reach the default report for a cleanup that threw on a re-run too', () => {
+    const own = createEffects();
+    own.setScheduler(() => {});
+    own.setErrorHandler(() => {
+      throw new Error('handler broke');
+    });
+    const stderr = quietStderr();
+    try {
+      const s = new State(0);
+      const stop = own.effect(() => {
+        s.get();
+        return () => {
+          throw new Error('cleanup broke');
+        };
+      });
+      s.set(1);
+
+      expect(() => own.flush()).not.toThrow();
+      expect(stderr.text()).toBe(
+        'Error in effect: cleanup broke\nError in effect error handler: handler broke\n'
+      );
+      // the re-run registered the same throwing cleanup, and a disposal is not a re-run
+      expect(stop).toThrow('cleanup broke');
+    } finally {
+      stderr.restore();
+    }
+  });
+
+  it('should not escape a microtask flush as an uncaught exception', async () => {
+    const own = createEffects();
+    own.setErrorHandler(() => {
+      throw new Error('handler broke');
+    });
+    const uncaught: unknown[] = [];
+    const listen = (error: unknown) => void uncaught.push(error);
+    const stderr = quietStderr();
+    // vitest registers its own listeners, so the probe is ours beside them and the
+    // run is not failed by an error this test provoked and then asserted on
+    const exceptionListeners = process.listeners('uncaughtException');
+    const rejectionListeners = process.listeners('unhandledRejection');
+    process.removeAllListeners('uncaughtException');
+    process.removeAllListeners('unhandledRejection');
+    process.on('uncaughtException', listen);
+    process.on('unhandledRejection', listen);
+    try {
+      const s = new State(0);
+      const stop = own.effect(() => {
+        if (s.get() > 0) {
+          throw new Error('effect broke');
+        }
+      });
+      s.set(1);
+      await tick();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      expect(uncaught).toEqual([]);
+      expect(stderr.text()).toContain('Error in effect error handler: handler broke');
+      stop();
+    } finally {
+      process.removeListener('uncaughtException', listen);
+      process.removeListener('unhandledRejection', listen);
+      for (const l of exceptionListeners) {
+        process.on('uncaughtException', l);
+      }
+      for (const l of rejectionListeners) {
+        process.on('unhandledRejection', l);
+      }
+      stderr.restore();
+    }
   });
 });
 
