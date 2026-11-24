@@ -894,15 +894,22 @@ export interface InputStream {
   setEncoding?: (encoding: string) => unknown;
 }
 
-/** Every element a Tab would stop on, in the order it visits them. */
-function focusables(root: Element | undefined): Element[] {
+/**
+ * Every element a Tab would stop on, in the order it visits them.
+ *
+ * What is drawn is `hidesItself()`'s, which is the repair's rule as well.
+ */
+function focusables(
+  root: Element | undefined,
+  hiddenBySheet: ((element: Element) => boolean) | undefined
+): Element[] {
   if (!root) {
     return [];
   }
 
   const found: Element[] = [];
   const walk = (element: Element): void => {
-    if (element.style.display === 'none' || element.props.display === 'none') {
+    if (hidesItself(element, hiddenBySheet)) {
       // a subtree that is not laid out is not one a Tab can reach: there is
       // nothing on screen to move the focus to
       return;
@@ -975,9 +982,10 @@ function ringPosition(
 /**
  * What an element's own `display` prop says, read as the word it is.
  *
- * `undefined` for no prop, and for a value that is not one of the two words --
- * a wide keyword, or text the style would refuse -- which is the resolved style's
- * to answer: nothing here can say what `inherit` came to.
+ * `undefined` for no prop, and for a value that says nothing of its own -- `inherit`,
+ * or text the style would refuse -- which is the resolved style's to answer. A prop
+ * that is cleared is no prop, and so reads the same way: the box it hid stays hidden
+ * to the router until a frame, so a handler shows a box by writing `flex`.
  */
 function inlineDisplay(element: Element): 'none' | 'shown' | undefined {
   const value = element.props.display;
@@ -985,43 +993,60 @@ function inlineDisplay(element: Element): 'none' | 'shown' | undefined {
     return undefined;
   }
   const word = value.trim().toLowerCase();
-  return word === 'none' ? 'none' : word === 'flex' ? 'shown' : undefined;
+  if (word === 'none') {
+    return 'none';
+  }
+  // `display` does not inherit, so `initial` and `unset` are `flex` as well; `inherit` is the
+  // parent's, which is no answer of this element's own
+  return word === 'flex' || word === 'initial' || word === 'unset' ? 'shown' : undefined;
 }
 
 /**
- * Whether an element is drawn: neither it nor anything above it is `display: none`.
+ * Whether one element is `display: none`, itself and not through an ancestor.
  *
  * Read off the resolved style, the way the ring is, so it is only as current as the
  * last frame -- which is the right age, since a key is dispatched against what the
  * user saw. With one exception, in both directions, which is an inline `display`: a
  * prop is current the moment it is written, so what a component sets on its own box
  * is what the box is, and waiting for the frame that would resolve it only leaves a
- * window. `none` hides at once. Anything else shows at once -- the resolved style
- * still says `none` until a frame restyles it, and a box just shown by a handler that
- * also moved the focus into it would otherwise have the focus taken back by the next
- * key in the same read (SIG-384) -- unless an `!important` sheet rule hides it, which
- * outranks every prop. That is asked of the cascade, for the one property, and only
- * where the resolved style says `none` and there is a prop to doubt it: where the
- * style says drawn there is nothing to doubt.
+ * window. `none` hides at once. Anything that shows -- `flex` -- shows at once: the
+ * resolved style still says `none` until a frame restyles it, and a box just shown by
+ * a handler that also moved the focus into it would otherwise have the focus taken
+ * back by the next key in the same read (SIG-384). Unless an `!important` sheet rule
+ * hides it, which outranks every prop. That is asked of the cascade, for the one
+ * property, and only where the resolved style says `none` and there is a prop to doubt
+ * it: where the style says drawn there is nothing to doubt.
+ *
+ * The one rule behind both readers of "drawn": the focus ring and the repair of a focus
+ * that has gone, which would otherwise disagree for a box just shown -- its field held
+ * the focus and was not a stop for a Tab in the same read.
  *
  * @param element - The element.
  * @param hiddenBySheet - Whether an `!important` rule of a sheet hides an element.
  */
+function hidesItself(
+  element: Element,
+  hiddenBySheet: ((element: Element) => boolean) | undefined
+): boolean {
+  const inline = inlineDisplay(element);
+  if (inline === 'none') {
+    return true;
+  }
+  if (element.style.display !== 'none') {
+    return false;
+  }
+  // the style says hidden: it stands unless a prop has shown the element since
+  // and nothing important takes the prop back
+  return inline === undefined || hiddenBySheet?.(element) === true;
+}
+
+/** Whether an element is drawn: neither it nor anything above it is `display: none`. */
 function displayed(
   element: Element,
   hiddenBySheet: ((element: Element) => boolean) | undefined
 ): boolean {
   for (let at: Element | undefined = element; at; at = at.parent) {
-    const inline = inlineDisplay(at);
-    if (inline === 'none') {
-      return false;
-    }
-    if (at.style.display !== 'none') {
-      continue;
-    }
-    // the style says hidden: it stands unless a prop has shown the element since
-    // and nothing important takes the prop back
-    if (inline === undefined || hiddenBySheet?.(at) === true) {
+    if (hidesItself(at, hiddenBySheet)) {
       return false;
     }
   }
@@ -1541,7 +1566,7 @@ export function createInput(opts: InputOptions = {}): InputRouter {
             writingTo = undefined;
             current.set(element);
             if (element) {
-              lastIndex = ringPosition(focusables(root), element, root);
+              lastIndex = ringPosition(focusables(root, opts.hiddenBySheet), element, root);
               // and it is brought on screen, unconditionally. The ring already
               // skips a `display: none` subtree because there is nothing on screen
               // there to move the focus to; a row below the fold is that case with
@@ -1568,7 +1593,7 @@ export function createInput(opts: InputOptions = {}): InputRouter {
     },
 
     ring(): readonly Element[] {
-      return focusables(root);
+      return focusables(root, opts.hiddenBySheet);
     },
   };
 
@@ -1585,7 +1610,7 @@ export function createInput(opts: InputOptions = {}): InputRouter {
     // called from an effect would be subscribed to the focus it just moved and
     // step again on every pass, round the ring until the scheduler gave up
     untrack(() => {
-      const ring = focusables(root);
+      const ring = focusables(root, opts.hiddenBySheet);
       if (ring.length === 0) {
         focus.focus(undefined);
         return;
@@ -1645,7 +1670,7 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       return false;
     }
 
-    const ring = focusables(root);
+    const ring = focusables(root, opts.hiddenBySheet);
     if (ring.length === 0) {
       focus.focus(undefined);
       return true;

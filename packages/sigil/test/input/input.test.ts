@@ -1623,15 +1623,57 @@ describe('focus', () => {
     });
 
     it('should keep it when the box is shown inside one that was shown', () => {
-      const { feed, got, input, section } = scene();
+      const { feed, got, input, root, section } = scene();
       const wrap = box({ display: 'none' });
       section.parent?.append(wrap);
       wrap.append(section);
+      // a frame, so that the wrapper's resolved style says `none` too: it is the ancestor
+      // case of a style that says hidden and a prop that says shown
+      resolveStyles(root);
       input.bind('ctrl+c', () => wrap.setProp('display', 'flex'));
 
       feed(`${String.fromCharCode(3)}${String.fromCharCode(2)}${ESC}[B`);
 
       expect(got).toEqual(['inside:down']);
+      input.stop();
+    });
+
+    it.each(['initial', 'unset', ' FLEX '])('should read display: %j as shown', (word) => {
+      const { feed, got, input, section } = scene();
+      input.bind('ctrl+c', () => section.setProp('display', word));
+      input.bind('ctrl+d', () => input.focus.focus(section.children[0]));
+
+      feed(`${String.fromCharCode(3)}${String.fromCharCode(4)}${ESC}[B`);
+
+      expect(got).toEqual(['inside:down']);
+      input.stop();
+    });
+
+    it('should leave a box hidden when its prop is cleared, since only a frame can say what that came to', () => {
+      const { feed, got, input, section } = scene();
+      input.bind('ctrl+c', () => section.setProp('display', undefined));
+      input.bind('ctrl+d', () => input.focus.focus(section.children[0]));
+
+      feed(`${String.fromCharCode(3)}${String.fromCharCode(4)}${ESC}[B`);
+
+      expect(got).toEqual(['outside:down']);
+      input.stop();
+    });
+
+    it('should put a box shown in the same read in the ring, so a Tab in it goes to its next stop', () => {
+      // the ring and the repair of a gone focus read one rule: without it the field the
+      // handler focused was held and was no stop for the Tab that followed
+      const { feed, input, inside, section } = scene();
+      const second = box({ focusable: true }, text('second'));
+      section.append(second);
+      input.bind('ctrl+c', () => {
+        section.setProp('display', 'flex');
+        input.focus.focus(inside);
+      });
+
+      feed(`${String.fromCharCode(3)}\t`);
+
+      expect(input.focus.current.get()).toBe(second);
       input.stop();
     });
 

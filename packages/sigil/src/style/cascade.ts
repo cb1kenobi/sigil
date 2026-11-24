@@ -550,7 +550,12 @@ export class Cascade {
 
     let best: Matched | undefined;
     let winner: RuleDeclaration | undefined;
-    for (const matched of this.match(node)) {
+    // collected rather than asked of `match()`, which a subclass may override and
+    // `resolveSheets()` does not call: this answers for what a resolve would
+    const found: (Matched | undefined)[] = [];
+    const count = this.#collect(node, found);
+    for (let at = 0; at < count; at++) {
+      const matched = found[at] as Matched;
       for (const declaration of matched.rule.declarations) {
         if (
           declaration.property !== property ||

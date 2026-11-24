@@ -217,7 +217,18 @@ the entry it belongs to.
   **unless an `!important` rule of a sheet says `none`**, since that outranks every prop
   and is the one thing a prop cannot show. The prop is read as the word (trimmed, any
   case) and anything but `none` and `flex` -- `inherit`, a value the style would refuse --
-  is no answer at all, so the resolved style stands, as it did before.
+  is no answer at all, so the resolved style stands, as it did before. `initial` and
+  `unset` are `flex`, since `display` does not inherit. A prop that is **cleared**
+  (`setProps({ display: undefined })`) is no prop, so a box it hid stays hidden to the
+  router until a frame: a handler shows a box by writing `flex`. Nor is a hide under an
+  `!important` `display: flex` current -- an inline `none` is read as hidden at once
+  while the frame draws the box -- which is how it was before this and is left, for the
+  reason the important rule is asked about only where the style says `none`.
+
+  **One rule is behind the ring as well as the repair.** `hidesItself()` is asked by
+  `displayed()` and by `focusables()`, so a box just shown is in the ring in the same
+  read: the first version had the repair read it and the ring not, and a Tab after the
+  show went to a stop outside the box the focus had just been put in.
 
   The important rule is asked of the cascade, for that one property, as it is now
   (`Cascade.important()`; the style `AGENTS.md` has it): not read off the
