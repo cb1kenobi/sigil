@@ -26,7 +26,7 @@ import { keyHelp } from '@ttylabs/sigil/components/key-help';
 import { describeTabs } from '@ttylabs/sigil/components/tabs';
 import type { Element } from '@ttylabs/sigil/element';
 import { createEffect, onCleanup, onMount } from '@ttylabs/sigil/renderer';
-import { State, untrack } from '@ttylabs/sigil/signals';
+import { untrack } from '@ttylabs/sigil/signals';
 
 /** Below this many columns the sidebar starts collapsed, so the cards keep their room. */
 export const NARROW: number = 100;
@@ -151,17 +151,14 @@ export function App(): Element {
     untrack(() => app.setTheme(css));
   });
   // and so does the scheme the sheets resolve against, which a theme that paints
-  // its own page has to say: the renderer only knows what the terminal is. The
-  // renderer is not there while this body runs, so the effect waits on `mounted`
-  // rather than reading `app.view` too soon -- an effect made inside `onMount()` ran
-  // once and did not run again when a key changed the theme
-  const mounted = new State(false);
-  onMount(() => mounted.set(true));
-  createEffect(() => {
-    const scheme = d.themeNow.get().scheme;
-    if (mounted.get()) {
+  // its own page has to say: the renderer only knows what the terminal is. `app.view`
+  // is not there while this body runs, so the effect is made in `onMount()`, which
+  // reads it on the first frame and again whenever a key changes the theme
+  onMount(() => {
+    createEffect(() => {
+      const scheme = d.themeNow.get().scheme;
       untrack(() => app.view.setColorScheme(scheme));
-    }
+    });
   });
   const toggleSidebar = (): void => d.collapsed.set(!d.collapsed.get());
 
