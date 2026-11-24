@@ -63,7 +63,7 @@ import {
 } from '../input/capabilities.js';
 import type { InputRouter } from '../input/index.js';
 import { measureSubtree } from '../layout/index.js';
-import { handOver } from '../signals/effect.js';
+import { handOver, reportBoth } from '../signals/effect.js';
 import { createEffects, type Effects, untrack } from '../signals/index.js';
 import {
   type AnimationFrame,
@@ -1010,6 +1010,14 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
   }
 
   /**
+   * What `onError` threw for the last error `tell()` handed it, and the error.
+   *
+   * Kept so that the frame it goes on to fail can say both: what was thrown is
+   * all `runFrame()` is handed, and the error it was reporting would be gone.
+   */
+  let told: { error: unknown; thrown: unknown } | undefined;
+
+  /**
    * Ends the renderer over a failure, and reports it.
    *
    * @param error - What failed.
@@ -1026,23 +1034,40 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     // dies on the alternate buffer with the cursor hidden has eaten the user's
     // shell, and a message printed into a half-drawn frame is unreadable. What the
     // teardown threw is said first, in the order it was thrown, then the failure
-    const errors = [...release(), error];
-    if (onTimer) {
-      for (const each of errors) {
-        handOver(onError, each, 'Error in frame');
-      }
+    const errors = release();
+    if (!onTimer) {
+      raise(report([...errors, error]));
       return;
     }
-    raise(report(errors));
+    for (const each of errors) {
+      handOver(onError, each, 'Error in frame');
+    }
+    reportOnTimer(error);
   }
 
   /**
-   * Hands an error to `onError`, and what it throws carries the error it was given.
+   * Writes a failure from the frame timer by the default report.
+   *
+   * What `onError` threw for a frame handler's or a mount callback's error has
+   * already been through it, so it is said with the error it threw for and not
+   * handed back a second time.
+   *
+   * @param error - What the frame failed with.
+   */
+  function reportOnTimer(error: unknown): void {
+    if (told !== undefined && Object.is(told.thrown, error)) {
+      reportBoth('Error in frame', told.error, error);
+    } else {
+      handOver(onError, error, 'Error in frame');
+    }
+  }
+
+  /**
+   * Hands an error to `onError`, and remembers what it threw for it.
    *
    * A frame handler's or an `onMount` callback's throw is reported rather than
-   * raised, and what `onError` throws for it goes on to fail the frame -- where the
-   * failure is reported with that throw as the error, and the one it was given
-   * would be gone. Both go with it (SIG-674).
+   * raised, and what `onError` throws for it goes on to fail the frame -- where
+   * the failure is that throw, and the error it was given would be gone (SIG-674).
    *
    * @param error - What a frame handler or a mount callback threw.
    */
@@ -1050,14 +1075,8 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     try {
       onError(error);
     } catch (thrown) {
-      if (Object.is(thrown, error)) {
-        throw thrown;
-      }
-      throw new AggregateError(
-        [error, thrown],
-        `${errorMessage(error)} (and onError threw while reporting it: ${errorMessage(thrown)})`,
-        { cause: error }
-      );
+      told = { error, thrown };
+      throw thrown;
     }
   }
 
@@ -1496,15 +1515,16 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
         // frame handler or an `onMount` callback that calls `flush()` is: an effect
         // fails and `fail()` gives the screen back, and then the callback's own
         // throw, or the next one's, goes to an `onError` that throws
-        if (onTimer) {
-          handOver(onError, error, 'Error in frame');
-          return;
+        if (!onTimer) {
+          throw error;
         }
-        throw error;
+        reportOnTimer(error);
+        return;
       }
       fail(error, onTimer);
     } finally {
       settling = false;
+      told = undefined;
     }
   }
 

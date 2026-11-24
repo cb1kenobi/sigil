@@ -90,15 +90,18 @@ describe('a frame that fails on a frame timer, whose onError throws', () => {
       expect(() => vi.advanceTimersByTime(1000)).not.toThrow();
 
       // what the frame handler threw is still said, and so is what onError threw
-      expect(written.text()).toContain('Error in frame: observer broke');
-      expect(written.text()).toContain('Error in frame error handler: onError broke');
+      expect(written.text()).toBe(
+        'Error in frame: observer broke\nError in frame error handler: onError broke\n'
+      );
       expect(process.exitCode).toBe(1);
     } finally {
       written.restore();
     }
     // and onError heard it first, with the screen given back
-    expect(String(heard[0])).toContain('observer broke');
+    expect(heard.map(String)).toEqual(['Error: observer broke']);
     expect(view.failed).toBe(true);
+    // `onTimerError()` is the input router's timers' and never heard this one, so
+    // what pins it is that the advance above did not throw
     expect(t.timerErrors).toEqual([]);
   });
 
@@ -128,14 +131,17 @@ describe('a frame that fails on a frame timer, whose onError throws', () => {
       broken.set(true);
       expect(() => vi.advanceTimersByTime(1000)).not.toThrow();
 
-      expect(written.text()).toContain('Error in frame: layout broke');
-      expect(written.text()).toContain('Error in frame error handler: onError broke');
+      expect(written.text()).toBe(
+        'Error in frame: layout broke\nError in frame error handler: onError broke\n'
+      );
       expect(process.exitCode).toBe(1);
     } finally {
       written.restore();
     }
-    expect(String(heard[0])).toContain('layout broke');
+    expect(heard.map(String)).toEqual(['Error: layout broke']);
     expect(view.failed).toBe(true);
+    // `onTimerError()` is the input router's timers' and never heard this one, so
+    // what pins it is that the advance above did not throw
     expect(t.timerErrors).toEqual([]);
   });
 
@@ -165,12 +171,17 @@ describe('a frame that fails on a frame timer, whose onError throws', () => {
       shown.set(true);
       expect(() => vi.advanceTimersByTime(1000)).not.toThrow();
 
-      expect(written.text()).toContain('Error in frame: mount broke');
-      expect(written.text()).toContain('Error in frame error handler: onError broke');
+      expect(written.text()).toBe(
+        'Error in frame: mount broke\nError in frame error handler: onError broke\n'
+      );
+      expect(process.exitCode).toBe(1);
     } finally {
       written.restore();
     }
+    expect(heard.map(String)).toEqual(['Error: mount broke']);
     expect(view.failed).toBe(true);
+    // `onTimerError()` is the input router's timers' and never heard this one, so
+    // what pins it is that the advance above did not throw
     expect(t.timerErrors).toEqual([]);
   });
 
@@ -232,14 +243,16 @@ describe('a frame that fails on a frame timer, whose onError throws', () => {
       expect(() => vi.advanceTimersByTime(1000)).not.toThrow();
 
       expect(view.failed).toBe(true);
-      expect(heard.map(String)).toEqual(
-        expect.arrayContaining([expect.stringContaining('effect broke')])
+      expect(heard.map(String)).toEqual(['Error: effect broke', 'Error: callback broke']);
+      expect(written.text()).toBe(
+        'Error in frame: callback broke\nError in frame error handler: onError broke\n'
       );
-      expect(written.text()).toContain('Error in frame: callback broke');
-      expect(written.text()).toContain('Error in frame error handler: onError broke');
+      expect(process.exitCode).toBe(1);
     } finally {
       written.restore();
     }
+    // `onTimerError()` is the input router's timers' and never heard this one, so
+    // what pins it is that the advance above did not throw
     expect(t.timerErrors).toEqual([]);
   });
 
@@ -251,7 +264,15 @@ describe('a frame that fails on a frame timer, whose onError throws', () => {
     try {
       shown.set(true);
       // the frame the write asked for is the timer's; this one is the caller's
-      expect(() => view.frame()).toThrow('onError broke');
+      let raised: unknown;
+      try {
+        view.frame();
+      } catch (error) {
+        raised = error;
+      }
+      // what `onError` threw, as itself and not wrapped
+      expect(raised).toEqual(new Error('onError broke'));
+      expect(raised).not.toBeInstanceOf(AggregateError);
       expect(view.failed).toBe(true);
     } finally {
       written.restore();

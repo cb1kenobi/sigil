@@ -174,13 +174,27 @@ export function handOver(handler: EffectErrorHandler, error: unknown, what: stri
   try {
     handler(error);
   } catch (thrown) {
-    write(what, error);
-    if (!Object.is(thrown, error)) {
-      // the renderer's handler raises several reports as one `AggregateError`,
-      // whose own message says only that they were several
-      for (const each of thrown instanceof AggregateError ? thrown.errors : [thrown]) {
-        write(`${what} error handler`, each);
-      }
+    reportBoth(what, error, thrown);
+  }
+}
+
+/**
+ * Writes an error a handler did not take, and what the handler threw for it.
+ *
+ * Split from `handOver()` for the renderer, which sometimes already knows the
+ * handler threw and has nothing to hand it again (SIG-674).
+ *
+ * @param what - What it is an error in, as the lead of each line written.
+ * @param error - What the handler was given.
+ * @param thrown - What it threw.
+ */
+export function reportBoth(what: string, error: unknown, thrown: unknown): void {
+  write(what, error);
+  if (!Object.is(thrown, error)) {
+    // the renderer's handler raises several reports as one `AggregateError`,
+    // whose own message says only that they were several
+    for (const each of thrown instanceof AggregateError ? thrown.errors : [thrown]) {
+      write(`${what} error handler`, each);
     }
   }
 }
