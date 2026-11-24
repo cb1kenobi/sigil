@@ -194,3 +194,27 @@ describe('source positions', () => {
     expect(render(() => jsx('text', { children: 'ok' }))).toBe('ok');
   });
 });
+
+describe('a component prop named __proto__', () => {
+  it('should reach the component as an own property rather than as its prototype', () => {
+    // `props['__proto__'] = value` is `Object.prototype`'s setter: an object
+    // became the prototype of the props and anything else was dropped, so the
+    // component was never handed the prop (SIG-634). The build emitter writes a
+    // computed key for the same reason, and `emitters.test.ts` in `@ttylabs/cli`
+    // holds the two paths to one answer
+    let seen: Record<string, unknown> = {};
+    const Probe = (props: Record<string, unknown>) => {
+      seen = props;
+      return text('probe');
+    };
+
+    expect(ui`<${Probe} __proto__="mine" />`).toBeDefined();
+    expect(Object.hasOwn(seen, '__proto__')).toBe(true);
+    expect(seen['__proto__']).toBe('mine');
+
+    const value = { a: 1 };
+    expect(ui`<${Probe} __proto__=${value} />`).toBeDefined();
+    expect(Object.getPrototypeOf(seen)).toBe(Object.prototype);
+    expect(Object.getOwnPropertyDescriptor(seen, '__proto__')?.value).toBe(value);
+  });
+});

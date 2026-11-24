@@ -519,6 +519,105 @@ describe('sigil build', () => {
     expect(err).not.toContain('No utility class is named');
   }, 60_000);
 
+  describe('a file too deeply nested to parse (SIG-638)', () => {
+    // 513 unbalanced `(` inside strings is past the shake's ceiling of 512 by the
+    // naive count and is nothing the parser is ever given, which is the point: a
+    // fixture that really nested this deep would be what segfaults `oxc-parser`
+    // (SIG-639). Nothing imports the file, so the bundler never reads it either
+    const deep = `export const a = [${Array.from({ length: 513 }, () => `':('`).join(', ')}];\n`;
+
+    it('should name the file and what it keeps, once per file', async () => {
+      const app = linkedFixture(join(fixtures, 'styled'), 'sigil-build-deep-');
+      writeFileSync(join(app, 'src', 'deep.ts'), deep);
+      writeFileSync(join(app, 'src', 'deeper.ts'), deep);
+
+      const { err } = await sigil('build', app, '--out', out);
+
+      const notes = err.match(/src\/deep(er)?\.ts was read without parsing/g) ?? [];
+      expect(notes).toHaveLength(2);
+      // a note wraps, so a path and the words after it may be split by any whitespace
+      expect(err).toMatch(/src\/deep\.ts\s+was\s+read\s+without\s+parsing/);
+      expect(err).toMatch(/src\/deeper\.ts\s+was\s+read\s+without\s+parsing/);
+      // measured rather than asserted by hand: the one-letter name `a` is
+      // an infix of a quarter of the sheet, and a note wraps, so the words are
+      // separated by any whitespace
+      const kept = Number(/keeps\s+(\d+)\s+of\s+383\s+utility\s+rules/.exec(err)?.[1]);
+      expect(kept).toBeGreaterThan(0);
+      expect(err).toContain('--no-shake');
+    }, 60_000);
+
+    it('should say nothing about a file under the ceiling', async () => {
+      const app = linkedFixture(join(fixtures, 'styled'), 'sigil-build-shallow-');
+      writeFileSync(
+        join(app, 'src', 'shallow.ts'),
+        `export const data = [${Array.from({ length: 400 }, () => `':('`).join(', ')}];\n`
+      );
+
+      const { err } = await sigil('build', app, '--out', out);
+
+      expect(err).not.toContain('read without parsing');
+    }, 60_000);
+
+    it('should say nothing for an app whose files all parse', async () => {
+      const { err } = await sigil('build', join(fixtures, 'styled'), '--out', out);
+
+      expect(err).not.toContain('read without parsing');
+    }, 60_000);
+
+    it.skipIf(process.platform === 'win32')(
+      'should escape what a file is called',
+      async () => {
+        const app = linkedFixture(join(fixtures, 'styled'), 'sigil-build-deep-name-');
+        // a newline is a legal name on every other platform, and an unescaped one
+        // would start a line of its own in a piped build's stderr
+        writeFileSync(join(app, 'src', 'a\nforged line.ts'), deep);
+
+        const { err } = await sigil('build', app, '--out', out);
+
+        expect(err).toContain('src/a\\x0Aforged line.ts was read without parsing');
+        expect(err).not.toContain('a\nforged line');
+      },
+      60_000
+    );
+
+    it('should say what a file keeps on its own, whatever else the app names', async () => {
+      // `bg-` beside an unknown opens every `bg-*` rule, and the deep file holds
+      // no such token: if its count were the whole evidence so far rather than
+      // its own, this would read as keeping them and the two builds would differ
+      const lone = linkedFixture(join(fixtures, 'opaque'), 'sigil-build-deep-lone-');
+      writeFileSync(join(lone, 'src', 'deep.ts'), deep);
+      const beside = linkedFixture(join(fixtures, 'opaque'), 'sigil-build-deep-beside-');
+      writeFileSync(join(beside, 'src', 'deep.ts'), deep);
+      writeFileSync(join(beside, 'src', 'aaa.ts'), `export const c = 'bg-' + colour;\n`);
+
+      const keeps = async (app: string): Promise<string | undefined> =>
+        /keeps\s+(\d+)\s+of/.exec((await sigil('build', app, '--out', out)).err)?.[1];
+
+      const alone = await keeps(lone);
+      expect(alone).toBeDefined();
+      expect(await keeps(beside)).toBe(alone);
+    }, 60_000);
+
+    it('should escape a bidi control in what a file is called, on every platform', async () => {
+      const app = linkedFixture(join(fixtures, 'styled'), 'sigil-build-deep-bidi-');
+      writeFileSync(join(app, 'src', 'a\u202Eb.ts'), deep);
+
+      const { err } = await sigil('build', app, '--out', out);
+
+      expect(err).toContain('a\\u{202E}b.ts');
+      expect(err).not.toContain('\u202E');
+    }, 60_000);
+
+    it('should say nothing under --quiet', async () => {
+      const app = linkedFixture(join(fixtures, 'styled'), 'sigil-build-deep-quiet-');
+      writeFileSync(join(app, 'src', 'deep.ts'), deep);
+
+      const { err } = await sigil('build', app, '--out', out, '--quiet');
+
+      expect(err).not.toContain('read without parsing');
+    }, 60_000);
+  });
+
   it('should keep every rule under --no-shake, and say so', async () => {
     // the opposite of the above and the reason the count is in the summary at
     // all: "this app names twelve utilities" and "the analysis found nothing"

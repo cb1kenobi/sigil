@@ -501,7 +501,9 @@ class Printer {
    * @returns The call.
    */
   #component(node: IRElement, callee: string): string {
-    const entries = node.props.map((prop) => `${quote(prop.name)}: ${this.#source(prop.value)}`);
+    const entries = node.props.map(
+      (prop) => `${objectKey(prop.name)}: ${this.#source(prop.value)}`
+    );
 
     // the same children `emit()` hands over, dropped by the same function: a
     // component's children are data it interprets, and a stray space between
@@ -621,7 +623,7 @@ class Printer {
       if (prop.value instanceof Expr) {
         rest.push(prop);
       } else if (prop.value !== undefined) {
-        statics.push(`${quote(prop.name)}: ${literal(prop.value)}`);
+        statics.push(`${objectKey(prop.name)}: ${literal(prop.value)}`);
       }
     }
 
@@ -782,6 +784,24 @@ function loc(at: SourceLocation | undefined): string {
  */
 export function quote(value: string): string {
   return escapeUnseen(JSON.stringify(value));
+}
+
+/**
+ * A property name, as the key of an object literal.
+ *
+ * The one definition for everything the toolchain prints as an object's key --
+ * a component's props here and the command tree `sigil build` generates -- because
+ * a name that is `__proto__` is the one string that is not a key in a literal
+ * however it is quoted: `{ __proto__: x }` and `{ "__proto__": x }` both set the
+ * object's prototype and add nothing, so the prop or the command was dropped
+ * without a word. A computed key is an own property, which is what the
+ * interpreted path hands a component too (SIG-634).
+ *
+ * @param name - The name.
+ * @returns A key that makes `name` an own property of the literal it is in.
+ */
+export function objectKey(name: string): string {
+  return name === '__proto__' ? `[${quote(name)}]` : quote(name);
 }
 
 /**

@@ -392,6 +392,12 @@ It does **not** read, and these need `safelist` or `--no-shake`:
 - a class held in a variable and joined later, or read from JSON, a file or the
   environment
 
+A file whose brackets nest more than 512 deep is not parsed at all, because the
+parser cannot be trusted with it. It is read as though every word in it could be
+a class, which keeps more rules than it names, and `sigil build` says so: one
+note per file, with what that file keeps by itself. Flatten the file or move its
+data out of the source tree; `--no-shake` keeps every rule.
+
 ## Building this package
 
 ```sh

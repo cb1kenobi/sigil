@@ -623,6 +623,20 @@ function readInline(
       continue;
     }
 
+    // `{ __proto__: x }` sets the prototype of the object and declares nothing,
+    // so source has no such command. `generateCommands()` prints a command of
+    // that name as an own key, which is right for a package really named so --
+    // and would give the built app a command this literal never had (SIG-634)
+    if (
+      property.kind === 'init' &&
+      !property.computed &&
+      !property.method &&
+      !property.shorthand &&
+      propertyKey(property) === '__proto__'
+    ) {
+      continue;
+    }
+
     const name = propertyKey(property);
     if (!name) {
       diagnostics.push({

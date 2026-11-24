@@ -91,7 +91,10 @@ export interface DiffViewProps<T = unknown> {
    * as well as what was picked before -- and `v` again ends it, keeping the picks.
    * Enter or Escape leaves the lines and drops the picks. `]` and `[` leave them too, as any move to
    * another hunk does. A click on a line of the current hunk moves the cursor to
-   * it while it is on the lines.
+   * it while it is on the lines, and pressing on a line and dragging to another
+   * picks the range `v` would, over what was picked before: a pointer past the
+   * view's edge or the hunk's is read as the last row in view or the hunk's last
+   * line, and releasing keeps what was picked.
    *
    * A context line is never a stop of the cursor: it has nothing to pick.
    */
@@ -488,6 +491,9 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       }
     }
 
+    // new rows: the one the press landed on is not in the tree any more, so a drag
+    // that began on it has nothing to follow
+    endDrag();
     overflow = widest;
     lines = rows;
     runs = reaches;
@@ -503,14 +509,14 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
     for (const [at, stop] of stops.entries()) {
       // the stop is the one this drawing put the row in, so a click is never read
       // through a row count that a later drawing changed
-      const onMouse = (event: MouseEvent): void => clicked(event, at);
+      const onMouse = (event: MouseEvent): void => mouseOn(event, at);
       for (let row = stop.first; row <= stop.last; row++) {
         (rows[row] as Element).onMouse = onMouse;
       }
       // a line's rows know which line they are, which is how a click moves the
       // line cursor: one handler a line, in place of the stop's
       for (const [line, span] of (stop.lines ?? []).entries()) {
-        const onLine = (event: MouseEvent): void => clicked(event, at, line);
+        const onLine = (event: MouseEvent): void => mouseOn(event, at, line);
         for (let row = span.first; row <= span.last; row++) {
           (rows[row] as Element).onMouse = onLine;
         }
@@ -573,6 +579,11 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       return;
     }
     event.stop();
+    if (dragged) {
+      // the click that ends a drag is not a click on anything
+      dragged = false;
+      return;
+    }
     if (untrack(() => current.get()) !== at) {
       pointed = at;
       current.set(at);
@@ -587,9 +598,183 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       drawn[at]?.lines?.[line]?.kind !== 'context' &&
       untrack(() => picking.cursor.get()) !== line
     ) {
-      anchor = undefined;
+      closeRange();
       picking.cursor.set(line);
     }
+  };
+
+  /**
+   * What a press on a changed line of the current hunk began, while the button is
+   * held: the line it landed on, and whether the pointer has left it yet. `undefined`
+   * while no drag is open.
+   */
+  let dragging: { line: number; began: boolean } | undefined;
+  /** Whether the click a drag will be followed by is still to be swallowed. */
+  let dragged = false;
+
+  /**
+   * Ends a drag where it stands: a range it opened is closed, keeping its picks, as
+   * the release would have. Whatever takes the drag's row or the cursor's lines away
+   * asks this, because the release that would close the range will not find the
+   * drag.
+   */
+  const endDrag = (): void => {
+    if (dragging?.began) {
+      anchor = undefined;
+    }
+    dragging = undefined;
+  };
+
+  /**
+   * Closes the open range for a reason of its own -- `v` again, `x`, `a`, a click, an
+   * app's write -- which ends a drag along with it: the range is what a drag's
+   * release would close, and `endDrag()` closing it afterwards would close a range
+   * the drag no longer owns.
+   */
+  const closeRange = (): void => {
+    anchor = undefined;
+    dragging = undefined;
+  };
+
+  /**
+   * Routes a report on a row to what it is for. A press captures the pointer, so
+   * the moves and the release of a drag arrive at the row it landed on wherever the
+   * pointer has got to.
+   *
+   * @param event - The report.
+   * @param at - The stop the row was drawn in.
+   * @param line - The line the row belongs to, where it belongs to one.
+   */
+  const mouseOn = (event: MouseEvent, at: number, line?: number): void => {
+    if (event.kind === 'mousedown') {
+      pressed(event, at, line);
+    } else if (event.kind === 'mousemove') {
+      moved(event);
+    } else if (event.kind === 'mouseup') {
+      released(event);
+    } else {
+      clicked(event, at, line);
+    }
+  };
+
+  /**
+   * A press: a drag may begin from it, on a changed line of the current hunk while
+   * the cursor is on the lines -- the places a click moves the cursor. Nothing is
+   * picked until the pointer leaves the line, so a click is still only a click, and
+   * the press is not stopped, so it still focuses the view.
+   */
+  const pressed = (event: MouseEvent, at: number, line?: number): void => {
+    // another button's press is not this drag's to end
+    if (event.button !== 'left') {
+      return;
+    }
+    // every press starts afresh, so a release that never came cannot leave the
+    // next click swallowed
+    endDrag();
+    dragged = false;
+    if (
+      !picking ||
+      line === undefined ||
+      at !== lit ||
+      untrack(() => picking.cursor.get()) === undefined ||
+      drawn[at]?.lines?.[line]?.kind === 'context'
+    ) {
+      return;
+    }
+    dragging = { began: false, line };
+  };
+
+  /**
+   * The line a row at a height stands for: the row under the pointer, clamped to
+   * the rows in view and to the hunk, and for a context line the changed line
+   * nearest it on the anchor's side -- the one `v` and a step would end on.
+   *
+   * @param y - The pointer's row, which a captured drag reports off the canvas.
+   * @param from - The line the drag began on.
+   * @returns The position among the hunk's lines, or `undefined` before a layout.
+   */
+  const lineAt = (y: number, from: number): number | undefined => {
+    const spans = drawn[lit]?.lines;
+    const place = viewport.content ?? viewport.box;
+    if (spans === undefined || spans.length === 0 || place === undefined || place.height <= 0) {
+      return undefined;
+    }
+    // clamped rather than scrolled: a drag off the view's edge picks as far as the
+    // view shows, and the wheel or `v` takes it further
+    const row =
+      Math.floor(viewport.scroll?.y ?? 0) + Math.min(Math.max(y - place.y, 0), place.height - 1);
+    let line = spans.findIndex((span) => span.last >= row);
+    if (line < 0) {
+      line = spans.length - 1;
+    }
+    if (spans[line]!.kind !== 'context') {
+      return line;
+    }
+    const toward = line > from ? -1 : 1;
+    for (let at = line + toward; at >= 0 && at < spans.length; at += toward) {
+      if (spans[at]!.kind !== 'context') {
+        return at;
+      }
+    }
+    return from;
+  };
+
+  /**
+   * A move of a drag: from the line it began on to the line under the pointer is
+   * the range `v` would pick, over what was picked before.
+   */
+  const moved = (event: MouseEvent): void => {
+    if (!picking || !dragging) {
+      return;
+    }
+    if (event.button === undefined) {
+      // motion with nothing held, which an app that reports hover is sent: the
+      // release never came, and the drag is over
+      endDrag();
+      return;
+    }
+    if (event.button !== 'left') {
+      // another button's drag is not this one's to continue
+      return;
+    }
+    const spans = drawn[lit]?.lines ?? [];
+    const cursor = untrack(() => picking.cursor.get());
+    if (cursor === undefined || spans[dragging.line] === undefined) {
+      // the cursor left the lines, or the hunk is another one: nothing to follow
+      endDrag();
+      return;
+    }
+    const to = lineAt(event.y, dragging.line);
+    if (to === undefined || (!dragging.began && to === dragging.line)) {
+      return;
+    }
+    const changes = [...spans.keys()].filter((line) => spans[line]!.kind !== 'context');
+    if (!dragging.began) {
+      dragging.began = true;
+      anchor = dragging.line;
+      base = untrack(() => picking.selected.get());
+      dragged = true;
+    }
+    // once the pointer has left the line the drag is the view's, and nothing above
+    // it acts on what follows
+    event.stop();
+    if (to !== cursor) {
+      picking.cursor.set(to);
+    }
+    pickRange(to, changes);
+  };
+
+  /** The release of a drag, which keeps what it picked. */
+  const released = (event: MouseEvent): void => {
+    if (!dragging) {
+      return;
+    }
+    // any release ends a drag, whatever its button says
+    if (dragging.began) {
+      anchor = undefined;
+      event.stop();
+    }
+    dragging = undefined;
   };
 
   /**
@@ -654,6 +839,7 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
     }
     anchor = undefined;
     ranged = undefined;
+    dragging = undefined;
     untrack(() => {
       if (picking.cursor.get() !== undefined) {
         picking.cursor.set(undefined);
@@ -786,17 +972,17 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
         pickRange(at, changes);
       } else {
         // closing it keeps what it picked, and the next one starts from there
-        anchor = undefined;
+        closeRange();
       }
     } else if (name === 'x') {
-      anchor = undefined;
+      closeRange();
       const picked = new Set(untrack(() => picking.selected.get()));
       if (!picked.delete(at)) {
         picked.add(at);
       }
       picking.selected.set(picked);
     } else if (name === 'a') {
-      anchor = undefined;
+      closeRange();
       const picked = untrack(() => picking.selected.get());
       picking.selected.set(changes.every((line) => picked.has(line)) ? NONE : new Set(changes));
     } else {
@@ -1013,7 +1199,7 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
           at === undefined ||
           (anchor !== undefined && ranged && (ranged.cursor !== at || ranged.picks !== picked))
         ) {
-          anchor = undefined;
+          closeRange();
         }
         if (at === undefined && picking.selected.get().size > 0) {
           // the cursor is off the lines, however it got there: so are the picks

@@ -78,7 +78,7 @@ import {
 } from '../style/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
 import { errorMessage } from '../util/error-message.js';
-import { createRoot, disposeOwner, drainMounts, getOwner, type Owner } from './owner.js';
+import { createHeldRoot, disposeOwner, drainMounts, getOwner, type Owner } from './owner.js';
 
 export { For, type ForProps, Show, type ShowProps } from './control.js';
 export { timed } from '../util/timed.js';
@@ -1455,9 +1455,9 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
   let root: Element;
   let tree: Tree;
   try {
-    root = createRoot(
+    root = createHeldRoot(
       () => {
-        // the owner rather than the disposer `createRoot()` hands over:
+        // the owner rather than the disposer `createHeldRoot()` hands over:
         // `teardown()` disposes it directly, and reporting what the cleanups
         // threw is the renderer's rather than the caller's
         owner = getOwner();
@@ -1661,7 +1661,7 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
       return !disposed && !failed;
     },
 
-    // set by the time `render()` hands anything back: `createRoot()` runs the
+    // set by the time `render()` hands anything back: `createHeldRoot()` runs the
     // component, and so the assignment, synchronously
     get owner() {
       return owner as Owner;

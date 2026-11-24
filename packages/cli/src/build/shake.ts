@@ -110,6 +110,25 @@ export interface ClassEvidence {
   mayName(name: string): boolean;
 }
 
+/**
+ * A file the scan read without parsing because its brackets nest too deep
+ * (SIG-638).
+ */
+export interface UnparsedFile {
+  /** How many utility rules this file keeps **on its own**, by every token it holds. */
+  readonly kept: number;
+  /** The file, as the scan found it. */
+  readonly path: string;
+  /** How many utility rules there are. */
+  readonly total: number;
+}
+
+/** What `scanClassEvidence()` read, and what it could not parse to read. */
+export interface ScannedEvidence extends ClassEvidence {
+  /** Every file read open on both ends instead of parsed, in the order the walk met them. */
+  readonly unparsed: readonly UnparsedFile[];
+}
+
 /** One literal chunk, and which of its ends touch something unknown. */
 interface Chunk {
   /** Whether something unknown is concatenated on the left. */
@@ -126,7 +145,8 @@ interface Chunk {
  * it is evidence *of*: a closed literal is the class, and an open one is a
  * piece of one, matching by prefix, by suffix, or anywhere.
  */
-class Evidence implements ClassEvidence {
+class Evidence implements ScannedEvidence {
+  readonly unparsed: UnparsedFile[] = [];
   readonly #exact = new Set<string>();
   readonly #infix = new Set<string>();
   readonly #prefix = new Set<string>();
@@ -293,7 +313,7 @@ export interface ScanOptions {
  * @param options - What to leave out, and what to keep regardless.
  * @returns What the source says.
  */
-export function scanClassEvidence(root: string, options: ScanOptions = {}): ClassEvidence {
+export function scanClassEvidence(root: string, options: ScanOptions = {}): ScannedEvidence {
   const evidence = new Evidence();
   // compared by physical path, because the caller's `out` and this walk's
   // `join()` are two spellings of one directory -- a trailing slash, a `./`,
@@ -413,6 +433,18 @@ function readFile(path: string, into: Evidence): void {
   // that was fine without the shake
   if (nestingDepth(source) > MAX_NESTING) {
     readUnparsed(source, into);
+    // recorded so the build can say so: a file read this way keeps more rules
+    // than it names, and nothing else in the output points at it (SIG-638). What
+    // it costs is measured on a scratch copy of the evidence holding this file
+    // alone, so it is that file's own doing and not the app's whole
+    const alone = new Evidence();
+    readUnparsed(source, alone);
+    const all = utilities({ variants: false });
+    into.unparsed.push({
+      kept: all.filter((utility) => alone.mayName(utility.name)).length,
+      path,
+      total: all.length,
+    });
     return;
   }
 
@@ -455,8 +487,9 @@ function readFile(path: string, into: Evidence): void {
  * whose main thread has a smaller one crashes at a smaller depth. Under
  * `ulimit -s 1024` the same parser crashed at about 560 levels of the `||` chain,
  * 710 nested objects, 950 arrays, 480 templates in templates, and **420 nested
- * function bodies** -- the last below this ceiling. Whether Windows' main thread
- * is 1 MB was not established.
+ * function bodies** -- the last below this ceiling. That is a stack somebody
+ * chose and not Windows' default, which parsed 3,000 nested function bodies and
+ * crashed at 4,000 on node 22, 24 and 26 (see `packages/cli/AGENTS.md`).
  *
  * So this is a ceiling set far below the shallowest crash on the default stack
  * and far above any code anybody writes -- the deepest naive count over this
@@ -1290,6 +1323,8 @@ export interface Shaker {
   sheet(): ShakenSheet;
   /** What it came to, or `undefined` if nothing ever asked. */
   result(): ShakenSheet | undefined;
+  /** The files it read without parsing, empty until something asked for the sheet. */
+  unparsed(): readonly UnparsedFile[];
 }
 
 /**
@@ -1301,12 +1336,15 @@ export interface Shaker {
  */
 export function createShaker(root: string, options: ScanOptions = {}): Shaker {
   let computed: ShakenSheet | undefined;
+  let scanned: ScannedEvidence | undefined;
 
   return {
     result: () => computed,
     sheet: () => {
-      computed ??= shakeUtilities(scanClassEvidence(root, options));
+      scanned ??= scanClassEvidence(root, options);
+      computed ??= shakeUtilities(scanned);
       return computed;
     },
+    unparsed: () => scanned?.unparsed ?? [],
   };
 }

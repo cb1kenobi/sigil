@@ -47,7 +47,14 @@ import { isInside, landsAt, RUNTIME, type DiscoveredApp } from './discover.ts';
 import { escapeChunks } from './escape-chunks.ts';
 import { generateBin } from './generate.ts';
 import { MODULE_RE, parses, parseTree } from './parse-module.ts';
-import { createShaker, STYLE_MODULE, shakeStyles, type ShakenSheet, type Shaker } from './shake.ts';
+import {
+  createShaker,
+  STYLE_MODULE,
+  shakeStyles,
+  type ShakenSheet,
+  type Shaker,
+  type UnparsedFile,
+} from './shake.ts';
 import { TAG_MODULE } from './templates.ts';
 import type { ResolvedTree } from './tree.ts';
 import { updateCheckDefine, UPDATE_CHECK_SPECIFIER } from './update-check.ts';
@@ -283,6 +290,8 @@ export interface ShakenStyles {
   readonly kept: number;
   /** How many utilities there were. */
   readonly total: number;
+  /** The files the scan read open on both ends because they nest too deep to parse (SIG-638). */
+  readonly unparsed: readonly UnparsedFile[];
   /** How many variant-qualified rules (`focus:border-green`) the app named, on top. */
   readonly variants: number;
 }
@@ -1481,7 +1490,14 @@ function packageOf(from: string, cache: Map<string, string | undefined>): string
  */
 function styleReport(shaker: Shaker | undefined): ShakenStyles | undefined {
   const sheet: ShakenSheet | undefined = shaker?.result();
-  return sheet ? { kept: sheet.kept, total: sheet.total, variants: sheet.variants } : undefined;
+  return sheet
+    ? {
+        kept: sheet.kept,
+        total: sheet.total,
+        unparsed: shaker?.unparsed() ?? [],
+        variants: sheet.variants,
+      }
+    : undefined;
 }
 
 /** The part of a written chunk `chunkLoads()` reads. */
