@@ -19,8 +19,9 @@ const run = promisify(execFile);
  * In a child process rather than in this file, for the reason that file gives: a
  * vitest worker's stack is four times a main thread's and spreads 300,000 arguments
  * without complaint, so a test written here at 200,000 passes against the code
- * that fails an app. Each case is a process of its own and they run together,
- * since each builds a couple of hundred thousand elements. The children import
+ * that fails an app. Each case is a process of its own and they run one after
+ * another, since each builds a couple of hundred thousand elements and a machine
+ * running the rest of the suite has deadlines of its own. The children import
  * `dist/`, so they need a build first, which is what `pnpm test` does.
  */
 const LONG = 200_000;
@@ -145,9 +146,11 @@ describe("a view as long as somebody's data, on a main thread", () => {
 
   beforeAll(async () => {
     const dist = new URL('../../dist/', import.meta.url).href;
-    await Promise.all(
-      Object.entries(CASES).map(async ([name, { body }]) => {
-        const source = `
+    // one child at a time: twelve at once were twelve processes holding a couple of
+    // hundred thousand elements each on a runner with a few cores, and
+    // `layout-stress.test.ts` seed 1 ran past its deadline beside them on CI
+    for (const [name, { body }] of Object.entries(CASES)) {
+      const source = `
           const dist = ${JSON.stringify(dist)};
           const LONG = ${LONG};
           try {
@@ -157,17 +160,16 @@ describe("a view as long as somebody's data, on a main thread", () => {
             process.stdout.write(JSON.stringify({ error: String(err) }));
           }
         `;
-        // a child that dies (out of heap, say) is that case's failure and not every case's
-        try {
-          const { stdout } = await run(process.execPath, ['--input-type=module', '-e', source], {
-            maxBuffer: 1 << 20,
-          });
-          outcomes[name] = JSON.parse(stdout) as Outcome;
-        } catch (err) {
-          outcomes[name] = { error: String(err).slice(0, 300) };
-        }
-      })
-    );
+      // a child that dies (out of heap, say) is that case's failure and not every case's
+      try {
+        const { stdout } = await run(process.execPath, ['--input-type=module', '-e', source], {
+          maxBuffer: 1 << 20,
+        });
+        outcomes[name] = JSON.parse(stdout) as Outcome;
+      } catch (err) {
+        outcomes[name] = { error: String(err).slice(0, 300) };
+      }
+    }
   }, 120_000);
 
   it.each(Object.keys(CASES))('should build %s of 200,000 entries', (name) => {
