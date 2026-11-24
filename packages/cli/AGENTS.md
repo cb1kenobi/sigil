@@ -7733,12 +7733,16 @@ measurements are in
   **`'wrapped'` is asked of `importsCheck` too, not of the specifier (SIG-666).**
   SIG-609 left the SIG-593 warning on the specifier, and the specifier is what
   `updateCheck: wrap({ checker: githubChecker(...) })` puts in the graph by itself:
-  a wrapped schema that imports only the builder, the documented path, never
-  calls `check()` by hand and was warned about a hollow check it does not have.
+  a wrapped schema that imports only the builder never calls `check()` by hand
+  and was warned about a hollow check it does not have.
   `wrappedCheckWarning()` now takes `importsCheck` and the message says it is
-  `check()` that is imported. What it costs is nothing the specifier signal was
-  catching: the warning is about a hand-called `check()` with no checker, and an
-  app that does not import `check` has none to call. `should say nothing for a
+  `check()` that is imported. What it costs is one case, known and accepted: a wrap
+  that returns something truthy without the checker, in an app that imports no
+  `check`, is the `'asks'` shape at run time -- `beginUpdateCheck()` finds no
+  checker and the automatic check does nothing -- and the specifier signal's note
+  was the only thing that said so, in words about `check()`. Everything else it
+  stopped saying was noise: the warning is about a hand-called `check()` with no
+  checker, and an app that does not import `check` has none to call. `should say nothing for a
   wrapped schema that imports only a builder` packages one and failed on the
   specifier version. Left as it was: a schema checker written as a plain literal
   is still not baked, for the reason above, so a wrapped one that does import

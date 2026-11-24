@@ -484,7 +484,7 @@ export function assertUpdateCheckDeclared(
  * leaves the decision with the build's author (SIG-593).
  *
  * Asked once the bundle reaches `check` itself and not merely the specifier
- * (SIG-666): a wrapped schema that imports only a builder, the documented path,
+ * (SIG-666): a wrapped schema that imports only a builder
  * never calls `check()` by hand and has no hollow check to be told about.
  *
  * @param config - The app's `sigil.json`.

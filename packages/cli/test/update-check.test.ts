@@ -1676,7 +1676,7 @@ describe('a packaged binary that asks in its schema', () => {
     }, 180000);
 
     // SIG-666: the warning is about a hand-called check(), and a wrapped schema that
-    // imports only the builder -- the documented path -- never calls one. It was keyed
+    // imports only the builder never calls one. It was keyed
     // on the specifier, which a builder import puts in the graph all the same
     it('should say nothing for a wrapped schema that imports only a builder', async () => {
       const root = variant(
