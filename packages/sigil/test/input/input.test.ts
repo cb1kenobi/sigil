@@ -1579,6 +1579,172 @@ describe('focus', () => {
     });
   });
 
+  describe('between the showing of an element and the frame that resolves it', () => {
+    /**
+     * A section hidden by an inline `display` and a frame, with a field in it, and
+     * a field outside. The sheet is the app's, and its rules are what a test varies.
+     */
+    function scene(source = '') {
+      const { feed, terminal } = harness();
+      const inside = box({ focusable: true }, text('inside'));
+      const section = box({ display: 'none' }, inside);
+      const outside = box({ focusable: true }, text('outside'));
+      const root = box({}, section, outside);
+      const cascade = new Cascade([parseStylesheet(source)]);
+      const restyler = new Restyler(cascade);
+      resolveStyles(root, restyler);
+      const input = createInput({
+        hiddenBySheet: (element) =>
+          cascade.important(element, 'display', element.parent?.style) === 'none',
+        root,
+        terminal,
+      });
+      const got: string[] = [];
+      inside.onKey = (event) => void got.push(`inside:${event.key.name}`);
+      outside.onKey = (event) => void got.push(`outside:${event.key.name}`);
+      input.focus.focus(outside);
+      // what a command bar's handler does: show the box, and move the focus into it
+      input.bind('ctrl+b', () => {
+        section.setProp('display', 'flex');
+        input.focus.focus(inside);
+      });
+      return { cascade, feed, got, inside, input, outside, restyler, root, section };
+    }
+
+    it('should keep the focus put in a box shown in the same read as the keys that follow', () => {
+      // `:pods` typed fast is `:` and four keys in one chunk: no frame between them, so the
+      // resolved style still says `none` and only the inline `display` says otherwise
+      const { feed, got, inside, input } = scene();
+
+      feed(`${String.fromCharCode(2)}${ESC}[B${ESC}[A`);
+
+      expect(got).toEqual(['inside:down', 'inside:up']);
+      expect(input.focus.current.get()).toBe(inside);
+      input.stop();
+    });
+
+    it('should keep it when the box is shown inside one that was shown', () => {
+      const { feed, got, input, root, section } = scene();
+      const wrap = box({ display: 'none' });
+      section.parent?.append(wrap);
+      wrap.append(section);
+      // a frame, so that the wrapper's resolved style says `none` too: it is the ancestor
+      // case of a style that says hidden and a prop that says shown
+      resolveStyles(root);
+      input.bind('ctrl+c', () => wrap.setProp('display', 'flex'));
+
+      feed(`${String.fromCharCode(3)}${String.fromCharCode(2)}${ESC}[B`);
+
+      expect(got).toEqual(['inside:down']);
+      input.stop();
+    });
+
+    it.each(['initial', 'unset', ' FLEX '])('should read display: %j as shown', (word) => {
+      const { feed, got, input, section } = scene();
+      input.bind('ctrl+c', () => section.setProp('display', word));
+      input.bind('ctrl+d', () => input.focus.focus(section.children[0]));
+
+      feed(`${String.fromCharCode(3)}${String.fromCharCode(4)}${ESC}[B`);
+
+      expect(got).toEqual(['inside:down']);
+      input.stop();
+    });
+
+    it('should leave a box hidden when its prop is cleared, since only a frame can say what that came to', () => {
+      const { feed, got, input, section } = scene();
+      input.bind('ctrl+c', () => section.setProp('display', undefined));
+      input.bind('ctrl+d', () => input.focus.focus(section.children[0]));
+
+      feed(`${String.fromCharCode(3)}${String.fromCharCode(4)}${ESC}[B`);
+
+      expect(got).toEqual(['outside:down']);
+      input.stop();
+    });
+
+    it('should put a box shown in the same read in the ring, so a Tab in it goes to its next stop', () => {
+      // the ring and the repair of a gone focus read one rule: without it the field the
+      // handler focused was held and was no stop for the Tab that followed
+      const { feed, input, inside, section } = scene();
+      const second = box({ focusable: true }, text('second'));
+      section.append(second);
+      input.bind('ctrl+c', () => {
+        section.setProp('display', 'flex');
+        input.focus.focus(inside);
+      });
+
+      feed(`${String.fromCharCode(3)}\t`);
+
+      expect(input.focus.current.get()).toBe(second);
+      input.stop();
+    });
+
+    it('should still take the focus back from a box an ancestor of it is hiding', () => {
+      const { feed, got, input, section } = scene();
+      const wrap = box({ display: 'none' });
+      section.parent?.append(wrap);
+      wrap.append(section);
+      // the section is shown, and what holds it is not
+      feed(`${String.fromCharCode(2)}${ESC}[B`);
+
+      expect(got).toEqual(['outside:down']);
+      input.stop();
+    });
+
+    it('should not show a box a sheet is hiding with !important, which outranks a prop', () => {
+      const { feed, got, input, section } = scene('.gone { display: none !important }');
+      section.addClass('gone');
+
+      feed(`${String.fromCharCode(2)}${ESC}[B`);
+
+      expect(got).toEqual(['outside:down']);
+      input.stop();
+    });
+
+    it('should show a box a sheet is hiding without !important, which a prop beats', () => {
+      const { feed, got, input, section } = scene('.gone { display: none }');
+      section.addClass('gone');
+
+      feed(`${String.fromCharCode(2)}${ESC}[B`);
+
+      expect(got).toEqual(['inside:down']);
+      input.stop();
+    });
+
+    it('should read an important rule that arrived with a class, before any frame', () => {
+      // the cascade is asked as it is now: the class is on the element and no frame has
+      // restyled it, and the answer is still that the rule hides it
+      const { feed, got, input, section } = scene('.gone { display: none !important }');
+      section.addClass('gone');
+      section.removeClass('gone');
+      section.addClass('gone');
+
+      feed(`${String.fromCharCode(2)}${ESC}[B`);
+
+      expect(got).toEqual(['outside:down']);
+      input.stop();
+    });
+
+    it('should trust the show when the router was not told about any sheet', () => {
+      const { terminal, feed } = harness();
+      const inside = box({ focusable: true }, text('inside'));
+      const section = box({ display: 'none' }, inside);
+      const root = box({}, section);
+      resolveStyles(root);
+      const input = createInput({ root, terminal });
+      const got: string[] = [];
+      inside.onKey = (event) => void got.push(event.key.name);
+      input.bind('ctrl+b', () => {
+        section.setProp('display', 'flex');
+        input.focus.focus(inside);
+      });
+
+      feed(`${String.fromCharCode(2)}${ESC}[B`);
+
+      expect(got).toEqual(['down']);
+      input.stop();
+    });
+  });
+
   it('should hand focus on when the element holding it is unmounted', () => {
     // dropping it into nothing reads as an app that stopped responding: every
     // key then goes to the bindings and nowhere else

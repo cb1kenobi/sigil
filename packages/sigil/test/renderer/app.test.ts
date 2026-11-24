@@ -1235,6 +1235,35 @@ describe('runApp()', () => {
     expect(term.viewport.slice(0, 2)).toEqual(['shown', '']);
   });
 
+  it.each([
+    ['a prop beats a sheet rule that is not important', '.gone { display: none }', ['inside:y']],
+    ['an important sheet rule beats a prop', '.gone { display: none !important }', ['outside:y']],
+  ])(
+    'should show a box a handler showed to the next key in the same read, where %s (SIG-384)',
+    async (_, sheet, expected) => {
+      const got: string[] = [];
+      const inside = box({ focusable: true }, text('inside'));
+      const outside = box({ focusable: true }, text('outside'));
+      const section = box({ class: 'gone', display: 'none' }, inside);
+      inside.onKey = (event) => void got.push(`inside:${event.key.name}`);
+      outside.onKey = (event) => void got.push(`outside:${event.key.name}`);
+      const { app, term } = start(() => box({ 'flex-direction': 'column' }, section, outside), {
+        sheets: [sheet],
+      });
+      app.view.frame();
+      app.input?.focus.focus(outside);
+      app.input?.bind('x', () => {
+        section.setProps({ display: 'flex' });
+        app.input?.focus.focus(inside);
+      });
+
+      // `x` shows the box and moves the focus into it, and `y` is in the same read, before any frame
+      await term.press('xy');
+
+      expect(got).toEqual(expected);
+    }
+  );
+
   it('should draw through the framework sheet, under the app sheets', () => {
     const muted = text('quiet', { class: 'sigil-muted' });
     const loud = text('loud', { class: 'sigil-muted' });

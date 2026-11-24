@@ -13501,7 +13501,7 @@ How each question was settled, the probes and the sabotage pass are in
   documented rather than worked around: a row the window has not built (there is no
   overscan, so that is any row out of view, **and the current row after a move in
   the same handler**, since the view follows the cursor from an effect -- `reveal(key)`
-  first and, for its layout, a frame), a key that is no row, and a list with no current row. Building
+  first), a key that is no row, and a list with no current row. Building
   a row on demand for the rest was refused: it would leave an element no slot
   holds, with no owner to dispose it and no layout, which is a worse thing to hand
   an app than `undefined`. The element is **one build's**: a row built again for a
@@ -13510,6 +13510,22 @@ How each question was settled, the probes and the sabotage pass are in
   holding -- there is no reactive version, since a stale one cannot be told apart
   from a current one by its holder. Pinned in `test/components/list-view.test.ts`
   and `data-table.test.ts`.
+
+  **`reveal(key)` is all an overlay needs in the same turn as a move, and no frame
+  (SIG-462).** The first version of this entry said "and, for its layout, a frame",
+  and the dashboard forced one for it: a double click moves the cursor and opens the row
+  menu in one handler, and End and Enter arrive in one read. A frame is not needed.
+  `reveal()` builds the row and scrolls to it, which is what the answer to the question
+  "which element" wanted, and an overlay anchored to an element reads that element's box
+  when the next layout places the overlay, which is after that layout has placed the row
+  (the dashboard's tests pin it, at the top, the bottom and a flipped menu). The class the menu used to look for, `is-current`, was the
+  other half of the ticket and went with `rowElement()` itself: nothing the dashboard
+  anchors to depends on an effect any more. Not made automatic: `rowElement()` answering
+  `undefined` for a row nobody built is the rule above, and a getter that scrolled would
+  be a surprise to a tooltip asking about a row out of view. `should hand out the row a
+  move in the same turn went to, once it is revealed, with no frame between` in
+  `data-table.test.ts` and the dashboard's `should open the menu beside a row the same
+  read scrolled to` are the guards; the second fails with the `reveal()` taken out.
 
 **The contract a table and a tree build on.** Either of two layers, and
 `ListView` itself is built on the lower one, which is the evidence it is enough:
