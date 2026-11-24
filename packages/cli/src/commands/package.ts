@@ -35,6 +35,7 @@ import {
   assertToolchain,
   assertUpdateCheckDeclared,
   bakedUpdateCheck,
+  handCalledCheckWarning,
   bundleApp,
   bunTargetRuntime,
   bunVersion,
@@ -345,6 +346,12 @@ const pkg: AnyCommand = command({
       const unconfirmed = wrappedCheckWarning(sigilConfig, result.usesUpdateCheck, schemaCheck);
       if (unconfirmed) {
         writeNote([unconfirmed], process.stderr);
+      }
+      // the other half of the same hole: a confirmed schema checker serves the
+      // automatic check, and a hand-called `check()` reads `sigil.json` (SIG-609)
+      const handCalled = handCalledCheckWarning(sigilConfig, result.importsCheck, schemaCheck);
+      if (handCalled) {
+        writeNote([handCalled], process.stderr);
       }
       // after the refusals above, so an app that is not going to be packaged
       // is not also told what its sheet would have cost
