@@ -30,6 +30,7 @@
  * `--quiet` hides it.
  */
 
+import { strip } from '../ansi/index.js';
 import {
   box,
   type Element,
@@ -105,7 +106,8 @@ export interface TooltipOptions {
   /**
    * What it says. Wraps at `maxWidth`. An empty string says nothing, and a bubble
    * with nothing to say is hidden rather than drawn as an empty box, until
-   * `setText()` gives it words again.
+   * `setText()` gives it words again. Escape sequences are dropped, as `note()`
+   * drops them: colour is the bubble's, from its class.
    */
   text: string;
 }
@@ -120,7 +122,7 @@ export interface TooltipHandle {
   readonly element: Element | undefined;
   /** Hides it until the pointer and the focus have both left and come back, as Escape does. */
   hide(): void;
-  /** Changes what it says, re-placing the bubble if it is shown. */
+  /** Changes what it says, re-placing the bubble if it is shown. Escape sequences are dropped. */
   setText(value: string): void;
   /**
    * Whether the bubble is in the tree. Still `true` while the anchor is scrolled
@@ -362,9 +364,10 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
   let wasHolding = false;
 
   /** What the bubble says. One element for the tooltip's life, moved into each bubble. */
-  const label = textNode(opts.text, { class: 'sigil-tooltip-text' });
+  const first = strip(opts.text);
+  const label = textNode(first, { class: 'sigil-tooltip-text' });
   /** Whether it has anything to say, which an empty bubble does not. */
-  let saying = opts.text !== '';
+  let saying = first !== '';
 
   /** A fresh bubble, at the screen's corner until the layout has measured it. */
   function build(): Element {
@@ -646,8 +649,10 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
       if (typeof value !== 'string') {
         throw new TypeError(`Expected tooltip text to be a string`);
       }
-      label.setText(value);
-      saying = value !== '';
+      // dropped rather than drawn: a text node would print what follows the `ESC`
+      const said = strip(value);
+      label.setText(said);
+      saying = said !== '';
     },
     get shown() {
       return bubble !== undefined;
