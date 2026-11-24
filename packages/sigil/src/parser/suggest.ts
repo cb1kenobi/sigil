@@ -282,13 +282,14 @@ export function unexpectedArgument(
   const near = typed === undefined ? undefined : nearest(typed, commandTokens(ctx));
 
   // the token is argv's and argv is not always typed -- a glob over a hostile
-  // file name reaches here -- so it is echoed inert. `near` is the schema's own
-  // spelling and is left alone
+  // file name reaches here -- so it is echoed inert. So is `near`: a routed
+  // command's name is a file name, which is the file system's rather than the
+  // schema author's (SIG-662)
   const shown = escapeControls(subject);
 
   return near === undefined
     ? __`Unexpected argument "${shown}"`
-    : __`Unexpected argument "${shown}". Did you mean "${near}"?`;
+    : __`Unexpected argument "${shown}". Did you mean "${escapeControls(near)}"?`;
 }
 
 /**
@@ -322,7 +323,7 @@ export function unknownOption(
 
   return near === undefined
     ? __`Unknown option "${shown}"`
-    : __`Unknown option "${shown}". Did you mean "${near}"?`;
+    : __`Unknown option "${shown}". Did you mean "${escapeControls(near)}"?`;
 }
 
 /**
@@ -348,5 +349,5 @@ export function unknownCommand(
 
   return near === undefined
     ? __`Unknown command "${shown}"`
-    : __`Unknown command "${shown}". Did you mean "${near}"?`;
+    : __`Unknown command "${shown}". Did you mean "${escapeControls(near)}"?`;
 }
