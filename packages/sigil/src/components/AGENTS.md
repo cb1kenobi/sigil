@@ -8038,8 +8038,12 @@ have.
   reads the area the chart handed the tooltip, by wrapping `attachTooltip()`, since a
   hidden bubble draws nothing to look at. Other components that size a caller's string
   with `stringWidth()` and draw it through a `text` carry the same one-column-per-tab
-  slip (the dropdown, the menu, the log, the toggle and the key help among them);
-  they were not swept with this entry, which is the chart readout's.
+  slip (the dropdown, the menu, the log, the toggle, the key help and this chart's own
+  legend, which measures a series label raw, among them); they were not swept with this
+  entry, which is the chart readout's. A readout of only a control character other than
+  a tab or a newline (a bell, a bare `ESC`) is empty by the same rule: the tree draws
+  nothing for it, so it is no readout, though a standalone `attachTooltip()` strips
+  sequences only and still shows a bubble for one.
   **A layout says it again, so a resize needs no key (SIG-651).** That read was a
   limit: `follow()` ran from a drawing, a drawing from a key, a pointer move, data or
   the chart's own size, and a terminal narrowed with the chart's own size unchanged
