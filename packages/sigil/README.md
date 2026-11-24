@@ -4721,7 +4721,8 @@ of signals, as a chart's data does. It is one box holding the two forms, written
 place when what it reads changes -- their text and their variant classes, nothing
 rebuilt -- and what it draws is `badgeView()`'s, padding and level 0 brackets
 included. Plain values start no effect. `colorLevel` is not read, since the
-renderer's level decides, and `class` and `props` are the box's own.
+renderer's level decides, and `class` and `props` are the box's own -- except
+`props.href`, which goes on the label, since a box paints no link.
 
 #### Rule
 
