@@ -26,8 +26,9 @@ makes it testable with a fixture directory and no bundler at all.
   was. A slow Windows runner put it in the summary `output-forms.test.ts` compares
   exactly. `checks: { bundlerTimings: false }` turns the check off rather than
   filtering the log, so the build also stops measuring every hook. It is
-  delivered at `close()` rather than at `write()`, and needs a build of about two
-  seconds or more -- a first attempt at provoking it read the logs too early and
+  delivered at `close()` rather than at `write()`, and needs a build of at least
+  three seconds on rolldown's clock, as the SIG-648 paragraph below reads the gate
+  -- a first attempt at provoking it read the logs too early and
   concluded it could not be provoked, which was wrong.
   `test/build/bundle-timings.test.ts` holds a build, asserts the warning comes
   with rolldown's defaults as a control, and that it does not come with this
@@ -56,6 +57,36 @@ makes it testable with a fixture directory and no bundler at all.
   virtual machine, so the likeliest to pass 29 ms of link stage on this fixture's
   graph. That is an inference -- the clock is not exposed -- and it is why the first
   hold is five seconds rather than four.
+
+  **The hold was the wrong variable, and the graph is the right one (SIG-667).**
+  SIG-648 failed again on CI's macOS node 22 job, after 16.5 s -- which is the
+  five-second hold and the ten-second one both, in a row, with nothing logged at
+  all. A hold can only ever be bought against a link stage that is wall clock, and
+  the one the control paid for was `bundleApp()`'s, which links the toolchain's
+  whole runtime: the gap from `buildEnd` to `renderStart`, which contains it,
+  measured 5 to 27 ms warm and 74 ms cold on a machine at load average 79. Ten
+  seconds needs under 99 ms, so a link stage that was already 5 to 27 ms took an
+  ordinary stall to cross it. The control has no use for that graph: it needs
+  rolldown's defaults provoked, not an app built. So the held build is **one
+  module**, run through the unmocked `rolldown()`, and `bundleApp()` is built for
+  real with no hold only to learn what it passes as `checks`, which is then given
+  to the same held build the control gave `{}`. The two differ in `checks` and
+  nothing else, which is the comparison -- and what it cannot see is a later
+  rolldown that gates the report on an option outside `checks` which `bundle.ts`
+  sets, which the old sibling's held `bundleApp()` would have; before, the sibling's silence could also
+  be the larger graph's ratio refusing. The same gap on the one-module graph was
+  about 1 ms in twelve fresh processes, cold. Measured on that machine with sixty
+  busy processes over eighteen cores and thirty copies of the file racing (load
+  average near 120): the old test failed 4 of 90 runs and about half of them ran past 26 s, which is the
+  first hold failing, where the new one passed 150 of 150 and fell back
+  to the second hold once. At 250 busy processes and forty copies (load average 530) the old test failed 27 of 120 and the new one passed 120 of 120. A link
+  stage is still wall clock, so a starved process can still stall inside it --
+  standalone, 5 of 120 one-module builds at five seconds with forty racing -- and
+  the escalation stays for that reason: nothing here is a guarantee, it is a
+  margin of tens where there was one of two. Checked by sabotage both ways: a
+  control holding 100 and 200 ms fails, and `checks: {}` in `bundle.ts` fails the
+  sibling on the held build alone, with the `toMatchObject` assertion beside it
+  removed.
 
 - **The route rules live in `@ttylabs/sigil/internal/routes`, because there are two
   walks.** The runtime's reads one level when argv names it; the build's reads
