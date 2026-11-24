@@ -228,7 +228,11 @@ the entry it belongs to.
   cannot keep the screen" in `src/renderer/AGENTS.md`. Pinned in
   `test/signals/effect.test.ts` (`an error handler that throws`), over each of the
   four sites and the microtask, and in `test/testing/effect-throws.test.ts` for a
-  clock's effect; every case fails with the guard removed.
+  clock's effect; every case fails with the guard removed. The rule is written
+  once, as `handOver()` in `effect.ts`, which `deliver()` calls and which the
+  renderer calls too for a frame that fails on its own timer (SIG-674), with its
+  own lead on the lines -- `Error in frame` -- so that a layout failure is not
+  reported as an error in an effect. It is not exported from the entry.
 - **An effect whose first run throws stays live when something will dispose it,
   and is torn down when nothing would (SIG-611).** The first run is the only one
   whose throw goes to the caller of `effect()` rather than to the error handler,

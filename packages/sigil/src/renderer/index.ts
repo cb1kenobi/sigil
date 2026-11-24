@@ -63,6 +63,7 @@ import {
 } from '../input/capabilities.js';
 import type { InputRouter } from '../input/index.js';
 import { measureSubtree } from '../layout/index.js';
+import { handOver } from '../signals/effect.js';
 import { createEffects, type Effects, untrack } from '../signals/index.js';
 import {
   type AnimationFrame,
@@ -325,9 +326,11 @@ export interface RenderOptions {
    * this throws does not stop the teardown or the other reports. It is raised
    * from the call that was doing the reporting once every report has been tried:
    * `frame()`, `dispose()`, or `render()` itself. Several throws are raised as an
-   * `AggregateError`. The exception is a failure that arrives through an effect's
-   * flush: what this throws there is reported to stderr by the effect scope, with
-   * the exit code set, and not raised.
+   * `AggregateError`. There are two exceptions, both where nothing is on the stack
+   * to catch it. A failure that arrives through an effect's flush: what this throws
+   * there is reported to stderr by the effect scope, with the exit code set, and
+   * not raised. And a frame that fails on the renderer's own timer: it is written
+   * the same way, as `Error in frame: ...` and `Error in frame error handler: ...`.
    */
   onError?: (error: unknown) => void;
   /**
@@ -846,7 +849,7 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
       () => {
         timer = undefined;
         scheduled = false;
-        runFrame();
+        runFrame(true);
       },
       Math.max(0, at - clock())
     );
@@ -1006,7 +1009,15 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     }
   }
 
-  function fail(error: unknown): void {
+  /**
+   * Ends the renderer over a failure, and reports it.
+   *
+   * @param error - What failed.
+   * @param onTimer - Whether the frame was run by its own timer, which has no call
+   *   to raise what `onError` threw through: it is written by the default report
+   *   instead (SIG-674), the way a handler that throws under an effect's flush is.
+   */
+  function fail(error: unknown, onTimer = false): void {
     if (failed) {
       return;
     }
@@ -1015,7 +1026,39 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     // dies on the alternate buffer with the cursor hidden has eaten the user's
     // shell, and a message printed into a half-drawn frame is unreadable. What the
     // teardown threw is said first, in the order it was thrown, then the failure
-    raise(report([...release(), error]));
+    const errors = [...release(), error];
+    if (onTimer) {
+      for (const each of errors) {
+        handOver(onError, each, 'Error in frame');
+      }
+      return;
+    }
+    raise(report(errors));
+  }
+
+  /**
+   * Hands an error to `onError`, and what it throws carries the error it was given.
+   *
+   * A frame handler's or an `onMount` callback's throw is reported rather than
+   * raised, and what `onError` throws for it goes on to fail the frame -- where the
+   * failure is reported with that throw as the error, and the one it was given
+   * would be gone. Both go with it (SIG-674).
+   *
+   * @param error - What a frame handler or a mount callback threw.
+   */
+  function tell(error: unknown): void {
+    try {
+      onError(error);
+    } catch (thrown) {
+      if (Object.is(thrown, error)) {
+        throw thrown;
+      }
+      throw new AggregateError(
+        [error, thrown],
+        `${errorMessage(error)} (and onError threw while reporting it: ${errorMessage(thrown)})`,
+        { cause: error }
+      );
+    }
   }
 
   /**
@@ -1178,7 +1221,7 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
         // reported rather than raised: this is an observer of the frame, and a
         // failing observer must not take the screen down. Raising would reach
         // `runFrame()`'s catch, which is `fail()`
-        onError(error);
+        tell(error);
       }
     }
   }
@@ -1364,7 +1407,7 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     // 3. anything waiting to be told it is on screen, now that it has a box
     if (owner) {
       for (const error of drainMounts(owner)) {
-        onError(error);
+        tell(error);
       }
     }
 
@@ -1407,7 +1450,14 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     }
   }
 
-  function runFrame(): void {
+  /**
+   * Runs one frame.
+   *
+   * @param onTimer - Whether the frame's own timer is what called, with nothing on
+   *   the stack to catch what `onError` throws. Only `requestFrame()` says so:
+   *   `frame()` and the first frame have a caller, and it is raised to them.
+   */
+  function runFrame(onTimer = false): void {
     if (disposed || failed || settling) {
       // re-entered from inside an effect that called `frame()`. The flush it
       // would run is a no-op while one is already draining, so what the inner
@@ -1442,10 +1492,17 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
         // frame: the renderer has already failed, and handing this to `fail()`
         // again would return early and drop it in silence. Raised from the frame
         // instead, over a screen that is already back. An effect's flush is not
-        // a way here since SIG-660: the scope reports what its handler threw
+        // a way here since SIG-660: the scope reports what its handler threw. A
+        // frame handler or an `onMount` callback that calls `flush()` is: an effect
+        // fails and `fail()` gives the screen back, and then the callback's own
+        // throw, or the next one's, goes to an `onError` that throws
+        if (onTimer) {
+          handOver(onError, error, 'Error in frame');
+          return;
+        }
         throw error;
       }
-      fail(error);
+      fail(error, onTimer);
     } finally {
       settling = false;
     }
@@ -1662,7 +1719,7 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
       return failed;
     },
 
-    frame: runFrame,
+    frame: () => runFrame(),
     invalidate: requestFrame,
     get mounted() {
       return !disposed && !failed;

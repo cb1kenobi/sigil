@@ -618,11 +618,40 @@ the entry it belongs to.
   throw, the teardown, `dispose()` -- is raised as before. Reversing the other
   half was considered and refused: raising from a frame timer is the uncaught
   exception SIG-660 is about, and a caller of `frame()` was never promised the
-  throw of an effect, which the layer below reports and does not rethrow. What is
-  left is the same `onError` bug surfacing two ways: a frame handler or a layout that
-  fails on a frame timer still raises what `onError` threw, as an uncaught exception.
-  See
+  throw of an effect, which the layer below reports and does not rethrow. See
   `src/signals/AGENTS.md`.
+
+  **And a second one, for a frame that fails on its own timer (SIG-674).** SIG-660
+  left a frame handler, a layout and an `onMount` callback raising, because they
+  throw out of `settle()` into `runFrame()`'s catch and not through a flush -- and
+  on the frame timer that is the same uncaught exception, measured with fake
+  timers: all three made `vi.advanceTimersByTime()` throw what `onError` threw, and
+  `onTimerError()` heard nothing. The deciding difference is the one SIG-660 drew,
+  stated for a frame: **whether there is a caller to raise to**. The timer has none,
+  so `requestFrame()` is the only thing that says so (`runFrame(true)`), and there
+  `fail()` hands each report to `handOver()` -- the signals layer's rule, written
+  once -- instead of `raise()`: `onError` still hears every report first, the screen
+  is still back first, and what it throws is written as `Error in frame error
+  handler: ...` after `Error in frame: ...` for what it was given, with the exit
+  code set. `frame()`, the first frame of `render()` and `dispose()` have a caller
+  and keep raising: the throw is theirs to catch, and `frame()` is the documented
+  way to run a frame by hand. So the rule is "no caller, no raise" and there are
+  two kinds of carve-out for it (an effect's flush, a timer's frame), not a change
+  of the rule. The teardown on `dispose()` and the mount body are not frame
+  failures on a timer and are untouched. `tell()` is what keeps the original error:
+  a frame handler's or a mount callback's throw is reported through it, and what
+  `onError` throws for one carries the error it was given in an `AggregateError`,
+  because that throw goes on to fail the frame and the first error would otherwise
+  be gone from what is written.
+
+  `runFrame()`'s `if (failed)` branch is not dead, which was the question SIG-660's
+  builder left. SIG-660 made an effect's flush no way into it, and what remains is
+  an `onMount` callback or a frame handler that calls `flush()` itself: an effect
+  fails inside it and `fail()` reports and gives the screen back, then the
+  callback's own throw reaches an `onError` that throws, with `failed` already set.
+  Replacing the condition with `false` fails both tests of that in
+  `test/renderer/on-error-frame-timer.test.ts`, which is what was missing: nothing
+  exercised it. On the timer it is `handOver()`'s too; from `frame()` it is raised.
   One throw is raised as itself and several as an `AggregateError`. `runFrame()`
   rethrows anything it catches once `failed` is set, since only `fail()`
   reporting can produce that. The mount catch still hands the caller the body's

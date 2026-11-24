@@ -157,6 +157,35 @@ function write(what: string, error: unknown): void {
 }
 
 /**
+ * Hands an error to a handler, and never lets the handler's own throw out.
+ *
+ * The one place the rule is written, which `deliver()` asks for an effect's error
+ * and the renderer asks for a frame's (SIG-674). A handler that throws is skipped,
+ * and the default report says both: what it was given, which it did not take, and
+ * what it threw. A handler that rethrows what it was given is one error and says
+ * so once. Not exported from the entry: it is the renderer's, for a failure that
+ * arrives where nothing is on the stack to catch what its `onError` throws.
+ *
+ * @param handler - Where the error goes.
+ * @param error - What there is to report.
+ * @param what - What it is an error in, as the lead of each line written.
+ */
+export function handOver(handler: EffectErrorHandler, error: unknown, what: string): void {
+  try {
+    handler(error);
+  } catch (thrown) {
+    write(what, error);
+    if (!Object.is(thrown, error)) {
+      // the renderer's handler raises several reports as one `AggregateError`,
+      // whose own message says only that they were several
+      for (const each of thrown instanceof AggregateError ? thrown.errors : [thrown]) {
+        write(`${what} error handler`, each);
+      }
+    }
+  }
+}
+
+/**
  * How many times a flush will drain before giving up.
  *
  * An effect may write, so a flush can dirty effects that have already run and
@@ -215,18 +244,7 @@ export function createEffects(): Effects {
       report(error);
       return;
     }
-    try {
-      errorHandler(error);
-    } catch (thrown) {
-      report(error);
-      if (!Object.is(thrown, error)) {
-        // the renderer's handler raises several reports as one `AggregateError`,
-        // whose own message says only that they were several
-        for (const each of thrown instanceof AggregateError ? thrown.errors : [thrown]) {
-          write('Error in effect error handler', each);
-        }
-      }
-    }
+    handOver(errorHandler, error, 'Error in effect');
   }
 
   let queued = false;
