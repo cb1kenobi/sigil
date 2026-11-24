@@ -425,6 +425,29 @@ is the vocabulary and the probe, the framing that makes a reply recognisable is
   `terminal.test.ts` pins that the set holds it and `packages/cli`'s
   `closed-pipe.test.ts` is the end-to-end check.
 
+  **Since SIG-538 the predicate is `src/output.ts`'s and this entry re-exports
+  it, and a guard that rethrows is published beside it.** `main()` is on the root
+  entry's graph and needs `isStreamGone()`; importing it from here would put the
+  terminal, the wrapper and the width tables on every app for a three-line
+  function, so it moved to a module that imports `node:fs` alone and
+  `terminal/index.ts` re-exports it -- one definition, and the name unchanged for
+  everybody who imports it from `@ttylabs/sigil/terminal`. What the paragraph
+  above refused to publish was a guard that **swallows every error**, and that is
+  still unpublished: `guardOutput()` in `@ttylabs/sigil/output` returns for the
+  reader leaving and throws the rest, `main()` attaches it, and the terminal's own
+  listener stays the swallowing one.
+
+  **`isStreamGone()` takes the stream the error came from, for `EIO`:** a terminal
+  that hung up fails the next write `EIO`, which is the reader leaving only when
+  the stream is a TTY -- on a file it is the disk failing, so it is not in the
+  general set. The terminal passes the stream it wrote to, in the listener and in
+  the synchronous catch, so it and `main()`'s guard agree. It is the **stream's**
+  `isTTY`, not the terminal's own `isTTY` option, which only decides how the
+  terminal draws: a wrapper stream with no `isTTY` of its own is not asked about
+  as a terminal, which is the same answer `main()`'s guard gives it. The decision is under
+  "`main()` guards its output streams and writes its own output whole" in
+  `src/parser/AGENTS.md`.
+
 - **`Terminal.width` asks a live TTY before it reads `COLUMNS`, and `terminalWidth()`
   still reads `COLUMNS` first** (SIG-404). Both are right, for different streams.
   `COLUMNS` is how a caller states a width when the stream cannot be asked -- a

@@ -49,7 +49,6 @@ import {
   type ResolvedTree,
 } from '../build/index.ts';
 import { readSigilConfig } from '../config.ts';
-import { writeOut } from '../output.ts';
 import { isQuiet, reportLevel, writeSummary } from '../report.ts';
 import {
   appRuns,
@@ -74,6 +73,7 @@ import {
 import { command, type AnyCommand } from '@ttylabs/sigil';
 import { table } from '@ttylabs/sigil/components/table';
 import { escapeControls } from '@ttylabs/sigil/error-handler';
+import { writeOut } from '@ttylabs/sigil/output';
 import { relative, resolve } from 'node:path';
 
 /** See `check.ts` for why this is annotated, and why `AnyCommand`. */

@@ -4656,16 +4656,19 @@ people's software and will move.
   listener is an uncaught exception. `check`, `reference` and `--help` only
   looked safe because their output finishes before `head` closes the pipe; any
   command whose output grows had it. The commands write to `process.stdout` and
-  `process.stderr` directly, at about three dozen references, so the guard is one
-  `beforeParse` hook on `schema()` in `src/index.ts` that puts a listener on both
-  streams, and a hook rather than a call in `run()` because the built executable
-  never reaches `run()` (the same reason `settings` lives on the schema). A
-  command added next year is covered without anybody remembering to. What counts
-  as the reader leaving is `@ttylabs/sigil/terminal`'s `isStreamGone()`, the one
-  the terminal's own listener asks, and nothing here spells `EPIPE` -- which is
-  also what puts `EOF`, Windows's name for the same condition, on the list once
-  for both. `--version`, which `run()` answers before the schema exists, calls
-  the same function.
+  `process.stderr` directly, at about three dozen references, so the guard was
+  one `beforeParse` hook on `schema()` in `src/index.ts` that put a listener on
+  both streams, and a hook rather than a call in `run()` because the built
+  executable never reaches `run()` (the same reason `settings` lives on the
+  schema). **It is `main()`'s now (SIG-538)**: `main()` attaches the same
+  listener first thing for every app, so the hook and this package's own
+  `guardOutput()` are gone, and what `src/index.ts` keeps is the one call on the
+  `--version` fast path, which `run()` answers before `main()` exists. A command
+  added next year is covered without anybody remembering to. What counts as the
+  reader leaving is `isStreamGone()`, the one the terminal's own listener asks,
+  and nothing here spells `EPIPE` -- which is also what puts `EOF`, Windows's
+  name for the same condition, on the list once for both. Both come from
+  `@ttylabs/sigil/output` now. The rest of this entry is as it was written.
 
   **The behaviour is the runtime's: stop noticing, do not stop the command.**
   Later writes land nowhere, nothing is printed, and the exit code is whatever
@@ -4699,7 +4702,11 @@ people's software and will move.
   fail on. Measured on node 24 rather than read: one `writeSync()` of 5,000 bytes
   under `ulimit -f 1` returns 512 and throws nothing, a second call for the rest
   throws `EFBIG`, and node ignores `SIGXFSZ` so the process lives to see it.
-  `src/output.ts` is that second call: stdout a regular file, write with
+  **`src/output.ts` is `@ttylabs/sigil/output` now (SIG-542)** -- `main()` has the
+  same one-write shape for `--help`, `--version` and a command's serialized
+  output, so the helper moved into the runtime behind a published subpath, and
+  this package imports it rather than keeping a copy. What follows is true of it
+  wherever it lives. It is that second call: stdout a regular file, write with
   `fs.writeSync()` in a loop on the returned count, and a short write becomes
   `The output was cut off: N of M bytes were written (EFBIG).`, a plain `Error`
   that `main()` renders with exit 1. A write that returns zero is refused rather
@@ -4731,11 +4738,15 @@ people's software and will move.
   **`--out` was never exposed.** `reference --out` writes through `writeFileSync()`,
   which loops until every byte is out and throws when the next write fails, so a
   limit exits 1 with `EFBIG: file too large, write` (pinned in
-  `test/output.test.ts`). **Not covered: the runtime's own output.** `--help`
-  and, in a **built** executable, `--version` written to a file are `main()`'s, which is `@ttylabs/sigil`'s for every app, with
-  the same one-write shape (measured: `sigil reference --help` is 1,032 bytes and
-  `ulimit -f 1` leaves 1,024 of them, exit 0); changing what the runtime does for every app is not
-  a toolchain ticket, so it is left and filed rather than fixed here.
+  `test/output.test.ts`). **The runtime's own output was not covered here, and is
+  (SIG-542).** `--help` and, in a **built** executable, `--version` written to a
+  file are `main()`'s, with the same one-write shape (measured: `sigil reference
+  --help` is 1,032 bytes and `ulimit -f 1` leaves 1,024 of them, exit 0). They go
+  through the runtime's `writeOut()` now and fail the same way, which
+  `test/output.test.ts` pins from outside for both executables. The limit above,
+  that a capture which restores `write` by assignment leaves an own property
+  behind, is fixed for `runCommand()`, which takes it off again when the stream
+  held none.
 
   **"Before any command writes a byte" has one exception, which is `DEBUG`.** The
   hook is the first thing `main()` fires once the schema is built, and a

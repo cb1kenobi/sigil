@@ -4,6 +4,7 @@ import { fireBeforeError, stateFromError } from './error-hooks.js';
 import { assertSerialized, formatFor } from './format.js';
 import { loadCatalog } from './i18n/index.js';
 import { inCall } from './nested-call.js';
+import { guardOutput, writeOut } from './output.js';
 import { useModuleImporter, withModuleImports } from './parser/command/import-module.js';
 import { resolveSettings, salvagedErrorHandler } from './parser/settings.js';
 import { fireAfterRun } from './run-hooks.js';
@@ -70,6 +71,13 @@ async function runMain(opts: AppOptions): Promise<ParseState | unknown> {
   let restoreQuiet: (() => void) | undefined;
 
   try {
+    // first, before the schema is read and before anything can be printed: a
+    // `--help | head -1` writes its whole screen to a pipe `head` closes after
+    // one line, and the `EPIPE` is an `error` event on the stream, which with no
+    // listener is an uncaught exception. Once per stream however many `main()`s
+    // run, and it rethrows what is not the reader leaving. See `output.ts`
+    guardOutput();
+
     // the schema's settings and the call's, merged once and here: this function
     // reads `assertCwd` and `errorHandler` itself and `parse()` reads the rest, and
     // each of the three asking for its own would be how a schema's setting reached
@@ -167,7 +175,7 @@ async function runMain(opts: AppOptions): Promise<ParseState | unknown> {
     // after help, which outranks it, and before the command runs: `--version`
     // is a question about the program rather than work to do
     if (state.version !== undefined) {
-      process.stdout.write(`${state.version}\n`);
+      writeOut(`${state.version}\n`);
       return state;
     }
 
@@ -376,7 +384,7 @@ function writeFormatted(state: ParseState, cmd: InternalCommand, value: unknown)
   // exactly one trailing newline, which is `errorHandler()`'s own rule: a
   // line-oriented consumer wants one and a serializer that already ended with
   // one must not produce a blank line
-  process.stdout.write(`${trimTrailingNewlines(text)}\n`);
+  writeOut(`${trimTrailingNewlines(text)}\n`);
 }
 
 /**
@@ -391,7 +399,7 @@ function writeFormatted(state: ParseState, cmd: InternalCommand, value: unknown)
 async function printHelp(state: ParseState): Promise<void> {
   const { resolveHelp } = await import('./help/index.js');
   log(`Printing help for "${state.help?.contexts[0]?.name}"`);
-  process.stdout.write(`${await resolveHelp(state)}\n`);
+  writeOut(`${await resolveHelp(state)}\n`);
   process.exitCode = exitCode(state.settings.helpExitCode);
 }
 

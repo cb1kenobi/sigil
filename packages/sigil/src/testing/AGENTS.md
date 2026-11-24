@@ -114,6 +114,16 @@ that knowledge was undiscoverable from outside this repository.
   one path, which is the honest trade: pass no `errorHandler: false` and read
   `err`, `code` and `error`.
 
+- **The capture is taken off again, not assigned back** (SIG-542). `runCommand()`
+  replaces `process.stdout.write` and `process.stderr.write` and restored them by
+  assigning what it had read, which for a stream whose `write` comes from its
+  prototype is the prototype's method -- written back as an **own** property. An
+  own `write` is how `writeOut()` tells somebody's capture from the real stream,
+  so after the first run `main()` wrote its help, its version and its JSON through
+  the unchecked stream path for the rest of the process. It records whether the
+  property was own and deletes it when it was not; a `write` the stream held
+  itself is put back as one. See `test/testing/command.test.ts`.
+
 - **Two at once is refused rather than queued.** `process.stdout.write` is
   process-wide, so two runs would each capture a share of the other's output,
   which is not a failure anybody would read as one. A queue would make

@@ -361,6 +361,35 @@ describe('createTerminal()', () => {
       expect(term.closed).to.equal(false);
     });
 
+    // a terminal that hung up -- an ssh connection dropped, a window closed --
+    // fails the next write EIO (SIG-538), which is the reader leaving; on a stream
+    // that is not a terminal it is the disk, and is still a fault
+    it('should treat EIO from a terminal that hung up as the far end going away', () => {
+      const { stdout, term } = setup();
+
+      stdout.failWith('EIO');
+      expect(term.write('x')).to.equal(false);
+      expect(term.closed).to.equal(true);
+    });
+
+    it('should treat an EIO error event on a terminal as the far end going away', () => {
+      const { stdout, term } = setup();
+
+      term.write('first');
+      stdout.emit('error', Object.assign(new Error('EIO'), { code: 'EIO' }));
+
+      expect(term.closed).to.equal(true);
+    });
+
+    it('should rethrow EIO from a stream that is not a terminal', () => {
+      const { stdout, term } = setup({ isTTY: false });
+
+      stdout.failWith('EIO');
+
+      expect(() => term.write('x')).toThrow('EIO');
+      expect(term.closed).to.equal(false);
+    });
+
     it('should not install an error guard on a stream nothing writes to', () => {
       const { stderr, stdout, term } = setup();
 

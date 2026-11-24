@@ -55,12 +55,12 @@ import {
   type TypeCheckResult,
 } from '../build/index.ts';
 import { CONFIG_FILES, readSigilConfig, type SigilConfig } from '../config.ts';
-import { writeOut } from '../output.ts';
 import { reportLevel, writeDiagnostics, writeNote, writeSummary } from '../report.ts';
 import { table } from '@ttylabs/sigil/components/table';
 import type { TextRun } from '@ttylabs/sigil/element';
 import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { SIGIL_KEYS } from '@ttylabs/sigil/i18n-keys';
+import { writeOut } from '@ttylabs/sigil/output';
 import { existsSync, lstatSync, readFileSync, rmSync, statSync, type BigIntStats } from 'node:fs';
 import nodePath, { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 

@@ -1,4 +1,3 @@
-import { guardOutput } from '../src/index.ts';
 import { STACK } from './spawned.ts';
 import { spawn } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
@@ -128,48 +127,32 @@ describe('a toolchain command whose reader has gone away', () => {
   });
 });
 
-describe('guardOutput()', () => {
-  /**
-   * Runs `body` and takes off whatever `guardOutput()` put on the worker's own
-   * streams afterwards, which the guard itself never does: a bin's process is
-   * its lifetime, and a test file's streams are not.
-   */
-  function scoped(body: () => void): void {
-    const before = [process.stdout, process.stderr].map((s) => new Set(s.listeners('error')));
-    try {
-      body();
-    } finally {
-      [process.stdout, process.stderr].forEach((stream, i) => {
-        for (const fn of stream.listeners('error')) {
-          if (!before[i].has(fn)) {
-            stream.removeListener('error', fn as () => void);
-          }
-        }
-      });
+/**
+ * Every app built with sigil, which is `main()`'s and not the toolchain's (SIG-538).
+ *
+ * The toolchain used to carry the listener in a hook on its own schema, so an app
+ * got none: `mycli list | head -1` died with the same dump `sigil add | head -1`
+ * had. It is `main()`'s now, attached before the parse -- so these are an app that
+ * has no guard of its own, run from source with nothing between it and `main()`.
+ */
+describe('an app built on main(), whose reader has gone away', () => {
+  const bin = join(here, 'fixtures', 'main-output', 'app.mjs');
+
+  it.each([['--help'], ['--version'], ['list', '--json'], ['lines']])(
+    'should end %s quietly, with the exit code of the command',
+    async (...args) => {
+      const ran = await runClosed(bin, args, 'stdout');
+
+      expect(ran.seen).not.toMatch(/EPIPE|Unhandled 'error' event/);
+      expect(ran.seen).not.toMatch(STACK);
+      expect(ran.code).toBe(0);
     }
-  }
+  );
 
-  // the review found a guard that swallowed every error would have made
-  // `sigil reference > file` on a full disk exit 0 over a cut-off file
-  it('should leave only the reader leaving quiet, and guard a stream once', () => {
-    scoped(() => {
-      guardOutput();
-      const once = process.stdout.listenerCount('error');
-      guardOutput();
-      expect(process.stdout.listenerCount('error')).toBe(once);
+  it('should end a listing quietly into a closed stderr, and keep the failing exit code', async () => {
+    // an unknown command is a usage error, 2, rendered to the stream that went away
+    const ran = await runClosed(bin, ['nope'], 'stderr');
 
-      for (const code of ['EPIPE', 'EOF', 'ERR_STREAM_DESTROYED']) {
-        expect(() =>
-          process.stdout.emit('error', Object.assign(new Error(code), { code }))
-        ).not.toThrow();
-      }
-
-      expect(() =>
-        process.stdout.emit('error', Object.assign(new Error('no space'), { code: 'ENOSPC' }))
-      ).toThrow('no space');
-      expect(() =>
-        process.stderr.emit('error', Object.assign(new Error('too big'), { code: 'EFBIG' }))
-      ).toThrow('too big');
-    });
+    expect(ran.code).toBe(2);
   });
 });

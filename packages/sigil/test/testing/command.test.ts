@@ -263,7 +263,13 @@ describe('runCommand()', () => {
         'from the write getter'
       );
     } finally {
-      Object.defineProperty(process.stdout, 'write', original as PropertyDescriptor);
+      // the stream holds no `write` of its own unless something left one, so what
+      // was there is put back and what was not is taken off
+      if (original) {
+        Object.defineProperty(process.stdout, 'write', original);
+      } else {
+        delete (process.stdout as { write?: unknown }).write;
+      }
     }
 
     const ran = await runCommand({ argv: ['chris'], schema: app() });
@@ -291,11 +297,43 @@ describe('runCommand()', () => {
     try {
       process.stdout.write('after\n');
     } finally {
-      process.stdout.write = before;
+      // taken off rather than assigned back, which would leave an own property
+      // behind for every test after this one
+      delete (process.stdout as { write?: unknown }).write;
     }
 
+    expect(process.stdout.write).toBe(before);
     expect(seen).toEqual(['after\n']);
     expect(ran.out).not.toContain('after');
+  });
+
+  it('should leave the streams with no `write` of their own, as they were found', async () => {
+    // an own `write` is how `writeOut()` tells a capture from the real stream, so
+    // a restore that assigned the prototype's method back left one behind -- and
+    // every `main()` after it in the process wrote its help, its version and its
+    // JSON with the unchecked stream write (SIG-542)
+    expect(Object.hasOwn(process.stdout, 'write')).toBe(false);
+    expect(Object.hasOwn(process.stderr, 'write')).toBe(false);
+
+    await runCommand({ argv: ['x'], schema: app() });
+
+    expect(Object.hasOwn(process.stdout, 'write')).toBe(false);
+    expect(Object.hasOwn(process.stderr, 'write')).toBe(false);
+  });
+
+  it('should put back a `write` the stream already held itself', async () => {
+    // the other direction: somebody else's capture is theirs to remove, so it is
+    // restored as the own property it was
+    const outer = (): boolean => true;
+    process.stdout.write = outer as typeof process.stdout.write;
+    try {
+      await runCommand({ argv: ['x'], schema: app() });
+
+      expect(process.stdout.write).toBe(outer);
+      expect(Object.hasOwn(process.stdout, 'write')).toBe(true);
+    } finally {
+      delete (process.stdout as { write?: unknown }).write;
+    }
   });
 
   it('should put the streams back when the run throws', async () => {

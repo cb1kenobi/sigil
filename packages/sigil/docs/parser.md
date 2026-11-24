@@ -1836,9 +1836,10 @@ is a state at all — invalid parse options, an invalid schema — arrives witho
 one. A renderer that throws falls back to the default one,
 so a broken renderer cannot swallow the error it was given. `opts.stderr`
 redirects the output, which is mostly there for tests. A `write` that throws
-is swallowed — rendering an error must not raise a second, worse one — but an
-asynchronous `EPIPE` still arrives as an `error` event on the stream, and
-handling that belongs to the terminal wrapper that Phase 3 brings back.
+is swallowed — rendering an error must not raise a second, worse one — and an
+asynchronous `EPIPE` arrives as an `error` event on the stream, which `main()`
+listens for before it parses anything, so a reader that went away ends the
+output quietly.
 
 ## Differences from Commander and yargs
 

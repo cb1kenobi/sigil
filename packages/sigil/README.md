@@ -71,7 +71,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 - [Typed argv](#typed-argv)
 - [Testing](#testing) — `runCommand()`, `runOnTerminal()`, `createTestTerminal()`, `frame()`, `KEYS`
 - [Config files](#config-files) — `createConfig()`, layers, a schema, dotted paths, `save()`
-- [Subpath modules](#subpath-modules) — `app`, `ansi`, `wrap`, `width`, `help`, `i18n`, `terminal`, `components`, `canvas`, `input`, `style`, `signals`, `paths`, `config`, `which`, `trash`, `updates`, `testing`, `reference`, `png`, `layout`
+- [Subpath modules](#subpath-modules) — `app`, `ansi`, `wrap`, `width`, `help`, `i18n`, `terminal`, `components`, `canvas`, `input`, `style`, `signals`, `paths`, `config`, `output`, `which`, `trash`, `updates`, `testing`, `reference`, `png`, `layout`
 
 ---
 
@@ -106,6 +106,12 @@ await main({
 
 Resolves with the command's return value; with the `ParseState` when no command
 ran or the command returned nothing; with `undefined` when an error was handled.
+
+`main()` also puts a listener on `process.stdout` and `process.stderr` before it
+parses anything, so `mycli list | head -1` ends quietly instead of dying with
+Node's `EPIPE` dump -- see [`sigil/output`](#sigiloutput) for what it does and
+does not swallow -- and it writes the help screen, `--version` and a command's
+serialized output so that a redirect to a file which took only part of it fails.
 
 `importModule` is for tests, and an app's own bin never passes it. It imports
 every module the app declared — a command's `path`, a routed directory's
@@ -2947,26 +2953,22 @@ head -1` closes the pipe the instant `head` has its line, and an `EPIPE` with
 no listener is an uncaught exception. After that `terminal.closed` is `true`
 and writes are no-ops.
 
-A program that writes to `process.stdout` itself, with no terminal to go
-through, needs a listener of its own, and `isStreamGone()` is what it asks:
+A program that goes through `main()` already has a listener on `process.stdout`
+and `process.stderr`, and one that writes to them without it attaches
+[`guardOutput()`](#sigiloutput). `isStreamGone()` is the question both ask, and is
+what to ask in a listener of your own:
 
 ```js
 import { isStreamGone } from '@ttylabs/sigil/terminal';
 
-process.stdout.on('error', (err) => {
-  // `mycli list | head -1` is a command that finished, not a stack trace; a
-  // full disk (`ENOSPC`) is still a failure
-  if (!isStreamGone(err)) {
-    throw err;
-  }
-});
-
 isStreamGone(err); // `EPIPE`, `EOF`, `ERR_STREAM_DESTROYED` or `ERR_STREAM_WRITE_AFTER_END`
+isStreamGone(err, process.stdout); // ...and `EIO`, when the stream is a TTY that hung up
 ```
 
 The terminal's own listener swallows every error, since its output is
 best-effort, and leaves the exit code alone; a program with output that must not
-be cut short silently rethrows as above.
+be cut short silently rethrows what `isStreamGone()` does not call the reader
+leaving, which is what `guardOutput()` does.
 
 `width` is deliberately **uncapped**, unlike `terminalWidth()`, which stops at
 `MAX_WIDTH`: that cap is a readability limit on generated prose, while this is
@@ -8658,6 +8660,46 @@ result is pattern source for `new RegExp()`, so a `/` is left alone -- it only
 delimits the literal syntax. It is safe only outside a character class:
 ``new RegExp(`[${escapeRegExp('a-z')}]`)`` is still a range, and under the `v`
 flag a `--` or `&&` inside a class is an operator.
+
+### `sigil/output`
+
+Writing to standard output without being killed by the reader leaving, and
+knowing that all of it landed. `main()` does both for you; this is for a program
+that writes to `process.stdout` without it.
+
+```js
+import { guardOutput, isStreamGone, writeOut, writeTo } from '@ttylabs/sigil/output';
+
+guardOutput(); // `mycli list | head -1` is a command that finished, not a stack trace
+
+writeOut(JSON.stringify(data)); // throws if a file took only part of it
+writeTo(process.stderr, 'a diagnostic\n'); // the same, for any stream
+```
+
+**`guardOutput()`** puts one listener on `process.stdout` and on `process.stderr`,
+once, however many times it is called, however many copies of the runtime call it
+and however many `main()`s nest. The listener returns when `isStreamGone()` says
+the reader went away -- `EPIPE`, `EOF`, which is what Windows calls it, and `EIO` on a
+terminal that hung up (on a file it is the disk failing, and is thrown) -- and
+**throws everything else**, so a full disk (`ENOSPC`) is still a failure. After the
+reader leaves, later writes land nowhere and the exit code is whatever the
+command's own result was; it is not `141`, and it is not a stack trace. Pass
+streams to guard others. It is never taken off, because the `EPIPE` for the last
+write arrives after the program has finished.
+
+**`writeOut()`** and **`writeTo()`** are for output somebody will read as data.
+When the stream is a regular file -- `mycli --json > out.json` -- Node writes it
+with one `fs.writeSync()` and throws the byte count away, so a kernel that takes
+only part of it (a full disk, or `ulimit -f`) raises no error and the program
+exits 0 over a cut-off file. These loop on the count instead, and what is left
+fails with `The output was cut off: 1024 of 2276 bytes were written (EFBIG).` A
+pipe, a terminal, a stream with no file descriptor, and a stream whose `write` was
+replaced (which is a capture, and is left to the capture) are written through
+`stream.write()` as before. `writeFully(text, write)` is the loop on its own, over
+any sink that says how many bytes it took.
+
+`main()` writes `--help`, `--version` and a command's serialized output through
+`writeOut()`; a command that prints its own document is the one to change.
 
 ### `sigil/which`
 
