@@ -4123,9 +4123,37 @@ whole of it: the encoder, `qrLines()`, `qrcodeView()` and the facade.
   follows puts `qrcodeView()` in a tree. **A cascade without the framework's sheet
   draws both bodies**, there being no rule to hide either -- `themedCascade()` is
   the cascade every built-in is styled by, and a caller who built their own names
-  the scheme. **The level is not live**: a painted code's level still comes from
-  `colorLevelOf()` at build, since the ticket is about the scheme. The two rules are
-  exceptions in `should declare on a role, bar fifteen exceptions that say why`:
+  the scheme. **The level is not live, and it was measured rather than assumed
+  (SIG-621)**: a painted code's level still comes from `colorLevelOf()` at build.
+  Nothing an app calls sets the level a renderer resolves at. `detect()` only
+  _raises_ it, and never off or onto `0` -- `refineColorLevel()` refuses a floor of
+  zero and `detect()` asks again against the level on screen -- and a painted code
+  asks one question of its level, whether it is above `0`, so a reply moving 2 to 3
+  moves no cell (`should draw a painted code the same at every level above 0`).
+  What does move it across `0` is `readMedia()` re-reading the environment, which
+  every `publishMedia()` does -- a resize, `setColorScheme()`, or a reply that moved
+  something -- and only where nothing named a level (not the renderer's
+  `colorLevel`, not the terminal's) and no `detect()` reply has been recorded over
+  it. So it takes `NO_COLOR` or `FORCE_COLOR` being changed in the process while the
+  app runs. Measured: built at 3, the environment set to 0 and the terminal
+  resized, the media level reads 0 and the painted body, which is the form for a
+  level above 0, stays on a dark scheme where level 0 wants the inverted one
+  (`should keep the form it was built at when the media level falls to 0
+  afterwards`).
+
+  The view's level and the renderer's are two reads, and they can disagree from the
+  first frame with no environment change: `render({ colorLevel: 0 })` over a view
+  built at 3 draws the painted form at level 0, and a view built at 0 under a
+  renderer above it draws the inverted body wearing the paint class -- black on
+  white, a negative (`should draw the inverted body when a code built at level 0 is
+  mounted above it`). That is `table()` and `largeText()`'s own limit and is
+  unchanged here; the fix for both it and liveness is the same
+  `@media (color-level)` choice in the sheet, and it is not taken because the painted
+  code would hold both polarities too, which is more selectors on the sheet's
+  exception list, and a cascade without the framework's sheet would draw both bodies
+  of a painted code that today draws one. Name the same level for the view and the
+  renderer, and rebuild the view if the environment changes under a running app.
+  The two rules are exceptions in `should declare on a role, bar fifteen exceptions that say why`:
   they are which polarity takes space, not a look. Pinned by `the scheme a tree
   follows` in `test/components/qrcode.test.ts`, which mounts a real renderer and
   flips `setColorScheme()`.
@@ -7776,8 +7804,8 @@ have.
   keyboard's sample and returns to the pin, so the effect that forgot it still does
   and `pinned` is the one fallback beneath it. The pointer wins while it moves, as
   it does over the keyboard, and gives the rule back to the pin when it leaves.
-  A limit, recorded rather than fixed: while the chart is focused and the rule has
-  moved off the pin, nothing shows where the pin is; it is seen again on blur.
+  The limit this recorded -- while the chart is focused and the rule has moved off
+  the pin, nothing shows where the pin is -- is closed by SIG-620 below.
 - **The readout stands through the tooltip's new `hold`.** The bubble was shown by
   the pointer or the focus and nothing else, so a pin had no readout once the focus
   went. `TooltipOptions.hold` is a function that returns `true` for a third reason
@@ -7819,6 +7847,38 @@ have.
   footer keeps the pin over the movement keys. The
   dashboard's chart footer is therefore longer by those words; its tests are
   re-read for it rather than assumed.
+
+### A pinned sample is marked where the rule is not (SIG-620)
+
+- **The marker is a cell on the plot's top row and a tick on the axis, both in the
+  pinned sample's column, and drawn only where the rule is in another one.** `▼` on
+  the plot and `▲` in the axis row, `v` and `^` in ASCII, so it needs no colour to
+  be seen. Where the rule stands on the pin's cell it already marks it -- with the
+  `┴` tick and the rule -- and a second glyph there would only hide that, so the
+  marker is the answer to "where is the pin" and goes the moment the answer is "under
+  the rule". It is compared by cell column rather than by sample, because under
+  `step: 'fit'` two samples can share one cell and the rule in it is the pin's.
+  The pin is clamped to the oldest drawn as the rule is, so one that scrolled off the
+  left is marked on the left edge.
+- **A line beats it on the plot, as it beats the rule.** The top cell of the
+  pinned column is the highest value's wherever the pinned sample is the highest, so
+  there the plot's marker is not drawn and the axis one is the answer. A chart with
+  `axis: false` has only the plot's, and loses it under a line there -- and under
+  the readout's bubble, which sits beside the rule over the plot's top rows, so a pin
+  within about nine columns of the rule is covered while the readout is shown. A
+  limit, recorded rather than fixed, since moving the marker off the plot's top row
+  would make it a thing that wanders with the data.
+- **The marker and Enter can disagree under `fit`.** The marker is compared by cell
+  and Enter by sample (SIG-607), so with the rule on a neighbour of the pin in the
+  pin's cell no marker shows and Enter moves the pin rather than clearing it. Both
+  rules stand on their own; the cell is the finest thing a reader can see.
+- **`sigil-chart-pin`, with `sigil-warn` beside it,** is the theme hook: the warn role
+  because the rule is already the muted and the accent roles, and it is a colour
+  nobody reads as "the keys go here". It is a segment of its own, not a run the
+  blanks beside it join, so a theme that gives it a background paints one cell.
+  `LineLayout.pinned` carries it, and the draw reads the pin unconditionally: the
+  rule's `back ?? pinned` short-circuits, so without the marker's own read a pin
+  cleared while the keyboard sample already said where the rule was would not redraw.
 
 ### An image: a picture fitted to the box it got, in half blocks (SIG-326)
 
