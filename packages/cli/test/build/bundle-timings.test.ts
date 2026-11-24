@@ -11,8 +11,8 @@
  * `close()` rather than at `write()`, which is why a first attempt at provoking
  * it saw nothing. A control asks rolldown the same with its default checks, so
  * the second test cannot pass for want of a warning that would never have come.
- * The real bundler runs in both. A file of its own for the reason
- * `bundle-close.test.ts` gives: `vi.mock` is module-wide.
+ * A file of its own for the reason `bundle-close.test.ts` gives: `vi.mock` is
+ * module-wide.
  *
  * ## What decides whether the warning comes (SIG-648)
  *
@@ -20,27 +20,38 @@
  * prints. rolldown's `BuildTimings::is_plugin_bound()` asks two things of the
  * clocks on its own side: the build ran for **at least three seconds**, and its
  * non-link time was **more than 100 times the link stage** -- the one stretch of
- * a build with no plugin in it. So a hold of exactly three seconds sat on the
- * floor, and what a loaded machine takes away is the ratio: the link stage is a
- * few milliseconds on an idle one and tens of them when the process is starved,
- * so a five-second hold needs a link stage under 49 ms. That cannot be made
- * impossible by waiting, only less likely, which is why the control escalates
- * (`HOLDS`) instead of choosing one number: it stops at the first build that
- * warns, so an idle machine pays five seconds and a loaded one pays more rather
- * than failing. Measured on a macOS machine with 30 busy processes over 18
- * cores, one fixed hold failed 2 of 12 at 3.5 s, 1 of 12 at 5 s and 0 of 12 at
- * 6.5 s. CI's macOS jobs are where it showed most (two of three failed on one
- * run): a small shared virtual machine, whose link stage for this fixture's graph
- * is the likeliest to pass 29 ms -- inferred, since rolldown does not expose that
- * clock, and which is why the first hold is five seconds rather than four.
+ * a build with no plugin in it. The link stage is wall clock, so what a loaded
+ * machine takes away is the ratio: it grows past a hundredth of the hold.
+ *
+ * ## ...and the graph it is asked of is one module (SIG-667)
+ *
+ * SIG-648 held the build five seconds, then ten, and it still failed on a loaded
+ * macOS runner after 16.5 s -- both holds, in a row. The hold was never the
+ * variable that mattered: it needs a link stage under 49 ms, and
+ * `bundleApp()`'s graph is the toolchain's whole runtime, whose link stage is
+ * several milliseconds to tens of them with nothing else running (the gap from
+ * `buildEnd` to `renderStart`, which contains it, measured 5 to 27 ms warm, 74
+ * ms cold). The control needs a warning to be *provoked*, not a real app to be
+ * built, so it holds a graph of one module: the same gap measured about one
+ * millisecond, cold, in twelve fresh processes. That is a margin of fifty rather
+ * than of two. It is still not a guarantee -- the link stage is wall clock and a
+ * starved process stalls inside it, 5 of 120 builds at five seconds with forty
+ * of them racing on top of a load average of 124 -- which is why the control still
+ * escalates (`HOLDS`) rather than choosing one number.
+ *
+ * What `bundleApp()` is asked is only what it passes as `checks`, so that is what
+ * it is asked: it is built for real, with no hold, and the `checks` it handed
+ * rolldown are given to the held build. The control gives it `{}`, which is
+ * rolldown's defaults; the two builds differ in nothing else.
  */
 
 import { tempDir } from '../temp.js';
+import { writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 
-/** The `checks` of every `rolldown()` call the build made, and the logs it printed. */
+/** The `checks` of every `rolldown()` call `bundleApp()` made, and the logs it printed. */
 const checks: unknown[] = [];
 const logged: string[] = [];
 
@@ -52,9 +63,10 @@ const logged: string[] = [];
 const HOLDS = [5000, 10_000];
 
 /**
- * How long the next build holds for. The control raises it until a build warns and
- * leaves it there, so the second test holds as long as the one that was shown to
- * provoke the warning -- a shorter hold could pass that test for want of one.
+ * How long the next held build holds for. The control raises it until a build
+ * warns and leaves it there, so the second test holds as long as the one that was
+ * shown to provoke the warning -- a shorter hold could pass that test for want of
+ * one.
  */
 let hold = HOLDS[0];
 
@@ -73,9 +85,6 @@ function slowPlugin() {
   };
 }
 
-/** Whether the next `rolldown()` leaves its checks alone, as a control. */
-let control = false;
-
 vi.mock('rolldown', async (importOriginal) => {
   const real = await importOriginal<typeof import('rolldown')>();
 
@@ -86,7 +95,6 @@ vi.mock('rolldown', async (importOriginal) => {
       const onLog = options.onLog;
       return real.rolldown({
         ...options,
-        ...(control && { checks: {} }),
         onLog(level, log, handler) {
           logged.push(String(log.code));
           if (onLog) {
@@ -95,7 +103,6 @@ vi.mock('rolldown', async (importOriginal) => {
             handler(level, log);
           }
         },
-        plugins: [...(Array.isArray(options.plugins) ? options.plugins : []), slowPlugin()],
       });
     },
   };
@@ -108,7 +115,7 @@ const { resolveCommandTree } = await import('../../src/build/tree.js');
 const fixture = resolve(dirname(fileURLToPath(import.meta.url)), '../fixtures/buildable');
 
 describe('the checks a build asks rolldown for', () => {
-  /** Builds the fixture, with a plugin that holds the build up. */
+  /** Builds the fixture for real, as `sigil build` does, to see what it asks rolldown for. */
   async function build(): Promise<void> {
     logged.length = 0;
     checks.length = 0;
@@ -118,23 +125,49 @@ describe('the checks a build asks rolldown for', () => {
     await bundleApp({ app, binName: 'buildable', out: tempDir('sigil-timings-'), tree });
   }
 
-  it('should warn about plugin timings when the checks are rolldown defaults', async () => {
-    control = true;
+  /**
+   * Builds one module under a plugin that holds the build, with the `checks` it is
+   * given, and returns the codes of what rolldown logged -- after `close()`, which
+   * is where the warning is delivered. The unmocked `rolldown()`: what is being
+   * asked is what rolldown does with these checks, not what `bundleApp()` does.
+   */
+  async function held(checks: unknown): Promise<string[]> {
+    const { rolldown } = await vi.importActual<typeof import('rolldown')>('rolldown');
+    const dir = tempDir('sigil-timings-held-');
+    const input = join(dir, 'entry.js');
+    const codes: string[] = [];
+    writeFileSync(input, 'export const answer = 42;\n');
+
+    const bundle = await rolldown({
+      checks: checks as Parameters<typeof rolldown>[0]['checks'],
+      input,
+      onLog(_level, log) {
+        codes.push(String(log.code));
+      },
+      plugins: [slowPlugin()],
+    });
     try {
-      // the first build that warns is the answer; every one that did not is a
-      // build too short or a link stage too slow, not a rolldown that stopped asking
-      for (const ms of HOLDS) {
-        hold = ms;
-        await build();
-        if (logged.includes('PLUGIN_TIMINGS')) {
-          break;
-        }
-      }
+      await bundle.write({ dir: join(dir, 'out') });
     } finally {
-      control = false;
+      await bundle.close();
     }
 
-    expect(logged).toContain('PLUGIN_TIMINGS');
+    return codes;
+  }
+
+  it('should warn about plugin timings when the checks are rolldown defaults', async () => {
+    // the first build that warns is the answer; every one that did not is a
+    // build too short or a link stage too slow, not a rolldown that stopped asking
+    let codes: string[] = [];
+    for (const ms of HOLDS) {
+      hold = ms;
+      codes = await held({});
+      if (codes.includes('PLUGIN_TIMINGS')) {
+        break;
+      }
+    }
+
+    expect(codes).toContain('PLUGIN_TIMINGS');
   }, 30_000);
 
   it('should not ask for a warning about plugin timings', async () => {
@@ -143,5 +176,8 @@ describe('the checks a build asks rolldown for', () => {
     expect(checks).toHaveLength(1);
     expect(checks[0]).toMatchObject({ bundlerTimings: false });
     expect(logged).not.toContain('PLUGIN_TIMINGS');
+
+    // the same hold that provoked the warning, with what the build asked for
+    expect(await held(checks[0])).not.toContain('PLUGIN_TIMINGS');
   }, 30_000);
 });
