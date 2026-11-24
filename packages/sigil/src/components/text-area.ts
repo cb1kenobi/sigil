@@ -346,7 +346,7 @@ export function TextArea(props: TextAreaProps = {}): Element {
       isPlace(props.selection.caret)
     )
   ) {
-    throw new TypeError(__`Expected a text area selection to be an anchor and a caret, or a State`);
+    throw new TypeError('Expected a text area selection to be an anchor and a caret, or a State');
   }
 
   const value = props.value instanceof State ? props.value : new State(props.value ?? '');

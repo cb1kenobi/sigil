@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 481 keys, which is what a catalog has to carry to translate sigil's own
+ * 480 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -143,7 +143,6 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected a text area highlight to be a function',
   'Expected a text area lang to be a string',
   'Expected a text area placeholder to be a string',
-  'Expected a text area selection to be an anchor and a caret, or a State',
   'Expected a text area tab to be a non-empty string with no line break',
   'Expected a text area value to be a string or a State',
   'Expected a text area width to be a positive whole number',
