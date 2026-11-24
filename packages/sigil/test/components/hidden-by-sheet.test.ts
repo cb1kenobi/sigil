@@ -64,18 +64,20 @@ describe('the routers the built-ins build', () => {
     async (_, start) => {
       const ui = createTestTerminal({ columns: 30, rows: 8 });
       const stop = await start(ui);
-      const { opts, router } = built.at(-1)!;
-      // a prop shows the box and a sheet rule that outranks it hides it: the style says
-      // `none`, the prop says `flex`, and only the sheet can say which of the two is right
-      const hidden = box({ class: 'gone', display: 'flex', focusable: true });
-      const shown = box({ class: 'here', display: 'flex', focusable: true });
-      opts.root!.append(hidden, shown);
-      await frame();
+      try {
+        const { opts, router } = built.at(-1)!;
+        // a prop shows the box and a sheet rule that outranks it hides it: the style says
+        // `none`, the prop says `flex`, and only the sheet can say which of the two is right
+        const hidden = box({ class: 'gone', display: 'flex', focusable: true });
+        const shown = box({ class: 'here', display: 'flex', focusable: true });
+        opts.root!.append(hidden, shown);
+        await vi.waitFor(() => expect(hidden.style.display).toBe('none'));
 
-      expect(hidden.style.display).toBe('none');
-      expect(router.focus.ring()).toEqual(expect.arrayContaining([shown]));
-      expect(router.focus.ring()).not.toContain(hidden);
-      await stop();
+        expect(router.focus.ring()).toContain(shown);
+        expect(router.focus.ring()).not.toContain(hidden);
+      } finally {
+        await stop();
+      }
     }
   );
 });
