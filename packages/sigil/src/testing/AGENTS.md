@@ -438,24 +438,35 @@ that knowledge was undiscoverable from outside this repository.
     - **`render()`**: its `onError`. With none it is the default error handler, which
       writes `Error: ...` to the real stderr, sets `process.exitCode` to `1` and
       leaves the screen empty -- the other way round from `runApp()`. A throwing
-      `onError` is raised out of the frame that ran the effect, which is a timer's
-      uncaught exception on real timers and **not** `onTimerError()`'s; it is not
-      pinned.
-    - **A bare effect**, flushed in a microtask, which is the only shape here that is:
-      `setErrorHandler()`, or the `createEffects()` scope's own. With none it is
-      `Error in effect: ...` on the real stderr and `process.exitCode` set to `1`, a
-      line a test passes over -- so a test that provokes one registers a handler and
-      asserts on it, and one that does not leaves the exit code on the worker. A
-      handler that **throws** is the exception to "not uncaught": `drain()` does not
-      guard it, so it lands in the microtask as an uncaught exception, which is the
-      handler's own bug and not the effect's.
+      `onError` was raised out of the frame that ran the effect, which on a frame
+      timer is an uncaught exception and was **not** `onTimerError()`'s -- measured
+      by advancing fake timers over a `render()` whose `onError` throws, where the
+      advance itself threw and `onTimerError()` heard nothing (SIG-660). It is
+      the signals layer's default report now, below, and `onTimerError()` still
+      hears nothing, which is asserted.
+    - **A bare effect**, flushed in a microtask: `setErrorHandler()`, or the
+      `createEffects()` scope's own. With none it is `Error in effect: ...` on the
+      real stderr and `process.exitCode` set to `1`, a line a test passes over -- so a
+      test that provokes one registers a handler and asserts on it, and one that does
+      not leaves the exit code on the worker.
+    - **A handler that throws** -- `setErrorHandler()`'s, a scope's, or `render()`'s
+      `onError` -- is not uncaught either, since SIG-660. It was the one exception
+      here: `drain()` did not guard it, so it landed in the microtask as an uncaught
+      exception, measured by SIG-654 and left unpinned. The effect scope now skips a
+      handler that throws and writes the default report for both errors (`Error in
+      effect: ...` for the effect's, `Error in effect error handler: ...` for the
+      handler's), so a test that wants to hear a handler's bug reads the real stderr
+      and the exit code, the same as for an effect with no handler. The decision and
+      the reasons are under "An error handler that throws" in
+      `src/signals/AGENTS.md`.
 
     Nothing was added to the test terminal: a second hook beside `onError` would be
     two answers to one question, and `onTimerError()` is for a throw with no call to
     come back through, which an effect's has. Pinned in
     `test/testing/effect-throws.test.ts`: each bullet's `onError` or handler and its
-    default, the throwing ones aside; rethrowing from the default handler fails it
-    through vitest's unhandled-error report.
+    default, and the throwing handler's under a bare effect and under `render()`'s
+    frame timer; the unguarded drain fails the last two, and rethrowing from the
+    default handler fails the rest through vitest's unhandled-error report.
 
 > Moved: _What the sabotage pass found over the helpers_, _What the first review round found, and what it got wrong_, _What the second half of the first round found: the screen model_, _What the second review round found, and it was almost all the tests_, _Reading the prose against the code, which is where the rest of it was_, _Two of the tests were weaker than their names, found by reading them_, _What re-reading the code found that neither the pass nor a reviewer did_ — see [docs/history/testing-helpers-and-the-faked-tty-our-own-suite-proves-you-n.md](../../../../docs/history/testing-helpers-and-the-faked-tty-our-own-suite-proves-you-n.md).
 

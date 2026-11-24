@@ -34,7 +34,12 @@ export interface EffectOptions {
   adopt?: (dispose: () => void) => void;
 }
 
-/** Reports an error an effect threw. See `setErrorHandler()`. */
+/**
+ * Reports an error an effect threw. See `setErrorHandler()`.
+ *
+ * A handler that throws is skipped rather than raised: the default report writes
+ * the effect's error and then the handler's.
+ */
 export type EffectErrorHandler = (error: unknown) => void;
 
 /**
@@ -96,6 +101,9 @@ export interface Effects {
   /**
    * Replaces where an error thrown by an effect goes.
    *
+   * A handler that throws is skipped, and the default report writes both its
+   * throw and the error it was given.
+   *
    * @param next - The handler, or `undefined` for the default.
    * @returns The handler that was in place.
    */
@@ -133,10 +141,20 @@ const microtask: Scheduler = (fn) => queueMicrotask(fn);
  * @param error - What the effect threw.
  */
 const report: EffectErrorHandler = (error) => {
-  const message = errorMessage(error);
-  process.stderr.write(`Error in effect: ${message}\n`);
-  process.exitCode ||= 1;
+  write('Error in effect', error);
 };
+
+/**
+ * Writes one line about an error and sets a non-zero exit code.
+ *
+ * @param what - What it is an error in, as the line's lead.
+ * @param error - What was thrown.
+ */
+function write(what: string, error: unknown): void {
+  const message = errorMessage(error);
+  process.stderr.write(`${what}: ${message}\n`);
+  process.exitCode ||= 1;
+}
 
 /**
  * How many times a flush will drain before giving up.
@@ -178,6 +196,39 @@ let flushChain = 0;
 export function createEffects(): Effects {
   let scheduler: Scheduler = microtask;
   let errorHandler: EffectErrorHandler = report;
+
+  /**
+   * Hands an error to the handler, and never lets the handler's own throw out.
+   *
+   * `drain()` runs from a microtask, and a throw out of it lands in one nobody is
+   * catching -- the raw stack and dead process the default report exists to
+   * avoid, and this one is the handler's to cause rather than the effect's. So a
+   * handler that throws is skipped, the way a `beforeError` hook that throws is,
+   * and the default report says both: what the effect threw, which the handler
+   * did not take, and what the handler threw, so neither is lost. A handler that
+   * rethrows what it was given is one error and says so once (SIG-660).
+   *
+   * @param error - What an effect, or the scope, has to report.
+   */
+  function deliver(error: unknown): void {
+    if (errorHandler === report) {
+      report(error);
+      return;
+    }
+    try {
+      errorHandler(error);
+    } catch (thrown) {
+      report(error);
+      if (!Object.is(thrown, error)) {
+        // the renderer's handler raises several reports as one `AggregateError`,
+        // whose own message says only that they were several
+        for (const each of thrown instanceof AggregateError ? thrown.errors : [thrown]) {
+          write('Error in effect error handler', each);
+        }
+      }
+    }
+  }
+
   let queued = false;
   let flushing = false;
   /**
@@ -294,7 +345,7 @@ export function createEffects(): Effects {
         // the cross-scope cycle. Reported once and then stalled the same way
         // an in-scope one is, so the chain stops here rather than at whichever
         // scope happens to run out of patience first
-        errorHandler(
+        deliver(
           new Error(
             `Effects did not settle after ${MAX_CHAIN} chained flushes, which usually means two scopes write what the other reads`
           )
@@ -330,10 +381,11 @@ export function createEffects(): Effects {
         // clean-to-dirty transition is still heard, and the next drain
         // anybody asks for still finds these in `getPending()`.
         //
-        // A drain that threw rather than returning lands here too, which is
-        // the same failure one level up: the only thing that can throw out of
-        // it is the error handler, and announcing work whose report throws
-        // asks for that throw again forever
+        // A drain that threw rather than returning lands here too. Nothing
+        // that can throw out of it is left now that `deliver()` keeps a
+        // handler's own throw in, but a drain that does is the same failure
+        // one level up, and announcing work whose report throws asks for that
+        // throw again forever
         watcher.rearm();
       }
     }
@@ -369,11 +421,11 @@ export function createEffects(): Effects {
         try {
           computed.get();
         } catch (err) {
-          errorHandler(err);
+          deliver(err);
         }
       }
     }
-    errorHandler(
+    deliver(
       new Error(
         `Effects did not settle after ${MAX_PASSES} passes, which usually means two of them write what the other reads`
       )
@@ -458,7 +510,7 @@ export function createEffects(): Effects {
         if (disposed) {
           return;
         }
-        runCleanups(errorHandler);
+        runCleanups(deliver);
         const outer = currentOwner;
         currentOwner = children;
         bodies++;
@@ -731,6 +783,9 @@ export function setScheduler(next: Scheduler | undefined): Scheduler {
 
 /**
  * Replaces where an error thrown by an effect goes.
+ *
+ * A handler that throws is skipped, and the default report writes both its
+ * throw and the error it was given.
  *
  * @param next - The handler, or `undefined` to restore the default.
  * @returns The handler that was in place.

@@ -97,9 +97,11 @@ the entry it belongs to.
   effect announces nothing and that call is how they find out it worked. The
   error rate settles at once per failed settle rather than once per `set()`: a
   burst of writes is already coalesced into one flush, and the report belongs to
-  the flush that could not settle. A drain whose error handler _threw_ takes the
-  same exit, which is the same failure one level up -- announcing work whose
-  report throws asks for that throw forever. See `test/signals/effect.test.ts`.
+  the flush that could not settle. A drain that _threw_ takes the same exit,
+  which is the same failure one level up -- announcing work whose report throws
+  asks for that throw forever. What could throw out of one was the error handler,
+  and it no longer can: see "An error handler that throws" below. See
+  `test/signals/effect.test.ts`.
 - **The bound counts work passes, not loop iterations.** The check for "anything
   left?" happens at the _start_ of a pass, so the last pass's own work was never
   looked at: a chain needing exactly `MAX_PASSES` passes did all of it, settled,
@@ -200,6 +202,33 @@ the entry it belongs to.
   and which the renderer replaces with the real handler. The watcher is re-armed
   either way: one bad effect silently ending all future reactivity is worse than
   a loud failure.
+- **An error handler that throws is skipped, and the default report says both
+  (SIG-660).** The rule above stopped at the handler: `drain()` called it
+  unguarded, so a handler from `setErrorHandler()`, from a `createEffects()` scope
+  or a renderer's `onError` that threw escaped a microtask as the raw stack and
+  dead process the rule exists to prevent -- measured by SIG-654, recorded in
+  `src/testing/AGENTS.md` and not pinned until this. Every site that hands the
+  handler an error -- an effect's throw, a cleanup's, the cycle report of a
+  drain and of a chain of flushes -- goes through `deliver()` in
+  `createEffects()`, which catches what the handler threw and writes the default
+  report: what the effect threw, which the handler did not take, then what the
+  handler threw as `Error in effect error handler: ...` (each of an `AggregateError`'s, which is how the renderer's handler raises several), so neither is lost. A handler that took the error and threw over a later one still has the first written again: a handler that throws is taken not to have handled what it was given. It is
+  the rule a `beforeError` hook that throws already follows (logged, skipped, the
+  next one runs), and the alternative, a deliberate crash, was refused because a
+  handler is the one place nobody is catching: the throw would be uncaught
+  whatever the app did, over a terminal the renderer may not have given back. A
+  handler that rethrows exactly what it was given is one error and is said once.
+  The default report itself is called directly and never guarded: it writes a
+  line, and a stream that cannot take one has nowhere left to say so. Because the
+  handler's throw no longer ends the drain, the effects after it still run in that
+  pass, where it used to abandon them and stall. The renderer is the consequence
+  worth knowing: its handler is `fail()`, which raises what `onError` threw, and
+  that used to be what carried it out of an effect's flush and so out of
+  `frame()`. It is the default report's now -- see "An `onError` that throws
+  cannot keep the screen" in `src/renderer/AGENTS.md`. Pinned in
+  `test/signals/effect.test.ts` (`an error handler that throws`), over each of the
+  four sites and the microtask, and in `test/testing/effect-throws.test.ts` for a
+  clock's effect; every case fails with the guard removed.
 - **An effect whose first run throws stays live when something will dispose it,
   and is torn down when nothing would (SIG-611).** The first run is the only one
   whose throw goes to the caller of `effect()` rather than to the error handler,
