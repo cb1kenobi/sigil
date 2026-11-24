@@ -3139,8 +3139,8 @@ other is refused with numbers.
   `build.ts` when `warnUnparsed()` moved, so a packaged binary could ship with
   an empty utility sheet and no word about why -- the same absence `sigil build`
   prints a note for. It lives in `commands/_inspect.ts` now and `package` calls
-  it before `warnUnparsed()`, in `build`'s order, after the same refusals and
-  before anything is compiled. Its tests sit in the same stub-`node` block as
+  it before `warnUnparsed()`, in `build`'s order, after the update-check
+  refusals `package` has and before anything is compiled. Its tests sit in the same stub-`node` block as
   SIG-645's, and are skipped on Windows with it.
 
   **Windows was measured, and its default stack is not the 1 MB one**

@@ -1524,6 +1524,7 @@ describe('sigil package', () => {
         const { err } = await pack(app);
 
         expect(err).toMatch(/No\s+utility\s+class\s+is\s+named\s+anywhere\s+in\s+this\s+app/);
+        expect(err).toMatch(/all\s+383\s+rules\s+were\s+dropped/);
         expect(err).toContain('build.safelist');
         expect(err).toContain('--no-shake');
         // the run got as far as the compiler, so the note was not an early exit
