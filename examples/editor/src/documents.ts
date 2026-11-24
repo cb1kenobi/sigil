@@ -7,7 +7,11 @@
  * terminal.
  */
 
-import { codeLanguage, type TextAreaCaret } from '@ttylabs/sigil/components';
+import {
+  codeLanguage,
+  type TextAreaCaret,
+  type TextAreaSelection,
+} from '@ttylabs/sigil/components';
 import { Computed, State } from '@ttylabs/sigil/signals';
 import { basename, extname, isAbsolute, relative, sep } from 'node:path';
 
@@ -43,6 +47,11 @@ export interface Doc {
    * file and is what the status line reads.
    */
   readonly caret: State<TextAreaCaret>;
+  /**
+   * What is selected: the text area's `selection`, collapsed on the caret while
+   * nothing is, and what the status line reads as `(5 selected)`.
+   */
+  readonly selection: State<TextAreaSelection>;
 }
 
 /**
@@ -69,8 +78,43 @@ export function createDoc(path: string, text: string): Doc {
     name: basename(path),
     path,
     saved,
+    selection: new State<TextAreaSelection>({
+      anchor: { col: 0, line: 0 },
+      caret: { col: 0, line: 0 },
+    }),
     value,
   };
+}
+
+/**
+ * How many characters a selection holds, a line break counting one.
+ *
+ * Characters rather than the code units the places are in, which is what the
+ * "Copied" message counts too -- an emoji is one however many units it takes.
+ *
+ * @param text - The text, with `\n` line endings: the text area's value.
+ * @param selection - What is selected, its ends in either order.
+ * @returns The count, or 0 while the two ends are one place.
+ */
+export function selectedCharacters(text: string, selection: TextAreaSelection): number {
+  const { anchor, caret } = selection;
+  if (anchor.line === caret.line && anchor.col === caret.col) {
+    return 0;
+  }
+  const [from, to] =
+    anchor.line < caret.line || (anchor.line === caret.line && anchor.col < caret.col)
+      ? [anchor, caret]
+      : [caret, anchor];
+  const lines = text.split('\n');
+  const held =
+    from.line === to.line
+      ? lines[from.line].slice(from.col, to.col)
+      : [
+          lines[from.line].slice(from.col),
+          ...lines.slice(from.line + 1, to.line),
+          lines[to.line].slice(0, to.col),
+        ].join('\n');
+  return [...held].length;
 }
 
 /**

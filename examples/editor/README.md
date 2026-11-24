@@ -47,7 +47,8 @@ it; Alt-Backspace still deletes a word.
   extension it does not read. The areas of the tabs not showing are hidden
   rather than built again, so each keeps its caret, selection and scroll. Each
   is handed the document's `caret` state, which opens the file at its first line
-  and is what the footer reads as `Ln 12, Col 5`.
+  and is what the footer reads as `Ln 12, Col 5`, and its `selection` state, which
+  adds `(5 selected)` to it while something is.
 - **Dirty, as a comparison.** A document is dirty while its text differs from
   what was last read or saved, so typing a change back out makes it clean again.
   The mark is `●` on the tab and in the panel title (`*` in ASCII). A file is

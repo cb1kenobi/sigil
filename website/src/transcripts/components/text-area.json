@@ -71,6 +71,12 @@
         "type": "number"
       },
       {
+        "description": "What is selected: the place it began, and the place it ends, where the caret is.",
+        "name": "selection",
+        "optional": true,
+        "type": "TextAreaSelection | State<TextAreaSelection>"
+      },
+      {
         "description": "What Tab types -- `' '`, or `'\\t'`, which draws as one column the way it does everywhere else in this library.",
         "name": "tab",
         "optional": true,
