@@ -379,7 +379,9 @@ export function assertChoices(
 ): void {
   const [outside] = outsideChoices(choices, value);
   if (outside) {
-    throw new Error(__`Invalid value "${escapeControls(outside.value)}" for ${label}`);
+    throw new Error(
+      __`Invalid value "${escapeControls(outside.value)}" for ${escapeControls(label)}`
+    );
   }
 }
 

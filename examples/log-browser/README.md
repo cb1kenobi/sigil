@@ -108,8 +108,9 @@ runs were up to twice as slow at every size.
 At 50,000 lines, a batch cost 1.6 ms more than at 500, and the tree held the
 same number of elements. Most of a batch at any size was the frame itself. A
 batch did grow with the lines held. At 200,000 lines, about 11 ms of the 18
-went on `ListView` re-keying every row. The search and the filter each include
-a forced frame for opening the prompt line and another for closing it.
+went on `ListView` re-keying every row. The search and the filter figures were
+taken while each forced a frame for opening the prompt line and another for
+closing it, which SIG-384 has since removed.
 
 As of SIG-386, a batch costs about the same at every size. `ListView` tells
 when its new items are the old ones with some dropped off the front and some

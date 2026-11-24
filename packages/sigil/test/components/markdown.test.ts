@@ -15,6 +15,7 @@ import { createTestTerminal } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 import { stringWidth } from '../../src/width/index.js';
 import { wrap } from '../../src/wrap/index.js';
+import { growthOf } from '../growth.js';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -157,11 +158,20 @@ describe('parseMarkdown()', () => {
       ]);
     });
 
-    it('should not be slow over a long run of unmatched delimiters', () => {
-      const started = performance.now();
-      parseMarkdown('*a '.repeat(5000));
-      expect(performance.now() - started).to.be.lessThan(2000);
-    });
+    // a ratio and not a deadline (SIG-657): 2000 ms was no measure of growth, it
+    // passed a machine's idle cost several times over, and a loaded runner could
+    // take it away. Eight times the delimiters must cost less than three times
+    // eight, where linear is eight and a search that starts again from the
+    // bottom for every closer is sixty-four. Both halves of "unmatched" are read,
+    // because the first has no closer at all and so cannot tell: `*a ` is a run
+    // of openers nothing closes and `a* ` a run of closers with nothing to close.
+    it.each(['*a ', 'a* '])(
+      'should not be slow over a long run of unmatched delimiters: %j',
+      (unit) => {
+        const make = (size: number): string => unit.repeat(size);
+        expect(growthOf(parseMarkdown, make(600), make(4800), 8, unit, 1)).to.be.lessThan(24);
+      }
+    );
   });
 
   describe('code', () => {

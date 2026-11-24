@@ -104,7 +104,7 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
     }
     for (const [name, hook] of Object.entries(schema.hooks ?? {})) {
       if (hook !== undefined && typeof hook !== 'function') {
-        throw new TypeError(`Expected "${name}" hook to be a function`);
+        throw new TypeError(`Expected "${escapeControls(name)}" hook to be a function`);
       }
     }
 
@@ -582,7 +582,7 @@ function checkChoices(
     const [outside] = outsideChoices(it.choices, value);
     if (outside) {
       throw new Error(
-        __`The default "${escapeControls(outside.value)}" for ${label} is not one of its choices`
+        __`The default "${escapeControls(outside.value)}" for ${escapeControls(label)} is not one of its choices`
       );
     }
     return;
@@ -855,8 +855,10 @@ function adoptDefault(adopted: Map<unknown, string>, cmd: InternalCommand): void
     // from where the cycle starts, found by source: two different defaults
     // can share a name, so a name cannot say which one it was
     const from = [...adopted.keys()].indexOf(source);
-    const chain = [...[...adopted.values()].slice(from), cmd.name].map((n) => `"${n}"`);
-    const again = first === cmd.name ? '' : `, which is "${first}" again`;
+    const chain = [...[...adopted.values()].slice(from), cmd.name].map(
+      (n) => `"${escapeControls(n)}"`
+    );
+    const again = first === cmd.name ? '' : `, which is "${escapeControls(first)}" again`;
     throw new Error(
       `Default commands form a cycle: ${chain.join(' -> ')}${again}. A default command cannot lead back to itself, so remove "default" from one of them`
     );
@@ -1061,7 +1063,10 @@ async function parseArgv(state: ParseState): Promise<void> {
             // must appear, `[value]` means it need not -- and neither says the
             // value may be left out. `--port=` is the way to give an empty one,
             // and then the data type decides whether empty is a value it has
-            throw new UsageError(__`Missing value for option ${label}`, 'missing-value');
+            throw new UsageError(
+              __`Missing value for option ${escapeControls(label)}`,
+              'missing-value'
+            );
           }
         }
 
@@ -1385,7 +1390,7 @@ export function validateArgs(state: ParseState): void {
 
   if (missingArguments.length && !asked(state)) {
     throw new UsageError(
-      __`Missing required arguments: ${missingArguments.join(' ')}`,
+      __`Missing required arguments: ${escapeControls(missingArguments.join(' '))}`,
       'missing-argument'
     );
   }
@@ -1472,7 +1477,7 @@ export function validateOptions(state: ParseState): void {
 
   if (missingOptions.length && !asked(state)) {
     throw new UsageError(
-      __`Missing required options: ${missingOptions.join(' ')}`,
+      __`Missing required options: ${escapeControls(missingOptions.join(' '))}`,
       'missing-option'
     );
   }

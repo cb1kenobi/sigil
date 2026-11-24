@@ -1,4 +1,5 @@
 import { Internal, InternalCommand } from '../../types.js';
+import { escapeControls } from '../../util/escape-controls.js';
 
 export class CommandRegistry extends Map<string, InternalCommand> {
   // null-prototype: a command really can be named `__proto__`, and on a plain
@@ -119,7 +120,9 @@ export class CommandRegistry extends Map<string, InternalCommand> {
       // depend on that order either
       if (this.#default !== undefined && this.#default !== name) {
         const [a, b] = [this.#default, name].sort();
-        throw new Error(`Only one default command is allowed: "${a}" and "${b}" are both default`);
+        throw new Error(
+          `Only one default command is allowed: "${escapeControls(a)}" and "${escapeControls(b)}" are both default`
+        );
       }
       this.#default = name;
     } else if (this.#default === name) {
@@ -197,11 +200,11 @@ export class CommandRegistry extends Map<string, InternalCommand> {
 function shadowsName(owner: string, name: string, shadowed: InternalCommand): Error {
   if (shadowed[Internal].builtIn) {
     return new Error(
-      `The "${owner}" command's alias "${name}" is the name of the built-in "${name}" command, so remove the alias`
+      `The "${escapeControls(owner)}" command's alias "${escapeControls(name)}" is the name of the built-in "${escapeControls(name)}" command, so remove the alias`
     );
   }
   return new Error(
-    `The "${owner}" command's alias "${name}" is the name of a sibling command: "${name}" would run "${owner}" and nothing could reach the "${name}" command, so remove the alias or rename one of the two`
+    `The "${escapeControls(owner)}" command's alias "${escapeControls(name)}" is the name of a sibling command: "${escapeControls(name)}" would run "${escapeControls(owner)}" and nothing could reach the "${escapeControls(name)}" command, so remove the alias or rename one of the two`
   );
 }
 
@@ -219,10 +222,10 @@ function shadowsName(owner: string, name: string, shadowed: InternalCommand): Er
 function renamedOntoName(slot: string, name: string, shadowed: InternalCommand): Error {
   if (shadowed[Internal].builtIn) {
     return new Error(
-      `The "${slot}" command's module renames it "${name}", which is the name of the built-in "${name}" command, so give it another name`
+      `The "${escapeControls(slot)}" command's module renames it "${escapeControls(name)}", which is the name of the built-in "${escapeControls(name)}" command, so give it another name`
     );
   }
   return new Error(
-    `The "${slot}" command's module renames it "${name}", which is the name of a sibling command: "${name}" would run "${slot}" and nothing could reach the "${name}" command, so rename one of the two`
+    `The "${escapeControls(slot)}" command's module renames it "${escapeControls(name)}", which is the name of a sibling command: "${escapeControls(name)}" would run "${escapeControls(slot)}" and nothing could reach the "${escapeControls(name)}" command, so rename one of the two`
   );
 }

@@ -446,7 +446,7 @@ export function outputFormats(schema: Schema | undefined): Map<string, OutputFor
     // the spelling the escape pass already settled on
     if (CONTROL.test(name)) {
       throw new TypeError(
-        `Expected the schema format named ${JSON.stringify(name)} to have no control character in its name`
+        `Expected the schema format named ${escapeControls(JSON.stringify(name))} to have no control character in its name`
       );
     }
 
@@ -494,7 +494,7 @@ export function formatFor(
 
   if (!serialize) {
     throw new UsageError(
-      __`Unknown output format "${escapeControls(name)}". This command accepts: ${available.join(', ')}`,
+      __`Unknown output format "${escapeControls(name)}". This command accepts: ${escapeControls(available.join(', '))}`,
       'unsupported-format'
     );
   }

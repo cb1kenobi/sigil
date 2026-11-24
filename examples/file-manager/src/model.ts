@@ -179,27 +179,6 @@ export function createModel(): Model {
 
   // -- the parts the keys reach -----------------------------------------------
   let parts: Parts | undefined;
-  let mounted = false;
-  onMount(() => {
-    mounted = true;
-  });
-
-  /**
-   * Draws a frame now, after something was shown and given the focus.
-   *
-   * The router asks whether the focused element is displayed before it routes a
-   * key, and reads that off the style the last frame resolved: a bar shown a
-   * moment ago is still hidden to it until a frame has restyled it, and the focus
-   * put in its field is taken back at the next key. The log browser measured it
-   * with a command typed fast; SIG-384 is the ticket for the router reading a
-   * shown inline `display` as current.
-   */
-  const redraw = (): void => {
-    if (mounted && !disposed) {
-      app.view.frame();
-    }
-  };
-
   const focusList = (): void => {
     if (parts) {
       input.focus.focus(parts.current);
@@ -533,7 +512,6 @@ export function createModel(): Model {
     draft.set(filter.get());
     parts.filterBar.setProps({ display: 'flex' });
     input.focus.focus(parts.filterField);
-    redraw();
   };
 
   function closeFilter(focus = true): void {
@@ -543,7 +521,6 @@ export function createModel(): Model {
     parts.filterBar.setProps({ display: 'none' });
     if (focus) {
       focusList();
-      redraw();
     }
   }
 

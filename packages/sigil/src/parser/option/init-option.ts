@@ -3,6 +3,7 @@ import { assertSectionTitle } from '../../util/assert-label.js';
 import { camelCase } from '../../util/camel-case.js';
 import { copyDeclaration } from '../../util/copy-declaration.js';
 import { envNames } from '../../util/env-names.js';
+import { escapeControls } from '../../util/escape-controls.js';
 import { lockDerived } from '../../util/lock-derived.js';
 import { resolveDesc } from '../../util/resolve-desc.js';
 import { OPTION_DATA_TYPES } from '../../util/transform.js';
@@ -61,7 +62,7 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
       if (m) {
         m = p.match(optionLongRE);
         if (!m) {
-          throw new TypeError(`Invalid option format: ${p}`);
+          throw new TypeError(`Invalid option format: ${escapeControls(p)}`);
         }
         long.add(p);
         opt.name ??= m[1];
@@ -84,7 +85,7 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
           // not a long name, a short name, or a hint, so the only thing
           // left it can be is a bare name; anything else is malformed
           // and would otherwise become an untypable option
-          throw new TypeError(`Invalid option format: ${p}`);
+          throw new TypeError(`Invalid option format: ${escapeControls(p)}`);
         } else if (!opt.name) {
           opt.name = p;
           long.add(`--${opt.negate ? 'no-' : ''}${opt.name}`);
@@ -105,12 +106,14 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
     // a variadic hint promises `--tag a b c`, which an option never does;
     // only a positional argument can consume consecutive values
     throw new TypeError(
-      `Option "${opt.name}" hint cannot be variadic; use \`multiple: true\` to collect repeated uses into an array`
+      `Option "${escapeControls(opt.name)}" hint cannot be variadic; use \`multiple: true\` to collect repeated uses into an array`
     );
   }
 
   if (opt.type && !OPTION_DATA_TYPES.has(opt.type)) {
-    throw new Error(`Option "${opt.name}" has unsupported data type "${opt.type}"`);
+    throw new Error(
+      `Option "${escapeControls(opt.name)}" has unsupported data type "${escapeControls(opt.type)}"`
+    );
   }
 
   // a description may have been written as a thunk, which is what makes one
@@ -121,7 +124,7 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
   // key the caller never wrote: the copy echoes the declaration, and `hidden`
   // always reading back a boolean is a declared exception rather than the rule
   if (opt.desc !== undefined) {
-    opt.desc = resolveDesc(opt.desc, `the "${opt.name}" option`);
+    opt.desc = resolveDesc(opt.desc, `the "${escapeControls(opt.name)}" option`);
   }
 
   // parse negate
@@ -151,7 +154,7 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
       // `multiple` when the flag is used, and the fallback wraps the default in
       // an array when it is not, so the value changes shape depending on argv
       throw new TypeError(
-        `Option "${opt.name}" cannot be a counter and collect; \`type: 'count'\` already counts repeated uses`
+        `Option "${escapeControls(opt.name)}" cannot be a counter and collect; \`type: 'count'\` already counts repeated uses`
       );
     }
     if (opt.default === undefined) {
@@ -192,7 +195,7 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
         continue;
       }
 
-      throw new TypeError(`Invalid option alias "${alias}"`);
+      throw new TypeError(`Invalid option alias "${escapeControls(alias)}"`);
     }
   }
 
@@ -213,7 +216,7 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
   // where it is printed: a bad declaration is worth rejecting while the schema is
   // being built, not when somebody asks for help
   if (opt.group !== undefined) {
-    opt.group = assertSectionTitle(opt.group, `option "${opt.name}" group`);
+    opt.group = assertSectionTitle(opt.group, `option "${escapeControls(opt.name)}" group`);
   }
 
   const label = long[Symbol.iterator]().next().value || short[Symbol.iterator]().next().value;
@@ -244,7 +247,7 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
     internal,
     ['alias', 'env', 'format', 'name', 'negate'],
     (prop) =>
-      `Cannot set "${prop}" on the initialized "${label}" option: it built the option's spellings, destination, and environment fallbacks, so declare another option and add it to the registry instead`
+      `Cannot set "${prop}" on the initialized "${escapeControls(label)}" option: it built the option's spellings, destination, and environment fallbacks, so declare another option and add it to the registry instead`
   );
 
   return internal;

@@ -327,7 +327,9 @@ export function indexEntry(dir: string, entries: Dirent[]): string | undefined {
   // somebody edits the file that is not being loaded
   if (found.length > 1) {
     const names = found.map((entry) => `"${entry.name}"`).sort();
-    throw new Error(`Directory "${dir}" has more than one index module: ${names.join(', ')}`);
+    throw new Error(
+      `Directory "${escapeControls(dir)}" has more than one index module: ${escapeControls(names.join(', '))}`
+    );
   }
 
   return found.length ? join(dir, found[0]!.name) : undefined;
@@ -414,7 +416,9 @@ export function readPackage(dir: string): PackageRoute | undefined {
   try {
     pkgJson = JSON.parse(json);
   } catch (err) {
-    throw new Error(`Failed to JSON parse ${pkgFile}: ${errorMessage(err)}`, { cause: err });
+    throw new Error(`Failed to JSON parse ${escapeControls(pkgFile)}: ${errorMessage(err)}`, {
+      cause: err,
+    });
   }
 
   const { description, exports, main, name, type } = pkgJson;
@@ -446,7 +450,7 @@ export function readPackage(dir: string): PackageRoute | undefined {
 
   if (!entryFile) {
     throw new Error(
-      `Command package does not have a valid ${type === 'module' ? 'export' : 'main'}: ${dir}`
+      `Command package does not have a valid ${type === 'module' ? 'export' : 'main'}: ${escapeControls(dir)}`
     );
   }
 

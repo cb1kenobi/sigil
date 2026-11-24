@@ -311,6 +311,7 @@ export class Cascade {
   #buckets: Index | undefined;
   #keyframes: Map<string, Keyframes> | undefined;
   #reaching: Set<StyleState> | undefined;
+  #importants: Set<PropertyName> | undefined;
   readonly #listeners = new Set<() => void>();
   readonly #sheets: Stylesheet[] = [];
 
@@ -428,6 +429,7 @@ export class Cascade {
     this.#buckets = undefined;
     this.#keyframes = undefined;
     this.#reaching = undefined;
+    this.#importants = undefined;
     // a copy, so that one subscribing or leaving mid-dispatch cannot change who is called
     const listeners = [...this.#listeners];
     for (const listener of listeners) {
@@ -505,6 +507,71 @@ export class Cascade {
       this.#reaching = found;
     }
     return this.#reaching.has(state);
+  }
+
+  /**
+   * What an `!important` declaration says a property is on an element, if one
+   * wins it: the one property's answer, with no style resolved (SIG-384).
+   *
+   * Props sit below `!important` and above everything else, so this is the one
+   * thing that can outrank a prop, and it is what a reader that has to know
+   * whether a prop's value is the value -- before a frame has resolved it --
+   * asks. The element is matched now, against the classes and states it has now,
+   * which is the point: the answer a resolve would give, for one property and
+   * without the rest. Where no sheet declares the property `!important` at all
+   * it answers `undefined` without matching anything, which is nearly always.
+   *
+   * Which declaration wins is the cascade's own order inside the important band
+   * (`outranks()`, read backwards), and a wide keyword is read against `parent`
+   * as `resolve()` reads it.
+   *
+   * @param node - The element.
+   * @param property - The property.
+   * @param parent - The parent's resolved style, for `inherit`.
+   * @returns The value, or `undefined` where nothing important declares it.
+   */
+  important(node: StyleNode, property: PropertyName, parent?: Style): unknown {
+    if (!this.#importants) {
+      const found = new Set<PropertyName>();
+      for (const sheet of this.#sheets) {
+        for (const rule of sheet.rules) {
+          for (const declaration of rule.declarations) {
+            if (declaration.important) {
+              found.add(declaration.property);
+            }
+          }
+        }
+      }
+      this.#importants = found;
+    }
+    if (!this.#importants.has(property)) {
+      return undefined;
+    }
+
+    let best: Matched | undefined;
+    let winner: RuleDeclaration | undefined;
+    // collected rather than asked of `match()`, which a subclass may override and
+    // `resolveSheets()` does not call: this answers for what a resolve would
+    const found: (Matched | undefined)[] = [];
+    const count = this.#collect(node, found);
+    for (let at = 0; at < count; at++) {
+      const matched = found[at] as Matched;
+      for (const declaration of matched.rule.declarations) {
+        if (
+          declaration.property !== property ||
+          !declaration.important ||
+          (best !== undefined && outranks(matched, true, best, true) < 0)
+        ) {
+          continue;
+        }
+        best = matched;
+        winner = declaration;
+      }
+    }
+    if (winner === undefined) {
+      return undefined;
+    }
+    return winner.keyword ? resolveKeyword(winner.keyword, property, parent) : winner.value;
   }
 
   /**
