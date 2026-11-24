@@ -79,6 +79,15 @@ export interface TooltipOptions {
    * bubble at every stop. `0` shows it at once.
    */
   delay?: number;
+  /**
+   * A third reason to show the bubble, beside the pointer and the focus: shown
+   * while it returns `true`, with neither. Asked in the effect that reads the
+   * focus, so a signal it reads shows or hides the bubble the moment it is set.
+   * `delay` still applies. While it returns `true`, Escape and `hide()` do nothing:
+   * the app asked for the bubble to stay. That is how a line chart's pinned sample
+   * keeps its readout once the focus has gone. Defaults to none.
+   */
+  hold?: () => boolean;
   /** The router hover and focus come from. */
   input: InputRouter;
   /** The widest the bubble may be, border included, in cells. Defaults to 40. */
@@ -329,6 +338,10 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
   if (area !== undefined && typeof area !== 'function') {
     throw new TypeError(__`Expected a tooltip area to be a function`);
   }
+  const hold = opts.hold;
+  if (hold !== undefined && typeof hold !== 'function') {
+    throw new TypeError(__`Expected a tooltip hold to be a function`);
+  }
   const maxWidth = opts.maxWidth ?? MAX_WIDTH;
   if (!Number.isInteger(maxWidth) || maxWidth < 4) {
     throw new TypeError(__`Expected a tooltip maxWidth of at least 4 cells`);
@@ -346,6 +359,8 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
   let follow: (() => void) | undefined;
   /** Escape was pressed, and nothing has left since. */
   let dismissed = false;
+  /** Whether the app held the bubble at the last `update()`, so a hold starting is seen. */
+  let wasHolding = false;
 
   /** What the bubble says. One element for the tooltip's life, moved into each bubble. */
   const label = textNode(opts.text, { class: 'sigil-tooltip-text' });
@@ -507,9 +522,24 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
     return at !== undefined && anchor.contains(at);
   }
 
-  /** Brings the bubble in line with the two reasons for it. */
+  /** Whether the app asked for it to stay, with no pointer and no focus. */
+  function held(): boolean {
+    return hold?.() === true;
+  }
+
+  /** Brings the bubble in line with the three reasons for it. */
   function update(): void {
-    if (!hovered() && !focused()) {
+    // read first and always, so that the effect running this tracks it even when the
+    // pointer or the focus is the reason it is running
+    const holding = held();
+    // a hold that starts is the app asking for the bubble now, so an Escape pressed
+    // before it is not still in force: a pin made after an Escape would otherwise
+    // keep `dismissed` set for as long as it stood, its readout never shown
+    if (holding && !wasHolding) {
+      dismissed = false;
+    }
+    wasHolding = holding;
+    if (!hovered() && !focused() && !holding) {
       dismissed = false;
       remove();
       return;
@@ -524,7 +554,7 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
     timer = setTimeout(() => {
       timer = undefined;
       // asked again, because a hover can end in a report nothing passed on
-      if (hovered() || focused()) {
+      if (hovered() || focused() || held()) {
         show();
       }
     }, delay);
@@ -533,6 +563,12 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
   }
 
   function dismiss(): void {
+    // a bubble the app holds is not Escape's: `dismissed` only clears when the
+    // pointer, the focus and the hold have all gone, and a hold that outlasts
+    // the others would leave Escape's effect permanent
+    if (held()) {
+      return;
+    }
     if (bubble !== undefined || timer !== undefined) {
       dismissed = true;
     }
