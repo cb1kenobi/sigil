@@ -1,7 +1,10 @@
 import { errorExitCode, errorHandler, errorMessage, renderError } from '../src/error-handler.js';
 import type { ErrorContext, ParseState } from '../src/types.js';
+import { createWriteStream, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Writable } from 'node:stream';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * Collects everything written to it so a test can assert on the rendered text
@@ -158,6 +161,102 @@ describe('errorHandler', () => {
     errorHandler(Object.assign(new Error('help'), { exitCode: 0 }), { stderr: out.stream });
 
     expect(process.exitCode).toBe(0);
+  });
+
+  // SIG-663: the process's own stderr is written through `writeTo()`, so a write
+  // that fails is a thrown error here and the exit code is what is left to say so.
+  // A stream the caller supplied is `write()`, and its failure is the caller's
+  describe('a stderr that refuses the message', () => {
+    let write: ReturnType<typeof vi.spyOn>;
+    afterEach(() => write?.mockRestore());
+
+    /** The process's own stderr refusing: the only one whose failure is a cut-off. */
+    const ownRefusing = (code: string, extra: object = {}) => {
+      write = vi.spyOn(process.stderr, 'write').mockImplementation(() => {
+        throw Object.assign(new Error(code), { code, ...extra });
+      });
+    };
+
+    const refusing = (code: string): NodeJS.WritableStream =>
+      ({
+        write() {
+          throw Object.assign(new Error(code), { code });
+        },
+      }) as unknown as NodeJS.WritableStream;
+
+    it('should not throw out of the error path, and keep the error’s own code', () => {
+      expect(() =>
+        errorHandler(Object.assign(new Error('nope'), { exitCode: 2 }), {
+          stderr: refusing('EFBIG'),
+        })
+      ).not.toThrow();
+      expect(process.exitCode).toBe(2);
+    });
+
+    it('should keep the error’s own code when the process’s stderr refused the message', () => {
+      ownRefusing('EFBIG');
+      errorHandler(Object.assign(new Error('nope'), { exitCode: 2 }));
+
+      expect(process.exitCode).toBe(2);
+    });
+
+    it('should not report success over an error that asked for zero and was not written', () => {
+      ownRefusing('ENOSPC');
+      errorHandler(Object.assign(new Error('help'), { exitCode: 0 }));
+
+      expect(process.exitCode).toBe(1);
+    });
+
+    it('should leave a zero alone when the reader went away, since nothing was cut off', () => {
+      ownRefusing('EPIPE');
+      errorHandler(Object.assign(new Error('help'), { exitCode: 0 }));
+
+      expect(process.exitCode).toBe(0);
+    });
+
+    it('should not throw out of the error path over a write error that cannot be read', () => {
+      write = vi.spyOn(process.stderr, 'write').mockImplementation(() => {
+        throw Object.defineProperty(new Error('hostile'), 'code', {
+          get() {
+            throw new Error('getter');
+          },
+        });
+      });
+
+      expect(() => errorHandler(Object.assign(new Error('help'), { exitCode: 0 }))).not.toThrow();
+      // an error that cannot be read is not known to be the reader leaving, so it is
+      // not given the benefit of the doubt
+      expect(process.exitCode).toBe(1);
+    });
+
+    it('should write a supplied fs.WriteStream through its own queue, in order', async () => {
+      // a stream with a descriptor of its own: `writeTo()` would take the
+      // descriptor and put the message ahead of what the stream still holds
+      const dir = mkdtempSync(join(tmpdir(), 'sigil-error-handler-'));
+      const file = join(dir, 'log.txt');
+      const stream = createWriteStream(file);
+      try {
+        // the descriptor is assigned on `open`, which is when it can be taken
+        await new Promise((settle) => stream.once('open', settle));
+        stream.write('line 1\n');
+        stream.write('line 2\n');
+        errorHandler(new Error('boom'), { stderr: stream });
+        stream.write('line 3\n');
+        await new Promise((settle) => stream.end(settle));
+
+        expect(readFileSync(file, 'utf-8')).toBe('line 1\nline 2\nError: boom\nline 3\n');
+      } finally {
+        rmSync(dir, { force: true, recursive: true });
+      }
+    });
+
+    it('should leave a stream the caller supplied to write(), and its failure to the caller', () => {
+      errorHandler(Object.assign(new Error('help'), { exitCode: 0 }), {
+        stderr: refusing('ENOSPC'),
+      });
+
+      expect(process.exitCode).toBe(0);
+    });
   });
 
   it('should honor an exit code on a value that is not an error', () => {

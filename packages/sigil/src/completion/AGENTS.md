@@ -127,6 +127,12 @@ command, wired beside `registerHelp()` and `registerVersion()`.
   `rustup` and `deno` all do -- both generated headers document that redirect, so
   the scriptable form stays a printer and the `> file` idiom cannot break.
 
+  The script is written through `writeOut()` from `@ttylabs/sigil/output` rather
+  than `process.stdout.write()` (SIG-663): `> file` on a full disk or under
+  `ulimit -f` takes a write in part and Node says nothing, so a script cut off
+  mid-function exited 0 and was then sourced by the shell on every start. Now it is
+  `The output was cut off` and exit 1, like `--help`.
+
   What changed is the **bare** form, and the reason is that the old answer was the
   worst one available: `Missing required arguments: <shell>` names the grammar
   rather than the thing to do, at a reader who does not necessarily know which

@@ -2652,9 +2652,8 @@ app that had somebody looking. Chris decided on 2026-11-24 that both are
   `The output was cut off: N of M bytes were written (EFBIG).`, so it takes
   `main()`'s ordinary path -- `beforeError` hooks, the error handler, exit 1, or
   a rethrow under `errorHandler: false`. The message goes to **stderr**, which is
-  a different descriptor from the file that is full; `2> log` on the same full
-  file is the case nothing here covers, since `errorHandler()` writes through the
-  stream.
+  a different descriptor from the file that is full -- and `2> log` on the same
+  full file is `errorHandler()`'s own writer, covered by the entry below.
 - **Only a regular file takes the descriptor path, and only the real stream.** A
   pipe or a terminal is the stream's, whose queue carries a partial write to
   completion and whose `error` event is the guard's. A stream whose `write` was
@@ -2674,9 +2673,33 @@ app that had somebody looking. Chris decided on 2026-11-24 that both are
   every app for a predicate: `output.mjs` imports `node:fs` and nothing else
   (`test/dist.test.ts` holds both halves, as of this entry about 1.1 kB), against
   `terminal.mjs` at about 18 kB over seven modules.
-- **What is not covered.** `app completion bash > file` is `completion.ts`'s own
-  `process.stdout.write()` of a document, and an update notice and a prompt have
-  theirs; none is one of the three the ticket named. The Windows `EOF` is
+- **A completion script and the process's own error message go through `writeTo()` too**
+  (SIG-663). `app completion bash > file` was `completion.ts`'s own
+  `process.stdout.write()` of a document and is `writeOut()` now, so a cut-off is
+  the same `The output was cut off` error and exit 1 as `--help`. `errorHandler()`
+  writes the message through `writeTo()` when the stream is the process's own
+  `stderr`, which is the same loop for a real `2> log`. A stream passed as
+  `opts.stderr` is `write()` as it always was, whatever it is: an `fs.WriteStream`
+  has a descriptor and a queue of its own, and `writeTo()` on it wrote round the
+  queue -- ahead of what it held, and at offset 0 for one opened with `start` --
+  which the review of this entry measured. A capture or a test's sink was never
+  affected. What cannot be done is _report_ a
+  cut-off message: stderr is the thing that failed, so the handler catches what
+  `writeTo()` throws, logs it for `DEBUG=sigil:error`, and **does not throw out of
+  the error path or recurse** -- a second handler pass over a message that cannot be
+  written would fail the same way. The exit code is the one the error asked for, so
+  a usage error is still `2` and a plain one still `1`: that code is the verdict
+  and the lost message does not change it. The one case where it matters is an
+  error that asked for `0` -- the way an error says it is a clean exit -- which
+  would be success reported over half a message, so a failed write to the process's
+  own stderr turns it into `1`; a supplied stream's failure is its owner's and
+  changes nothing. A reader that went away (`isStreamGone()`, on the error or its `cause`)
+  is not a cut-off and leaves the `0` alone, since nothing on a closed pipe was
+  lost that anyone could read. The spawned tests are in
+  `packages/cli/test/output.test.ts` against `fixtures/main-output/app.mjs`, with
+  the descriptor under `ulimit -f` as `2>` for the error and `>` for the script.
+- **What is not covered.** An update notice and a prompt have `write`s of their
+  own, and neither is one of the writers the tickets named. The Windows `EOF` is
   reasoned and not measured, and a write racing the close is untested -- both
   carried over from SIG-537. The spawned size-limit tests are POSIX only, since
   Windows has no `ulimit`; the in-process ones in `test/output.test.ts` and
