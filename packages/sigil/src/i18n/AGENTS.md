@@ -502,7 +502,7 @@ and the check, and `src/i18n/keys.ts` is generated.
 
   **The 87 `new Error` sites were read one by one, and one of them was a
   developer's (SIG-677).** Redone, it was **92 tagged
-  messages in `new Error(...)`, on 90 lines and 82 distinct texts** -- a ternary
+  messages in `new Error(...)`, on 90 lines and 82 distinct source texts** -- a ternary
   carries two on one line, and `util/transform.ts` says `Invalid number` and the
   rest once for a string and once for a value a config file already typed. Each was asked who can
   reach it, which is SIG-668's question and not whether it begins `Expected `.
@@ -546,8 +546,13 @@ and the check, and `src/i18n/keys.ts` is generated.
   callee is matched **by name across the tree** rather than by following the
   import, which can only over-reach -- two unrelated functions sharing a name
   fail loudly, where resolving imports is a place a tag slips past. What it does
-  not see is a message built into a variable first, or returned from a method;
-  none exists today, and the test says so. It was sabotaged by tagging
+  not see is a message wrapped on the way in (`` `${what}: ${message}` ``), a
+  helper that hands its parameter to another helper, a destructured parameter, a
+  method or member callee, or a message built into a variable first
+  (`format.ts`'s `lossyAs()` is one, untagged); no tagged one exists today, and
+  the test says so. Where the same developer mistake is raised from a shared
+  site it stays translated: `default: 'eight'` on an `int` throws the tagged
+  `Invalid integer` from `transformValue()`, which argv reaches too. It was sabotaged by tagging
   `slider.ts`'s `finite(props.min, ...)` message, which fails it naming the call.
   The entry is **8,197 B at 299 keys** as of SIG-677, against 8,251 B at 300 as of
   SIG-668; the ceiling stays at 18 KiB.

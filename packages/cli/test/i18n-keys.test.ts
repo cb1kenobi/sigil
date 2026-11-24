@@ -380,6 +380,18 @@ describe('the committed key set', () => {
         { file: 'b.ts', source: `${call}${build}throw new RangeError(say('x'));\n` },
       ])
     ).toEqual(['a.ts: flag(__`Bad`)', 'b.ts: say() builds __`Bad ${x}`']);
+    // the helper in one module and the call in another, and a helper bound to an
+    // arrow with a default on the parameter: the shapes of the real ones that the
+    // fixtures above are not
+    expect(
+      taggedThroughHelpers([
+        {
+          file: 'e.ts',
+          source: `export const arrow = (v: unknown, message = 'x') => { throw new RangeError(message); };\n`,
+        },
+        { file: 'f.ts', source: `${call}arrow(1, __\`Bad\`);\n` },
+      ])
+    ).toEqual(['f.ts: arrow(__`Bad`)']);
     // a tag handed to a function that does not throw it, or to a parameter of one
     // that is not the one thrown, is no finding
     expect(
