@@ -400,10 +400,25 @@ that knowledge was undiscoverable from outside this repository.
   - Not components: the renderer's frame loop (a throw from a frame is SIG-524's and
     `runApp()`'s `onError`), the config watcher's debounce and probe, and the update
     check's worker timeout, each of which has an error path of its own.
-  - **An effect is not a timer and is the larger gap.** A component whose callback
-    runs from an effect the scheduler flushes in a microtask -- the clock's `format`,
-    for one -- throws there, and that is the signals layer's reporting and not this
-    one's. It is worth a ticket of its own if it turns out to be uncaught in a test.
+  - **An effect is not a timer, and a throw from one is never uncaught in a test
+    (SIG-654).** A component whose callback runs from an effect the scheduler flushes
+    in a microtask -- the clock's `format`, read by `clock.text` -- throws there, and
+    that is the signals layer's reporting and not `onTimerError()`'s. Measured with a
+    clock whose `format` answers until a later tick and then throws, advanced with
+    fake timers over a test terminal: an effect's error is reported and never
+    rethrown (`src/signals/AGENTS.md`), so there is no microtask for nothing to
+    catch, and a test hears it where it already could. Inside `runApp()` it is the
+    renderer's handler, so it is **`onError`**, and with no `onError` it is the
+    default error handler, which draws `Error: ...` on the screen and stops the app.
+    In a bare effect it is **`setErrorHandler()`** (or `createEffects()`'s own), and
+    with none it is `Error in effect: ...` on the real stderr and `process.exitCode`
+    set to `1` -- a line a test passes over, so a test that provokes one registers a
+    handler and asserts on it, and one that does not should expect the exit code to
+    be left behind on the worker. Nothing was added to the test terminal for it: a
+    second hook beside `onError` would be two answers to one question, and
+    `onTimerError()` is for a throw that has no call to come back through, which an
+    effect's has. Pinned in `test/testing/effect-throws.test.ts`; rethrowing from the
+    default handler fails it.
 
 > Moved: _What the sabotage pass found over the helpers_, _What the first review round found, and what it got wrong_, _What the second half of the first round found: the screen model_, _What the second review round found, and it was almost all the tests_, _Reading the prose against the code, which is where the rest of it was_, _Two of the tests were weaker than their names, found by reading them_, _What re-reading the code found that neither the pass nor a reviewer did_ — see [docs/history/testing-helpers-and-the-faked-tty-our-own-suite-proves-you-n.md](../../../../docs/history/testing-helpers-and-the-faked-tty-our-own-suite-proves-you-n.md).
 
