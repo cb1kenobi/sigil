@@ -1727,14 +1727,16 @@ dispatches between the printer and the installer.
   **This was a decision the ticket left open and is recorded for confirmation**:
   stripping is the alternative if a menu entry for such a choice is wanted more
   than a correct one. The command reference reads the same function, so it lists
-  neither the name nor the stripped form -- **and for a choice that states a
-  wrong constraint**: `choicesOf()` gets an empty list where every choice was
-  dropped, which the markdown prints as the hint placeholder, so a page says any
-  value is accepted where the parser enforces a list. The same shape existed for a
-  control character, which was never typeable; it now reaches typeable text such
-  as a Persian value or a heart with U+FE0F. Left as it is rather than giving the
-  reference its own answer, since two readers disagreeing about what can be typed
-  is what `tokensFor()` is shared to prevent, and filed as its own ticket.
+  neither a command's name nor the stripped form. **A choice is the exception,
+  since SIG-643**: the reference used to read `declaredValues()`, so a list whose
+  every entry was dropped printed the hint placeholder and said any value is
+  accepted where the parser enforces a list -- reaching typeable text such as a
+  Persian value or a heart with U+FE0F as well as a control character. The surface
+  now asks `choiceTokens()`, the unfiltered half of the same function, and shows
+  each choice escaped, so a page never states a constraint it does not have. Two
+  readers still agree about what is _typeable_ -- that is `declaredValues()` and
+  is unchanged for the menu -- and differ about what is _shown_, which is the
+  question a menu and a page ask differently.
   Covered per shell, for a name, an alias, a choice, a positional choice and the
   whole class, by `test/completion-format-chars.test.ts`; sabotaging `typeable()`
   back to `\p{Cc}` fails the first six and a narrower `\p{Cf}` pattern fails the

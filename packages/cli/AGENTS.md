@@ -7405,6 +7405,57 @@ N diffs. The inheritance is a fact about the parser rather than about any one
 command, so the markdown says it once as prose on each page that has an ancestor
 with options.
 
+#### A format character is escaped where a reader meets it, and a token is filtered where argv does (SIG-643)
+
+`surface.ts` and `markdown.ts` each carried a pattern of their own, both
+`\p{Cc}`, so a U+202E went into a committed page in the program's name and in an
+example's text and into the snapshot in an `env` name -- and a choice that
+`declaredValues()` dropped left an option with **no** choices, which the page
+printed as its hint: any value accepted, where the parser enforces the list. That
+was SIG-632's cost, recorded there and filed here. Both patterns are gone;
+everything asks `withoutUnsafe()` or `escapeControls()` from
+`util/escape-controls.ts`, so the class is defined once.
+
+**Two rules, one per kind of text, and they are the two the completion entry
+already draws.** A **token** argv matches -- a command name, an alias -- is
+filtered by reachability, because `tokensFor()` and `segmentFor()` answer for
+both printers and a path is a file name: `go\u{202E}x.md` would hold a backslash
+Windows refuses. A **value a reader is meant to see** -- a choice, an `env` name,
+a `hint`, an example's text -- is **escaped**, as `\u{202E}` or `\x1B`, which is
+what an error message echoing the same value prints. Dropping it was the
+misstatement: a reader of a page cannot see what was removed, and a list with
+every entry removed reads as no list. `choiceTokens()` is the unfiltered half of
+`declaredValues()` -- one stringification of a choice, two questions asked of it
+-- and the surface escapes what it returns, so `SurfaceOption.choices` is "as a
+reader can read them" rather than "as a shell can type them", which differs only
+for a choice the completion menu would not offer.
+
+The program's name is **refused** under the full class, not escaped: what reaches
+a page is the name rather than a cleaned copy, and the message does not echo it.
+A newline or a tab inside a choice, a `hint` or an `env` name is in the class and
+is escaped (`\x0A`, `\x09`) rather than flattened: a hint that used to read as one
+spaced line now shows the escape, and a choice holding one -- dropped before --
+is listed. An example's text keeps its own newlines and tabs, and reads `\r\n` as
+one line break. After escaping, two choices that print the same (`a` + U+202E and
+the literal text `a\u{202E}`) are one entry in the page and the snapshot, so
+removing one of the pair is invisible to `--check`; that is the lossy price below.
+An empty choice is kept and the page spells it `""`, since `<>` reads as a list
+with nothing in it. Escaping is lossy in one direction only -- a choice that
+already holds the four characters `\u{202E}` is shown the same as one that holds
+the character, which is the price `escapeControls()` records for not doubling
+every backslash.
+
+A **description** and a name in a code span are still stripped by
+`descriptionLine()`, which is SIG-610's call for text that is shown rather than
+matched, and is unchanged. What moved in the snapshot is only an `env` name or a
+choice holding a character of the class: `a\u{202E}b` instead of nothing for a
+choice, and the escaped form for an `env` that used to be written raw. No
+committed reference or snapshot in this repository holds one, so none was
+regenerated. Covered by `packages/sigil/test/reference-format-chars.test.ts` and
+`packages/cli/test/reference-format-chars.test.ts`; the command-name cases there
+are guards that pass without this change, since SIG-632 already filtered the
+name.
+
 #### The website consumes it, which is what proves the shape is usable
 
 `website/src/reference/` holds the generated pages, committed, and

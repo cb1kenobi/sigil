@@ -23,10 +23,10 @@
  * they do agree on.
  *
  * What is *not* re-derived is anything either already decides. `tokensFor()`,
- * `listedTokens()`, `segmentFor()` and `declaredValues()` are imported from the
+ * `listedTokens()`, `segmentFor()` and `choiceTokens()` are imported from the
  * completion spec, because "which tokens reach this command", "which of them a
- * listing shows", "what its path is written with" and "what can be typed for
- * this choice" have one right answer each and two walks that each worked one
+ * listing shows", "what its path is written with" and "what a choice is
+ * spelled as" have one right answer each and two walks that each worked one
  * out would be two answers.
  *
  * ## It loads every module, and that is the one place that is right
@@ -54,13 +54,21 @@
  * A description is carried exactly as the declaration resolved it, newlines and
  * all, because a printer's format decides what a description has to become --
  * markdown flattens one into a table cell, and a snapshot drops it. A *token* is
- * filtered by reachability instead: a name no registry answers to and a choice
- * holding a control character are each reachable by nothing, so neither is part
- * of what argv accepts. One line rather than two rules: prose is the printer's,
- * and reachability is the walk's.
+ * filtered by reachability instead: a command name no registry answers to, or one
+ * holding a control or format character, is reachable by nothing, so it is not
+ * part of what argv accepts. One line rather than two rules: prose is the
+ * printer's, and reachability is the walk's.
+ *
+ * **A value a reader has to be able to see is escaped rather than filtered**
+ * (SIG-643): a choice, an `env` name and a `hint` go through `escapeControls()`,
+ * so a U+202E in one reads as `\u{202E}` instead of reversing the line it is
+ * printed on or vanishing. Dropping a choice is `completionSpec()`'s call and is
+ * right for a menu, which inserts it; here it made a list whose every entry was
+ * dropped read as no list, and a page said any value is accepted where the parser
+ * enforces the list.
  */
 
-import { declaredValues, listedTokens, segmentFor, tokensFor } from '../completion/spec.js';
+import { choiceTokens, listedTokens, segmentFor, tokensFor } from '../completion/spec.js';
 import { initCommand } from '../parser/command/init-command.js';
 import { loadCommand } from '../parser/command/load-command.js';
 import type { OptionRegistry } from '../parser/option/option-registry.js';
@@ -75,20 +83,15 @@ import {
   type Schema,
 } from '../types.js';
 import { byCodeUnit } from '../util/by-code-unit.js';
-
-/**
- * A control character, for the one name nothing else filters.
- *
- * A command's name is filtered by `tokensFor()`'s own `typeable()` check and an
- * option's spellings are refused by `initOption()`, so the program's is the only
- * one that reaches a printer unchecked. Without the `g` flag, because `test()` on
- * a global regex is stateful -- the trap `spec.ts` keeps two patterns for.
- */
-const HAS_CONTROL = /\p{Cc}/u;
+import { escapeControls, withoutUnsafe } from '../util/escape-controls.js';
 
 /** One positional argument, in the place it is typed. */
 export interface SurfaceArgument {
-  /** The values it accepts, as argv has to spell them. Empty where any value will do. */
+  /**
+   * The values it accepts, as a reader can read them: each one as argv spells it, and
+   * **escaped** (`\u{202E}`, `\x0A`) where it holds a control or format character, so a
+   * list is never shorter than the declaration's (SIG-643). Empty where any value will do.
+   */
   readonly choices: readonly string[];
   /** What it is for, exactly as the declaration resolved it. */
   readonly desc?: string;
@@ -119,7 +122,11 @@ export interface SurfaceArgument {
 
 /** One option, as argv reaches it. */
 export interface SurfaceOption {
-  /** The values it accepts, as argv has to spell them. Empty where any value will do. */
+  /**
+   * The values it accepts, as a reader can read them: each one as argv spells it, and
+   * **escaped** (`\u{202E}`, `\x0A`) where it holds a control or format character, so a
+   * list is never shorter than the declaration's (SIG-643). Empty where any value will do.
+   */
   readonly choices: readonly string[];
   /**
    * What a value falls back to, where the declaration named one and it is not a
@@ -283,7 +290,13 @@ export interface CommandSurface {
 }
 
 /**
- * The declared `choices` as argv has to spell them.
+ * The declared `choices`, each one spelled as argv spells it and **escaped** where
+ * it holds a control or format character (SIG-643).
+ *
+ * Escaped rather than dropped, which is `declaredValues()`'s answer for a
+ * completion menu: a choice that cannot be typed is still a choice, and a list
+ * with every entry removed reads as no list at all. Written through
+ * `escapeControls()`, so the spelling is the one an error message echoes.
  *
  * `[]` rather than `undefined` for a declaration that named none, because every
  * reader asks `length` and a snapshot that sometimes omits the key would make a
@@ -295,7 +308,9 @@ export interface CommandSurface {
  * @returns The tokens, in declaration order.
  */
 function choicesOf(type: string, choices: unknown): readonly string[] {
-  return Array.isArray(choices) ? declaredValues(type, choices) : [];
+  return Array.isArray(choices)
+    ? [...new Set(choiceTokens(type, choices).map((token) => escapeControls(token)))]
+    : [];
 }
 
 /**
@@ -338,7 +353,7 @@ function argumentOf(arg: InternalArgument): SurfaceArgument {
     // first-wins rule -- and this recorded none of them, so `ENTRY=x mycli`
     // working was a contract the snapshot could not see being broken. Measured.
     // Found by review
-    env: [...arg[Internal].envs],
+    env: [...arg[Internal].envs].map((name) => escapeControls(name)),
     multiple: !!arg.multiple,
     name: arg.name,
     required: !!arg.required,
@@ -377,10 +392,10 @@ function optionOf(opt: InternalOption, registry: OptionRegistry): SurfaceOption 
     // `--help` about the same declaration
     default: opt[Internal].impliedDefault ? undefined : opt.default,
     desc: typeof opt.desc === 'string' ? opt.desc : undefined,
-    env: [...envs],
+    env: [...envs].map((name) => escapeControls(name)),
     group: typeof opt.group === 'string' ? opt.group : undefined,
     hidden: !!opt.hidden,
-    hint: typeof opt.hint === 'string' ? opt.hint : undefined,
+    hint: typeof opt.hint === 'string' ? escapeControls(opt.hint) : undefined,
     long: [...long].filter(reaches),
     multiple: !!opt.multiple,
     name: opt.name,
@@ -469,11 +484,18 @@ export async function commandSurface(schema: Schema): Promise<CommandSurface> {
   // the name rather than a cleaned copy of it. Two different questions, which
   // is why they are two checks rather than one -- said out loud here because
   // the previous sentence claimed the opposite
-  if (!program || /\s/u.test(program) || HAS_CONTROL.test(program)) {
+  // the whole class `escapeControls()` names, a format character such as U+202E
+  // included (SIG-643): this asked `\p{Cc}` alone, so a name holding one printed
+  // a usage line the terminal drew reversed and wrote the character raw into a
+  // front matter title and a snapshot. Refused rather than escaped, for the
+  // reason above -- what reaches a page is the name
+  const unsafe = withoutUnsafe(program) !== program;
+
+  if (!program || /\s/u.test(program) || unsafe) {
     throw new Error(
       `Cannot build a command reference: ${
         program
-          ? `this app's name holds ${HAS_CONTROL.test(program) ? 'a control character' : 'whitespace'}, which a heading, a usage line and a front matter title cannot carry`
+          ? `this app's name holds ${unsafe ? 'a control or format character' : 'whitespace'}, which a heading, a usage line and a front matter title cannot carry`
           : 'this app declares no name'
       }, and a reference has to say what to type. Set "name" on the schema to the command a user runs, which is one word.`
     );
