@@ -7837,8 +7837,8 @@ have.
   keyboard's sample and returns to the pin, so the effect that forgot it still does
   and `pinned` is the one fallback beneath it. The pointer wins while it moves, as
   it does over the keyboard, and gives the rule back to the pin when it leaves.
-  A limit, recorded rather than fixed: while the chart is focused and the rule has
-  moved off the pin, nothing shows where the pin is; it is seen again on blur.
+  The limit this recorded -- while the chart is focused and the rule has moved off
+  the pin, nothing shows where the pin is -- is closed by SIG-620 below.
 - **The readout stands through the tooltip's new `hold`.** The bubble was shown by
   the pointer or the focus and nothing else, so a pin had no readout once the focus
   went. `TooltipOptions.hold` is a function that returns `true` for a third reason
@@ -7880,6 +7880,38 @@ have.
   footer keeps the pin over the movement keys. The
   dashboard's chart footer is therefore longer by those words; its tests are
   re-read for it rather than assumed.
+
+### A pinned sample is marked where the rule is not (SIG-620)
+
+- **The marker is a cell on the plot's top row and a tick on the axis, both in the
+  pinned sample's column, and drawn only where the rule is in another one.** `▼` on
+  the plot and `▲` in the axis row, `v` and `^` in ASCII, so it needs no colour to
+  be seen. Where the rule stands on the pin's cell it already marks it -- with the
+  `┴` tick and the rule -- and a second glyph there would only hide that, so the
+  marker is the answer to "where is the pin" and goes the moment the answer is "under
+  the rule". It is compared by cell column rather than by sample, because under
+  `step: 'fit'` two samples can share one cell and the rule in it is the pin's.
+  The pin is clamped to the oldest drawn as the rule is, so one that scrolled off the
+  left is marked on the left edge.
+- **A line beats it on the plot, as it beats the rule.** The top cell of the
+  pinned column is the highest value's wherever the pinned sample is the highest, so
+  there the plot's marker is not drawn and the axis one is the answer. A chart with
+  `axis: false` has only the plot's, and loses it under a line there -- and under
+  the readout's bubble, which sits beside the rule over the plot's top rows, so a pin
+  within about nine columns of the rule is covered while the readout is shown. A
+  limit, recorded rather than fixed, since moving the marker off the plot's top row
+  would make it a thing that wanders with the data.
+- **The marker and Enter can disagree under `fit`.** The marker is compared by cell
+  and Enter by sample (SIG-607), so with the rule on a neighbour of the pin in the
+  pin's cell no marker shows and Enter moves the pin rather than clearing it. Both
+  rules stand on their own; the cell is the finest thing a reader can see.
+- **`sigil-chart-pin`, with `sigil-warn` beside it,** is the theme hook: the warn role
+  because the rule is already the muted and the accent roles, and it is a colour
+  nobody reads as "the keys go here". It is a segment of its own, not a run the
+  blanks beside it join, so a theme that gives it a background paints one cell.
+  `LineLayout.pinned` carries it, and the draw reads the pin unconditionally: the
+  rule's `back ?? pinned` short-circuits, so without the marker's own read a pin
+  cleared while the keyboard sample already said where the rule was would not redraw.
 
 ### An image: a picture fitted to the box it got, in half blocks (SIG-326)
 
@@ -10408,6 +10440,56 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   spelling: a terminal reports no key release, so there is nothing to say when a
   shift range ends, and `v` is lazygit's too. The line keys reject a modified key
   as they did, so Shift and an arrow reaches the scroll box.
+
+  **A drag over lines is the same range, and the view's own (SIG-623).** A press on
+  an added or removed line of the current hunk, while the cursor is on the lines,
+  records the line and nothing else: it is not stopped, so it still focuses the
+  view, and a plain click is still only the click that moves the cursor. The
+  pointer leaving that line is what begins the range -- the anchor is the line
+  pressed, the base is what was picked, and each move after it is `pickRange()` to
+  the line under the pointer, which is `v` and a step, so there is no second way to
+  compute a range. The handler is on the rows, where the click's already is: a press
+  captures the pointer, so the moves and the release reach the row it landed on
+  wherever the pointer has got to, and `mouseOn()` routes by kind. Once the range
+  has begun the moves and the release are stopped, and **so is the click that
+  follows**, which is the trap `05-drag.js` found -- a release on the row pressed
+  lands the click on that row, and `clicked()` swallows one click after a drag
+  began. A release that makes no click (off the canvas) would leave that flag
+  armed, so every press clears it. Release closes the range and keeps the picks,
+  as the second `v` does.
+
+  **It clamps rather than scrolls, which was the ticket's to choose.** The pointer's
+  row is read against the viewport's content box and its scroll, clamped to the
+  rows in view, and then to the hunk's first and last line; a context line under
+  the pointer is the changed line nearest it on the anchor's side, so dragging down
+  over `three` ends on the line above it and dragging up ends on the line below,
+  which is where `v` and the arrows would stop. A captured drag reports rows off
+  the canvas, so the clamp is what makes a drag off the edge pick as far as the
+  view shows. Scrolling would take a timer for a pointer held still off the edge,
+  motion reports arriving only when it moves. A hunk taller than the view is
+  dragged as far as it shows and `v` or the wheel does the rest. A wheel turn
+  mid-drag takes the pressed row out of the tree, which keeps its parent and its
+  handler (measured), so the moves still reach it and are read against the scroll
+  as it now is -- and a context line under the pointer then resolves toward an
+  anchor that may be off screen, so the cursor can land on a changed line out of
+  view and the cursor's own reveal scrolls to it. That is the one place a drag
+  scrolls, and it is left alone: it needs a wheel in the middle of a drag.
+
+  **Whatever takes the drag away closes the range it opened, and whatever closes the
+  range takes the drag away.** `endDrag()` is asked when a new drawing replaces the
+  rows, when the cursor leaves the lines (`resetLines()` clears the drag with the
+  anchor), on a press, and on motion with nothing held -- what an app reporting
+  hover is sent when the release never came -- because the release that would
+  close the range finds no drag to close. The other direction is `closeRange()`,
+  which `v`, `x`, `a`, a click and an app's write all use: a drag whose release was
+  lost would otherwise still be remembered, and its `endDrag()` would close the
+  range `v` opened after it. Another button's press or motion is neither the
+  drag's to end nor to continue. What is not covered is a lost release with
+  nothing after it: no report reaches the view until the pointer is over a stop
+  row with motion reported, so the range stays open for the keys until something
+  above does happen. Each of the rest is pinned by a test that fails without it,
+  bar the `endDrag()` in the cursor-left branch of `moved()`, which is reached
+  only after something else has already closed the range.
 
   **The line state belongs to one hunk and is emptied whenever the subject
   changes**: the current stop changes (`]`, `[`, a click, the app writing it), the
