@@ -121,14 +121,19 @@ function run(
     ? ['--import', TTY_PRELOAD, '--input-type=module', '-e', app]
     : ['--input-type=module', '-e', app];
 
-  // what the installer reads that this does not set, and so would otherwise
-  // take from whoever ran the suite. `ZDOTDIR` is the one: it moves zsh's
-  // startup file off `HOME`, so a parent shell exporting it sent the child to
-  // that shell's real `.zshrc`. Nothing here spawns a shell, so `BASH_ENV`,
-  // `ENV` and the rest of what a shell reads at startup are never read -- the
-  // child is node, and `installTarget()` reads `XDG_DATA_HOME`, `ZDOTDIR` and
-  // `HOME` only, of which this sets two and removes the third
-  const { ZDOTDIR: _inherited, ...inherited } = process.env;
+  // what the child reads that this does not set, and so would otherwise take
+  // from whoever ran the suite. `ZDOTDIR` is the one that started it: it moves
+  // zsh's startup file off `HOME`, so a parent shell exporting it sent the child
+  // to that shell's real `.zshrc`. `SIGIL_ACCESSIBLE` is the other, since it
+  // switches the prompts to lines in and lines out, which no keystroke here
+  // answers. Nothing here spawns a shell, so `BASH_ENV`, `ENV` and the rest of
+  // what a shell reads at startup are never read -- the child is node. Matched
+  // upper-cased, because Windows keeps whatever case the variable was set in and
+  // looks it up without regard to it, which a rest-spread of `process.env` does not
+  const uncontrolled = new Set(['SIGIL_ACCESSIBLE', 'ZDOTDIR']);
+  const inherited = Object.fromEntries(
+    Object.entries(process.env).filter(([name]) => !uncontrolled.has(name.toUpperCase()))
+  );
 
   return new Promise((settle, fail) => {
     const child = spawn(process.execPath, [...node, 'completion', ...args], {
