@@ -1,6 +1,14 @@
 import { guardOutput, isStreamGone, writeFully, writeOut, writeTo } from '../src/output.js';
 import { EventEmitter } from 'node:events';
-import { closeSync, mkdtempSync, openSync, readFileSync, rmSync } from 'node:fs';
+import {
+  closeSync,
+  createWriteStream,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -212,7 +220,17 @@ describe('writeTo()', () => {
     rmSync(dirname(file), { force: true, recursive: true });
   });
 
-  it('should write a regular file through its descriptor, whole', () => {
+  /** Makes `process.stderr` answer as `stream` for the length of `body`, the way a real descriptor would. */
+  function asStderr(stream: object, body: () => void): void {
+    const spy = vi.spyOn(process, 'stderr', 'get').mockReturnValue(stream as never);
+    try {
+      body();
+    } finally {
+      spy.mockRestore();
+    }
+  }
+
+  it('should write the process’s own file through its descriptor, whole', () => {
     class FileStream {
       constructor(readonly fd: number) {}
       write(): boolean {
@@ -221,13 +239,68 @@ describe('writeTo()', () => {
     }
     fd = openSync(file, 'w');
     try {
-      writeTo(new FileStream(fd), 'one\n');
-      writeTo(new FileStream(fd), 'two\n');
+      const stream = new FileStream(fd);
+      asStderr(stream, () => {
+        writeTo(stream, 'one\n');
+        writeTo(stream, 'two\n');
+      });
     } finally {
       closeSync(fd);
     }
 
     expect(readFileSync(file, 'utf-8')).toBe('one\ntwo\n');
+  });
+
+  it('should leave a stream somebody else made to its own write(), whatever descriptor it holds', () => {
+    // SIG-671: an `fd` is not what makes the descriptor the process's to write to
+    fd = openSync(file, 'w');
+    try {
+      // a prototype method, which is what a stream class has: an own `write` is
+      // already the capture case below
+      class Theirs {
+        readonly seen: string[] = [];
+        constructor(readonly fd: number) {}
+        write(text: string): boolean {
+          this.seen.push(text);
+          return true;
+        }
+      }
+      const theirs = new Theirs(fd);
+      writeTo(theirs, 'theirs\n');
+
+      expect(theirs.seen).toEqual(['theirs\n']);
+      expect(readFileSync(file, 'utf-8')).toBe('');
+    } finally {
+      closeSync(fd);
+    }
+  });
+
+  it('should keep what a caller’s fs.WriteStream has queued ahead of what it writes (SIG-671)', async () => {
+    const dest = join(dirname(file), 'queued.txt');
+    const stream = createWriteStream(dest);
+    await new Promise((settle) => stream.once('open', settle));
+
+    // the first write is in flight and the next two are queued behind it, which is
+    // exactly what a descriptor write would jump
+    stream.write('one\n');
+    stream.write('two\n');
+    writeTo(stream, 'three\n');
+    await new Promise((settle) => stream.end(settle));
+
+    expect(readFileSync(dest, 'utf-8')).toBe('one\ntwo\nthree\n');
+  });
+
+  it('should write at the position of a caller’s fs.WriteStream opened with start (SIG-671)', async () => {
+    const dest = join(dirname(file), 'start.txt');
+    writeFileSync(dest, 'HEAD');
+    const stream = createWriteStream(dest, { flags: 'r+', start: 4 });
+    await new Promise((settle) => stream.once('open', settle));
+
+    writeTo(stream, 'body');
+    await new Promise((settle) => stream.end(settle));
+
+    // a write to the descriptor lands at offset 0 and replaces the head
+    expect(readFileSync(dest, 'utf-8')).toBe('HEADbody');
   });
 
   it('should leave a stream whose write was replaced to its replacement', () => {

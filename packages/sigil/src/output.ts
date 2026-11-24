@@ -163,7 +163,16 @@ export function writeFully(text: string, write: WriteBytes): void {
 }
 
 /**
- * The descriptor to write through directly, when a stream is a regular file.
+ * The descriptor to write through directly, when a stream is the process's own
+ * output and is a regular file.
+ *
+ * Only `process.stdout` and `process.stderr` (SIG-671): a stream somebody else
+ * made has a queue of its own, and an `fs.WriteStream` has a position too, so
+ * writing to its descriptor puts the text ahead of what the stream still holds
+ * and, for one opened with `start`, at offset 0 of the file. The process's own
+ * streams are the ones whose descriptor is nobody's but the process's, which is
+ * what makes writing round them safe. Compared by identity and read at call time,
+ * since `process.stdout` is a getter and a test may have replaced it.
  *
  * Only a file: a pipe or a terminal is written through the stream, whose queue
  * already carries a partial write to completion and whose `error` event is what
@@ -174,6 +183,10 @@ export function writeFully(text: string, write: WriteBytes): void {
  * @returns The descriptor, or `undefined` for the stream to handle.
  */
 function fileDescriptor(stream: object): number | undefined {
+  if (stream !== process.stdout && stream !== process.stderr) {
+    return undefined;
+  }
+
   const fd = (stream as { fd?: unknown }).fd;
   if (Object.hasOwn(stream, 'write') || typeof fd !== 'number') {
     return undefined;
@@ -187,11 +200,16 @@ function fileDescriptor(stream: object): number | undefined {
 }
 
 /**
- * Writes to a stream, and throws if the stream is a file and not all of it landed.
+ * Writes to a stream, and throws if the stream is the process's own output, is a
+ * file, and not all of it landed.
  *
- * Anything that is not a regular file -- a pipe, a terminal, a stream whose
- * `write` was replaced, a stream with no descriptor -- is `stream.write()`,
- * unchanged. For a file the text goes through the descriptor, whole.
+ * Only `process.stdout` and `process.stderr` take the checked path. Any other
+ * stream -- a pipe, a terminal, a stream whose `write` was replaced, a stream with
+ * no descriptor, and a stream the caller opened, an `fs.WriteStream` included --
+ * is `stream.write()`, unchanged: it owns its queue and its position, so the text
+ * lands in order and where the stream says. What such a stream does about a short
+ * write is its own, and arrives as its `error` event rather than as a throw here.
+ * For the process's own file the text goes through the descriptor, whole.
  *
  * @param stream - Where to write: `process.stdout` for a document, and
  * `process.stderr` for a diagnostic, since `2> log` is a file as much as `> out`.
