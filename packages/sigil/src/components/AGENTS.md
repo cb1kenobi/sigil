@@ -8014,14 +8014,35 @@ have.
   is the same clamp, and not to `side: 'top'` or `'bottom'`. A line that was already wider than the bubble's
   cap, and wrapped, is cut too once the room is under the reach. `MIN_READOUT` is a constant
   of the chart's own for the reason the 40 above is. The room is read from the last
-  layout's boxes, as the area is, so a terminal narrowed with the chart's own size
-  unchanged is cut at the next drawing and not before. The reach is still an estimate
+  layout's boxes, as the area is. The reach is still an estimate
   from the words, so a bubble the screen squeezes is narrower than it says, which only
-  keeps it a few cells further out. The SIG-636 tests in
+  keeps it a few cells further out.
+  The SIG-636 tests in
   `test/components/chart-live.test.ts` pin the reach exactly, the widest line,
   `maxWidth`, a line under the pin, and `side: 'top'`; the SIG-646 ones pin the cut past
   the pin, the fall back to the rule, a rule with no pin, and a readout that fits being
   left as said; each fails with its rule taken out.
+  **A layout says it again, so a resize needs no key (SIG-651).** That read was a
+  limit: `follow()` ran from a drawing, a drawing from a key, a pointer move, data or
+  the chart's own size, and a terminal narrowed with the chart's own size unchanged
+  (a fixed `width`) runs none of them, so the widened area and the cut words stayed
+  those of the old screen until the next key. The host's `onLayout` -- which every
+  layout owes -- now calls `follow()` again on the last drawing, which is kept as
+  `drawn`, reading the boxes the new layout has just given. `follow()` writes the
+  words and the area only where they moved and says whether it did, which is the
+  answer `onLayout` gives: a layout that moved nothing sets nothing and asks for no
+  pass, and one that did owes the settle loop another. It is untracked, since a layout
+  may run inside something that tracks and the caller's `text()` is not ours to
+  subscribe it to. It says the words the drawing's `text()` already said rather than
+  asking again (`spoken`), so a `text()` that reads a clock cannot disagree with itself
+  and owe a pass of every layout; `drawn` is kept only after those words passed the
+  string check, so a `text()` that threw is not retried by every layout after it. The chart **owns** `onLayout` for that, as it owns `onKey`
+  (SIG-305): refused in `props` and left out of the type, not composed, so a
+  later `onLayout` assignment on the host is the caller replacing the placement.
+  The tooltip's own resize handling is untouched: it still builds a fresh bubble,
+  and what was stale was the chart's input to it. The SIG-651 tests narrow and widen
+  the terminal under a held pin and assert the bubble's columns after a single
+  frame; each fails with the `onLayout` taken out.
 - **The marker and Enter can disagree under `fit`.** The marker is compared by cell
   and Enter by sample (SIG-607), so with the rule on a neighbour of the pin in the
   pin's cell no marker shows and Enter moves the pin rather than clearing it. Both

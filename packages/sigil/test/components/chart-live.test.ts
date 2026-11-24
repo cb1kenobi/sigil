@@ -835,6 +835,7 @@ describe('LineChart, with a crosshair from the keyboard (SIG-516)', () => {
         await settle();
       },
       screen: () => term.viewport.map((line) => line.trimEnd()),
+      settle,
       term,
     };
   }
@@ -1656,6 +1657,82 @@ describe('LineChart, with a crosshair from the keyboard (SIG-516)', () => {
           expect(m.screen()[1]).toContain(`│ ${'x'.repeat(10)} │`);
         });
       });
+
+      describe('a terminal resized with the chart held still (SIG-651)', () => {
+        const wide = 'x'.repeat(36);
+        const mountWide = () =>
+          mount((input) => ({
+            axis: false,
+            crosshair: { input, text: () => wide },
+            props: { height: 6, width: 30 },
+          }));
+
+        it('should cut the readout again to the narrower terminal without a key', async () => {
+          const m = await mountWide();
+          // the pin in column 0 and the rule in column 29 on a screen of 40: the room
+          // past the pair is 10 cells, so the words are cut to 6 and the bubble is at 30
+          await m.key(KEYS.tab, KEYS.home, KEYS.enter, KEYS.end);
+          expect((m.screen()[0] ?? '').indexOf('╭')).toBe(30);
+          // 34 columns leave no room past the pair, so the bubble is beside the rule alone
+          m.term.resize(34, 8);
+          await frame(m.app);
+          const top = m.screen()[0] ?? '';
+          expect(top.indexOf('╭')).toBe(0);
+          expect(top.indexOf('╮')).toBe(28);
+          expect(m.screen()[1]).toContain('…');
+          expect((m.screen()[2] ?? '')[29]).not.toBe(' ');
+        });
+
+        it('should widen the readout again to a wider terminal without a key', async () => {
+          const m = await mountWide();
+          await m.key(KEYS.tab, KEYS.home, KEYS.enter, KEYS.end);
+          m.term.resize(34, 8);
+          await frame(m.app);
+          expect((m.screen()[0] ?? '').indexOf('╭')).toBe(0);
+          m.term.resize(40, 8);
+          await frame(m.app);
+          expect((m.screen()[0] ?? '').indexOf('╭')).toBe(30);
+        });
+
+        it('should not ask the text function again for a layout, so a clock in it cannot spend every pass', async () => {
+          let asked = 0;
+          const m = await mount((input) => ({
+            axis: false,
+            crosshair: {
+              input,
+              text: () => {
+                asked++;
+                return `${wide}${asked}`;
+              },
+            },
+            props: { height: 6, width: 30 },
+          }));
+          await m.key(KEYS.tab, KEYS.home, KEYS.enter, KEYS.end);
+          const before = asked;
+          m.term.resize(34, 8);
+          await m.settle();
+          await m.settle();
+          // the drawings a resize and its effects ask for, and not one per layout pass
+          expect(asked - before).toBeLessThanOrEqual(2);
+          await m.settle();
+          const stable = asked;
+          await m.settle();
+          expect(asked).toBe(stable);
+        });
+
+        it('should keep the bubble clear of the pin it was widened around after a resize', async () => {
+          // the pin in column 19 and the rule in column 0: the bubble is past the pin
+          const m = await mountWide();
+          await m.key(KEYS.tab, KEYS.home, KEYS.right, KEYS.right, KEYS.enter, KEYS.home);
+          expect((m.screen()[0] ?? '').indexOf('╭')).toBe(20);
+          m.term.resize(36, 8);
+          await frame(m.app);
+          const top = m.screen()[0] ?? '';
+          expect(top.indexOf('▼')).toBe(19);
+          expect(top.indexOf('╭')).toBe(20);
+          expect(top.indexOf('╮')).toBe(35);
+        });
+      });
     });
 
     it('should claim Enter, Home and End while it has the focus', async () => {
@@ -1697,9 +1774,28 @@ describe('LineChart, with a crosshair from the keyboard (SIG-516)', () => {
     // @ts-expect-error a chart with a crosshair owns `onKey`
     const bad: LineChartProps = { crosshair: { input }, data: [1], props: { onKey: () => {} } };
     expect(bad.props).toBeDefined();
+    // @ts-expect-error a chart with a crosshair owns `onLayout`, which places its readout (SIG-651)
+    const laid: LineChartProps = {
+      crosshair: { input },
+      data: [1],
+      props: { onLayout: () => false },
+    };
+    expect(laid.props).toBeDefined();
     // @ts-expect-error `vim` is the crosshair's letters, so a chart with none takes none
     const letters: LineChartProps = { data: [1], vim: true };
     expect(letters.vim).toBe(true);
+  });
+
+  it('should refuse an onLayout in the props of a chart with a crosshair, which places its readout (SIG-651)', async () => {
+    const m = await mount();
+    expect(() =>
+      LineChart({
+        crosshair: { input: m.app.input as InputRouter },
+        data: [1],
+        props: { onLayout: () => false } as never,
+      })
+    ).toThrow(/LineChart sets onLayout itself/);
+    expect(() => LineChart({ data: [1], props: { onLayout: () => false } })).not.toThrow();
   });
 
   describe('describeLineChart', () => {
