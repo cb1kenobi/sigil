@@ -116,7 +116,8 @@ Enter in the diff pane takes the cursor inside the current hunk, and a second
 column of marks shows it: `▶` on the line, `●` on a line picked, `◉` on both. Up
 and down step over the changed lines, `x` picks one and `a` picks the hunk's all,
 `v` begins a range -- up and down then pick every changed line from where it began to
-the cursor, and `v` ends it -- and Space stages what is picked -- or the one line under the cursor where nothing
+the cursor, and `v` ends it -- or press on a line and drag to another for the same
+range, and Space stages what is picked -- or the one line under the cursor where nothing
 is -- through `hunkLinesPatch()`, which writes the lines kept as a patch whose
 counts are its own: a line not picked is left as the index has it, so an unpicked
 addition is not in the patch and an unpicked removal is context. Under `Staged`

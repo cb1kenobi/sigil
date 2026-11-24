@@ -4927,7 +4927,9 @@ picks every line of the hunk, or none where all are; `v` begins a range, and up 
 down then pick every added and removed line from where it began to the cursor, over
 what was picked before, until `v`, `x` or `a` ends it; Enter or Escape leaves the lines
 and drops the picks, as moving to another hunk or new content does; a click on a line
-of the current hunk moves the cursor to it. The view is drawn unified whatever
+of the current hunk moves the cursor to it, and pressing on a line and dragging to
+another picks the range `v` would, which releasing keeps (a pointer past the view's edge
+reads as the last row in view, so the wheel or `v` goes further). The view is drawn unified whatever
 `layout` says, since side by side a removed line and the added line beside it share a
 row. `selected` is positions in the current hunk's `lines`, which is what
 `hunkLinesPatch()` takes:
