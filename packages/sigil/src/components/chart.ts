@@ -21,6 +21,7 @@
  * ```
  */
 
+import { strip } from '../ansi/index.js';
 import { Dots } from '../canvas/index.js';
 import {
   box,
@@ -29,6 +30,7 @@ import {
   raw,
   renderToString,
   text as textNode,
+  toDisplayText,
 } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import type { DescribeOptions, KeyEvent } from '../input/index.js';
@@ -2289,6 +2291,11 @@ export function LineChart(props: LineChartProps): Element {
     if (typeof words !== 'string') {
       throw new TypeError('Expected line chart crosshair text to return a string');
     }
+    // what the bubble will draw, worked out once and before anything asks about it:
+    // the tooltip drops an SGR sequence from its text and the tree draws a tab as a
+    // space, so a readout of only a sequence is no readout and a tab is a column,
+    // and asking the raw string either question is asking about what is not drawn
+    words = toDisplayText(strip(words));
     drawn = drawing;
     spoken = words;
     const outer = host?.box;

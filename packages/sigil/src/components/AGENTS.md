@@ -8022,6 +8022,24 @@ have.
   `maxWidth`, a line under the pin, and `side: 'top'`; the SIG-646 ones pin the cut past
   the pin, the fall back to the rule, a rule with no pin, and a readout that fits being
   left as said; each fails with its rule taken out.
+  **The readout is worked out as the bubble draws it, once, before anything asks
+  about it (SIG-665, SIG-669).** `follow()` reads `text()` and turns it into
+  `toDisplayText(strip(words))` straight away, and every question after -- is there
+  a readout (`words !== ''`), how far does it reach, does it need cutting -- is asked
+  of that. The tooltip drops an SGR sequence from its text (SIG-652) and the tree
+  draws a tab as a space, so asking the raw string was asking about something that
+  is not drawn: a readout of only a sequence counted as words and widened the area
+  for a bubble the tooltip had hidden, and a tab measured nothing where it draws a
+  column, so `reach` came out a column short per tab. `strip()` is the tooltip's own
+  and `toDisplayText()` is the element layer's -- the one definition of what a text
+  draws, which `table()` and the pager already measure through -- so neither is
+  written a second time here. The tooltip itself needed nothing: it never measures a
+  string, it takes its size from the layout. `test/components/chart-live.test.ts`
+  reads the area the chart handed the tooltip, by wrapping `attachTooltip()`, since a
+  hidden bubble draws nothing to look at. Other components that size a caller's string
+  with `stringWidth()` and draw it through a `text` carry the same one-column-per-tab
+  slip (the dropdown, the menu, the log, the toggle and the key help among them);
+  they were not swept with this entry, which is the chart readout's.
   **A layout says it again, so a resize needs no key (SIG-651).** That read was a
   limit: `follow()` ran from a drawing, a drawing from a key, a pointer move, data or
   the chart's own size, and a terminal narrowed with the chart's own size unchanged

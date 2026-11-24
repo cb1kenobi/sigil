@@ -80,6 +80,17 @@ the entry it belongs to.
   green while the others stay red -- which is what says that override is what
   makes the downstream comparisons mean anything.
 
+- **`stringWidth()` counts a tab as 0 columns, and that is left alone (SIG-665).**
+  The element tree draws a tab as one space, so text it will draw is a column wider
+  per tab than `stringWidth()` says. The tempting fix is to make a tab one column
+  here, and it is refused: on a raw terminal a tab goes to the next stop, so its width
+  depends on the column it starts in and no single number is right. This module
+  measures what a terminal does with a string, and decides nothing about what a layer
+  above draws. The fix is on the other side: code that sizes text the tree will draw
+  measures `toDisplayText()` of it (in `/element`, the one definition of what a text
+  draws), as `table()` and the pager do. See "A control character is decided here" in
+  `packages/sigil/src/element/AGENTS.md`.
+
 ### One code unit is one cluster
 
 - **`graphemes()` hands a string of one code unit back as it is, whatever the
