@@ -1,4 +1,9 @@
-import { isPrivateRoute, resolveRoutes } from '../../src/parser/command/routes.js';
+import {
+  assertRouteName,
+  isPrivateRoute,
+  readRoutes,
+  resolveRoutes,
+} from '../../src/parser/command/routes.js';
 import { parse } from '../../src/parser/parse.js';
 import { Internal } from '../../src/types.js';
 import { escapeControls } from '../../src/util/escape-controls.js';
@@ -436,6 +441,85 @@ describe('filesystem routing', () => {
           { 'commands.json': '{ "build": { "alias": "!b" } }' },
           /Invalid alias "!b" for "build" in .*commands\.json/
         );
+      });
+
+      it('should refuse a control or format character in an alias, as it does in a route name (SIG-673)', async () => {
+        // an alias is a spelling argv can match, and a `commands.json` dropped into an
+        // installed app's commands directory is no more the app's own than a file
+        // dropped there. The characters are the ones a route name refuses
+        for (const code of [0x07, 0x0a, 0x1b, 0x7f, 0x9b, 0xad, 0x200b, 0x202e, 0xfeff]) {
+          const alias = `a${String.fromCodePoint(code)}b`;
+          const dir = app({ 'commands.json': JSON.stringify({ build: { alias: [alias] } }) });
+
+          const error = await parse({ argv: [], schema: { commands: dir } }).then(
+            () => undefined,
+            (e: unknown) => e as Error
+          );
+
+          const shown = escapeControls(alias);
+          expect(error?.message, shown).toContain(
+            `Invalid alias "${shown}" for "build" in ${escapeControls(path.join(dir, 'commands.json'))}: it contains a control or format character`
+          );
+          expect(error?.message, shown).not.toMatch(/[\p{Cc}\p{Cf}]/u);
+        }
+      });
+
+      it('should refuse the same characters in an alias that it refuses in a route name', () => {
+        // one definition: every code point of the two classes, plus the characters
+        // either one lets through, answers the same for a name and for an alias
+        const dir = app({});
+        const refusedAsName = (name: string) => {
+          try {
+            assertRouteName(name, 'the test');
+            return false;
+          } catch (err) {
+            return /contains a control or format character/.test((err as Error).message);
+          }
+        };
+        const refusedAsAlias = (alias: string) => {
+          writeFileSync(
+            path.join(dir, 'commands.json'),
+            JSON.stringify({ build: { alias: [alias] } })
+          );
+          try {
+            readRoutes(dir);
+            return false;
+          } catch (err) {
+            return /: it contains a control or format character/.test((err as Error).message);
+          }
+        };
+
+        for (const code of [
+          ...Array.from({ length: 0xa0 }, (_, i) => i),
+          0xad,
+          0x600,
+          0x200b,
+          0x200c,
+          0x200d,
+          0x200e,
+          0x202a,
+          0x2060,
+          0x2066,
+          0x3164,
+          0xfeff,
+          0xe0001,
+        ].filter((code) => code !== 0x20 && !/\s/u.test(String.fromCodePoint(code)))) {
+          const spelling = `a${String.fromCodePoint(code)}b`;
+
+          expect(refusedAsAlias(spelling), escapeControls(spelling)).toBe(refusedAsName(spelling));
+        }
+      });
+
+      it('should let an alias hold the two joiners and a blank character, as a route name may', async () => {
+        // U+200C and U+200D spell words in Persian and several Indic scripts; U+3164
+        // is no sequence and no reordering, only a name that prints blank
+        for (const code of [0x200c, 0x200d, 0x3164]) {
+          const alias = `a${String.fromCodePoint(code)}b`;
+          const dir = app({ 'commands.json': JSON.stringify({ build: { alias: [alias] } }) });
+          const result = await parse({ argv: [alias], schema: { commands: dir } });
+
+          expect(result.cmd?.name, escapeControls(alias)).toBe('build');
+        }
       });
 
       it('should refuse two entries that are both default', async () => {

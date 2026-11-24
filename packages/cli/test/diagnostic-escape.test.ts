@@ -277,8 +277,12 @@ export default {
     writeFileSync(
       join(dir, 'commands.json'),
       JSON.stringify({
-        [`stale${FORGED(2)}`]: { alias: [`z${FORGED(4)}`], desc: 'gone' },
-        list: { alias: [`y${FORGED(3)}`], [`nope${FORGED(5)}`]: 1 },
+        // an alias cannot hold a newline since SIG-673 -- `readRoutes()` refuses a
+        // control or format character in one, as it does in a route name -- so the
+        // aliases carry U+3164, which prints blank and is refused by neither, and
+        // what is asserted of them is that they are echoed escaped
+        [`stale${FORGED(2)}`]: { alias: ['z\u3164'], desc: 'gone' },
+        list: { alias: ['y\u3164'], [`nope${FORGED(5)}`]: 1 },
       })
     );
 
@@ -290,6 +294,31 @@ export default {
       lines.filter((line) => line.startsWith('src/forged.ts')),
       lines.join('\n')
     ).toEqual([]);
+    expect(lines.join('\n')).toContain('"z\\u{3164}" does not route');
+    expect(lines.join('\n')).not.toContain('\u3164');
+  });
+
+  it('should refuse a commands.json alias that holds a newline, so it cannot forge one at all', () => {
+    // the other half of the test above: what an alias can no longer carry in is
+    // refused, in one line, naming the file
+    const dir = tempDir('sigil-forged-alias-');
+    writeFileSync(join(dir, 'list.js'), 'export default { run() {} };\n');
+    writeFileSync(
+      join(dir, 'commands.json'),
+      JSON.stringify({ list: { alias: [`y${FORGED(3)}`] } })
+    );
+
+    let message = '';
+    try {
+      resolveCommandTree(dir);
+    } catch (e) {
+      message = (e as Error).message;
+    }
+
+    expect(message).toContain(
+      'Invalid alias "y\\x0Asrc/forged.ts:1:1: error: FORGED-3" for "list"'
+    );
+    expect(message.split('\n'), message).toHaveLength(1);
   });
 
   it('should not let a locale forge one', () => {

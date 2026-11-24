@@ -568,6 +568,15 @@ export function readRouteManifest(dir: string, entries: Dirent[]): RouteManifest
           `Invalid alias "${escapeControls(each)}" for "${escapeControls(name)}" in ${escapeControls(file)}: "${each[0]}" is name-string syntax and an alias is a plain name`
         );
       }
+
+      // a spelling argv can match, so held to what a route's name is held to, by the
+      // same test: a manifest dropped into an installed app's commands directory is
+      // no more the app's own than a file dropped there (SIG-673)
+      if (hasUnsafeCharacter(each)) {
+        throw new Error(
+          `Invalid alias "${escapeControls(each)}" for "${escapeControls(name)}" in ${escapeControls(file)}: it ${UNSAFE_REASON}`
+        );
+      }
     }
 
     // two siblings both default is refused by the registry when they are
@@ -634,6 +643,23 @@ function describeRoute(route: Route, entry: RouteEntry | undefined): Route {
 const UNSAFE_IN_NAME = /(?![\u200C\u200D])[\p{Cc}\p{Cf}]/u;
 
 /**
+ * Whether a route's name or a `commands.json` alias holds what neither may.
+ *
+ * One definition for both, because two tests of one rule is how a name comes to
+ * be refused as a file and accepted as an alias (SIG-673).
+ *
+ * @param spelling - The name or alias.
+ * @returns `true` if it holds a control or format character, less the joiners.
+ */
+function hasUnsafeCharacter(spelling: string): boolean {
+  return UNSAFE_IN_NAME.test(spelling);
+}
+
+/** Why {@link hasUnsafeCharacter} refuses what it does, finishing a sentence about the name or alias. */
+const UNSAFE_REASON =
+  'contains a control or format character, which a terminal would act on or draw as something else';
+
+/**
  * Why a name cannot be a route's, or `undefined` when it can.
  *
  * A route is named by the file system -- a file's name, a directory's, a
@@ -690,8 +716,8 @@ function routeNameProblem(name: string): string | undefined {
   // differently from what it is -- and a route's name is offered back by `Did
   // you mean`, which is where a hostile file name used to reach a terminal
   // (SIG-662). U+2028 and U+2029 are whitespace to `\s` and were refused above
-  if (UNSAFE_IN_NAME.test(name)) {
-    return 'contains a control or format character, which a terminal would act on or draw as something else';
+  if (hasUnsafeCharacter(name)) {
+    return UNSAFE_REASON;
   }
 
   return undefined;
