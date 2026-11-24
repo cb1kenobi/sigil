@@ -630,8 +630,8 @@ the entry it belongs to.
   stated for a frame: **whether there is a caller to raise to**. The timer has none,
   so `requestFrame()` is the only thing that says so (`runFrame(true)`), and there
   `fail()` hands each report to `handOver()` -- the signals layer's rule, written
-  once -- instead of `raise()`: `onError` still hears every report first, the screen
-  is still back first, and what it throws is written as `Error in frame error
+  once -- instead of `raise()`: `onError` still hears every report the failure
+  makes, the teardown's and the failure's, after the screen is back, and what it throws is written as `Error in frame error
   handler: ...` after `Error in frame: ...` for what it was given, with the exit
   code set. `frame()`, the first frame of `render()` and `dispose()` have a caller
   and keep raising: the throw is theirs to catch, and `frame()` is the documented
@@ -643,7 +643,11 @@ the entry it belongs to.
   records what `onError` threw for which error (`told`). That throw goes on to fail
   the frame, where it is the only thing `runFrame()` is handed, so on the timer it
   is written with the error it threw for and not handed back to `onError` a second
-  time: `onError` hears each error once. An `AggregateError` carrying both was the
+  time: `onError` hears each error once. (A frame handler's or mount callback's own
+  error is heard during the frame, before the teardown, as it always was, and when
+  `onError` throws for one the rest of that loop is abandoned -- a later mount
+  callback's error is never written. Unchanged from before SIG-674 and not fixed
+  by it.) An `AggregateError` carrying both was the
   first answer and was refused -- it changed what `frame()` raises in the `failed`
   case from what `onError` threw to a wrapper nobody threw, and it showed `onError`
   its own throw again. From `frame()` nothing changed: `fail()` still gives the

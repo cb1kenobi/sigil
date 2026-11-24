@@ -185,6 +185,43 @@ describe('a frame that fails on a frame timer, whose onError throws', () => {
     expect(t.timerErrors).toEqual([]);
   });
 
+  it('should say a layout failure once when onError rethrows what it was given (SIG-674)', () => {
+    const t = listening();
+    off = t.off;
+    const broken = new State(false);
+    const view = render(
+      () =>
+        box(
+          {},
+          trackedRaw({
+            measure: () => {
+              if (broken.get()) {
+                throw new Error('layout broke');
+              }
+              return { height: 1, width: 4 };
+            },
+            paint: () => {},
+          })
+        ),
+      {
+        onError: (error) => {
+          throw error;
+        },
+        terminal: t.ui.terminal,
+      }
+    );
+    const written = quietStderr();
+    try {
+      broken.set(true);
+      expect(() => vi.advanceTimersByTime(1000)).not.toThrow();
+
+      expect(written.text()).toBe('Error in frame: layout broke\n');
+    } finally {
+      written.restore();
+    }
+    expect(view.failed).toBe(true);
+  });
+
   /**
    * A renderer whose `onError` takes what an effect threw and throws over the
    * next thing it is handed, so that `failed` is already set when the throw comes.
