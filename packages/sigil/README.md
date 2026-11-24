@@ -4728,7 +4728,8 @@ of signals, as a chart's data does. It is one box holding the two forms, written
 place when what it reads changes -- their text and their variant classes, nothing
 rebuilt -- and what it draws is `badgeView()`'s, padding and level 0 brackets
 included. Plain values start no effect. `colorLevel` is not read, since the
-renderer's level decides, and `class` and `props` are the box's own.
+renderer's level decides, and `class` and `props` are the box's own -- except
+`props.href`, which goes on the label, since a box paints no link.
 
 #### Rule
 
@@ -6595,6 +6596,25 @@ cuts**: the area hands the text over and the app puts it on the clipboard, since
 an element has no terminal -- `copyToClipboard(app.terminal, text)` is OSC 52.
 Ctrl-C is never a copy, because it is the abort. A selection is drawn the way the
 screen selection is, reversed, and not at colour level 0, where it still copies.
+
+**The caret and the selection are `State`s an app reads and writes.** `caret` is
+`{ line, col }`, `col` an offset into the line in UTF-16 code units, and
+`selection` is `{ anchor, caret }` -- the place it began and the place it ends,
+which is the caret, in either order, with the two the same place while nothing is
+selected. Every move and every edit writes them; an app that writes `caret` moves
+it there with nothing selected, and one that writes `selection` selects, with the
+caret at its `caret` end and in view -- which is how a match a search found is
+selected, and how a footer says `Ln 3, Col 5 (12 selected)`. A place out of range
+is the nearest one, and the state is written back with what the area made of it.
+Written together in one turn, `selection` wins; written with `value`, both are
+placed in the new text; a plain place is where it starts; and a write in the middle
+of a drag ends the drag.
+
+```js
+const selection = new State({ anchor: { line: 0, col: 0 }, caret: { line: 0, col: 0 } });
+TextArea({ value: message, selection });
+selection.set({ anchor: { line: 0, col: 4 }, caret: { line: 0, col: 9 } });
+```
 
 **Tab is the focus ring's unless `tab` says what it types** -- `tab: '  '` for an
 editor -- and Shift-Tab and Escape are never the area's, so an area that takes Tab

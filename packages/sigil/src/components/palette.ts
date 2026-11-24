@@ -438,13 +438,18 @@ function paletteRows(entries: readonly PaletteEntry[]): { list: Element; rows: P
     };
   });
 
-  return {
-    list: box(
-      { class: 'sigil-palette-list', 'flex-direction': 'column', 'padding-left': 2 },
-      ...rows.map(({ row }) => row)
-    ),
-    rows,
-  };
+  // appended one at a time rather than spread into `box()`: a palette has a row
+  // for each of its entries, however many that is (SIG-417)
+  const list = box({
+    class: 'sigil-palette-list',
+    'flex-direction': 'column',
+    'padding-left': 2,
+  });
+  for (const { row } of rows) {
+    list.append(row);
+  }
+
+  return { list, rows };
 }
 
 /**

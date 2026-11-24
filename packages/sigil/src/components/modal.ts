@@ -270,7 +270,7 @@ function buildOwned<V>(host: ModalHost, build: () => V): Owned<V> {
 function bodyElement(build: () => Element): Element {
   const made = build();
   if (!(made instanceof Element)) {
-    throw new TypeError(__`Expected a modal body function to return an element`);
+    throw new TypeError(`Expected a modal body function to return an element`);
   }
   return made;
 }
@@ -314,14 +314,14 @@ function openModalUntracked<T>(host: ModalHost, opts: ModalOptions<T>): ModalHan
   refuseOwnedHooks('openModal', opts?.props, ['onPaste']);
   const root = host instanceof Element ? host : host?.root;
   if (!(root instanceof Element)) {
-    throw new TypeError(__`Expected a modal host to be an element or a renderer`);
+    throw new TypeError(`Expected a modal host to be an element or a renderer`);
   }
   const input = opts?.input;
   if (typeof input?.bind !== 'function' || typeof input.focus?.ring !== 'function') {
-    throw new TypeError(__`Expected a modal input to be a router`);
+    throw new TypeError(`Expected a modal input to be a router`);
   }
   if (opts.title !== undefined && typeof opts.title !== 'string') {
-    throw new TypeError(__`Expected a modal title to be a string`);
+    throw new TypeError(`Expected a modal title to be a string`);
   }
   if (
     opts.body !== undefined &&
@@ -329,34 +329,34 @@ function openModalUntracked<T>(host: ModalHost, opts: ModalOptions<T>): ModalHan
     typeof opts.body !== 'function' &&
     !(opts.body instanceof Element)
   ) {
-    throw new TypeError(__`Expected a modal body to be a string, an element or a function`);
+    throw new TypeError(`Expected a modal body to be a string, an element or a function`);
   }
 
   const actions: readonly ModalAction<T>[] = opts.actions ?? [{ label: __`OK` }];
   if (!Array.isArray(actions)) {
-    throw new TypeError(__`Expected modal actions to be an array`);
+    throw new TypeError(`Expected modal actions to be an array`);
   }
   let defaults = 0;
   for (const action of actions) {
     // blank is no label either: a button refuses one, and the message here says
     // which part of a modal was wrong
     if (typeof action?.label !== 'string' || labelLine(action.label) === '') {
-      throw new TypeError(__`Expected a modal action to have a label`);
+      throw new TypeError(`Expected a modal action to have a label`);
     }
     if (action.onPress !== undefined && typeof action.onPress !== 'function') {
-      throw new TypeError(__`Expected a modal action onPress to be a function`);
+      throw new TypeError(`Expected a modal action onPress to be a function`);
     }
     // a value settles the dialog and so would a handler that settled it: one
     // answer for a button to give, not two
     if (action.onPress !== undefined && action.value !== undefined) {
-      throw new TypeError(__`Expected a modal action to have a value or an onPress, not both`);
+      throw new TypeError(`Expected a modal action to have a value or an onPress, not both`);
     }
     if (action.default !== undefined && typeof action.default !== 'boolean') {
-      throw new TypeError(__`Expected a modal action default to be a boolean`);
+      throw new TypeError(`Expected a modal action default to be a boolean`);
     }
     // two would be one chosen by registration order, which is nobody's decision
     if (action.default === true && ++defaults > 1) {
-      throw new TypeError(__`Expected a modal to have one default action at most`);
+      throw new TypeError(`Expected a modal to have one default action at most`);
     }
   }
   const initial = opts.initial ?? 0;
@@ -369,7 +369,7 @@ function openModalUntracked<T>(host: ModalHost, opts: ModalOptions<T>): ModalHan
       typeof opts.body !== 'function' &&
       !(opts.body instanceof Element && opts.body.contains(initial))
     ) {
-      throw new TypeError(__`Expected modal initial to be an element in the body`);
+      throw new TypeError(`Expected modal initial to be an element in the body`);
     }
   } else if (initial === 'body') {
     // always something to ask for: a body with nothing focusable is the fallback
@@ -380,7 +380,7 @@ function openModalUntracked<T>(host: ModalHost, opts: ModalOptions<T>): ModalHan
     (actions.length > 0 && initial >= actions.length)
   ) {
     throw new TypeError(
-      __`Expected modal initial to be the position of an action, 'body' or an element in the body`
+      `Expected modal initial to be the position of an action, 'body' or an element in the body`
     );
   }
   const dismissible = opts.dismissible !== false;
@@ -390,7 +390,7 @@ function openModalUntracked<T>(host: ModalHost, opts: ModalOptions<T>): ModalHan
   const conditions = actions.map((action) =>
     controlCondition(
       action.disabled,
-      __`Expected modal action disabled to be a boolean, a State, a Computed or a function`
+      `Expected modal action disabled to be a boolean, a State, a Computed or a function`
     )
   );
 
@@ -468,7 +468,7 @@ function openModalUntracked<T>(host: ModalHost, opts: ModalOptions<T>): ModalHan
     // nothing is attached to the router yet, so what is left to give back is the
     // owner the buttons and the body were built under
     disposeBody(owned);
-    throw new TypeError(__`Expected modal initial to be an element in the body`);
+    throw new TypeError(`Expected modal initial to be an element in the body`);
   }
   if (buttons.length > 0) {
     panel.append(

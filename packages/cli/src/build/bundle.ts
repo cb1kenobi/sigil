@@ -57,7 +57,7 @@ import {
 } from './shake.ts';
 import { TAG_MODULE } from './templates.ts';
 import type { ResolvedTree } from './tree.ts';
-import { updateCheckDefine, UPDATE_CHECK_SPECIFIER } from './update-check.ts';
+import { importsCheckFunction, updateCheckDefine, UPDATE_CHECK_SPECIFIER } from './update-check.ts';
 import { walk } from './walk.ts';
 import { ansiMatcher } from '@ttylabs/sigil/ansi';
 import { realPathOf } from '@ttylabs/sigil/config';
@@ -338,6 +338,17 @@ export interface BundleResult {
    * through a barrel still writes it somewhere in the graph.
    */
   readonly usesUpdateCheck: boolean;
+  /**
+   * Whether a module that imports `@ttylabs/sigil/updates` reaches `check()` itself
+   * rather than only a builder (SIG-609).
+   *
+   * `usesUpdateCheck` is the specifier and cannot tell the two apart, and they are
+   * different apps: one that only names a checker in its schema has an automatic
+   * check, while one that calls `check()` has a call reading `sigil.json` and not
+   * the schema. Read off the importing module's own imports and exports, so what
+   * it cannot see -- a dynamic `import()` -- is `false`.
+   */
+  readonly importsCheck: boolean;
   // there is no `generated` here any more. It handed back the path of the
   // generated entry, nothing in either package ever read it, and the per-build
   // directory is removed before this result is returned -- so keeping it would
@@ -447,6 +458,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
   const uncompiled: Diagnostic[] = [];
   let templates = 0;
   let usesUpdateCheck = false;
+  let importsCheck = false;
 
   // worked out on the first module that turns out to call `utilitySheet()`,
   // and never for an app that does not: the scan walks the app's source tree
@@ -545,9 +557,14 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
          * cheapest honest way to ask: the question is about the module
          * graph, so it is asked of the thing that builds one.
          */
-        resolveId(source: string) {
+        resolveId(source: string, importer?: string) {
           if (source === UPDATE_CHECK_SPECIFIER) {
             usesUpdateCheck = true;
+            // which name was imported is a question about the importing module,
+            // and only worth asking until one of them has said yes (SIG-609)
+            if (!importsCheck && importer !== undefined && importsCheckFunction(importer)) {
+              importsCheck = true;
+            }
           }
           return null;
         },
@@ -974,6 +991,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
       styles: styleReport(shaker),
       templates,
       modules,
+      importsCheck,
       usesUpdateCheck,
     };
   } finally {

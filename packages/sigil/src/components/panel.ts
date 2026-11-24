@@ -35,7 +35,6 @@
  */
 
 import { box, type Element, type ElementProps, text as textNode } from '../element/index.js';
-import { __ } from '../i18n/index.js';
 import { createEffect } from '../renderer/index.js';
 import {
   type BorderAlign,
@@ -97,11 +96,11 @@ export function Panel(props: PanelProps = {}, ...children: Element[]): Element {
   for (const slot of SLOTS) {
     const label = props[slot];
     if (label !== undefined && typeof label !== 'string' && typeof label !== 'function') {
-      throw new TypeError(__`Expected a panel ${slot} to be a string or a function`);
+      throw new TypeError(`Expected a panel ${slot} to be a string or a function`);
     }
   }
   if (props.titleAlign !== undefined && !['center', 'left', 'right'].includes(props.titleAlign)) {
-    throw new TypeError(__`Expected a panel titleAlign to be left, center or right`);
+    throw new TypeError(`Expected a panel titleAlign to be left, center or right`);
   }
 
   const align = props.titleAlign ?? 'left';

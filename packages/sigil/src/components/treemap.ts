@@ -1165,10 +1165,10 @@ function moreWords(count: number, room: number): string {
 export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
   refuseOwnedHooks('Treemap', props.props, ['onKey', 'onMouse']);
   if (typeof props.size !== 'function') {
-    throw new TypeError(__`Expected treemap size to be a function`);
+    throw new TypeError(`Expected treemap size to be a function`);
   }
   if (props.tooltip !== undefined && typeof props.tooltip?.text !== 'function') {
-    throw new TypeError(__`Expected treemap tooltip text to be a function`);
+    throw new TypeError(`Expected treemap tooltip text to be a function`);
   }
   const keyOf = props.key ?? ((item: T) => item as unknown as K);
   const read: TreemapReader<T, K> = {
@@ -1182,7 +1182,7 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
       typeof item === 'string' || typeof item === 'number' ? String(item) : '');
   const current = controlState<K | undefined>(
     props.current,
-    __`Expected treemap current to be a key or a State, not a Computed, since the treemap writes it`
+    `Expected treemap current to be a key or a State, not a Computed, since the treemap writes it`
   );
   const source = props.root;
   // a signal by what it is rather than by having a `get`, because the root is
@@ -1528,7 +1528,7 @@ export function describeTreemap(
   const found = hosts.map((host) => {
     const model = MAPS.get(host);
     if (model === undefined) {
-      throw new TypeError(__`Expected an element that Treemap() returned`);
+      throw new TypeError(`Expected an element that Treemap() returned`);
     }
     return { activate: model.activate, scope: host, vim: model.vim };
   });

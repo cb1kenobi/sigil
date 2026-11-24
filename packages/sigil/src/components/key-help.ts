@@ -463,7 +463,10 @@ export function keyHelp(router: KeyHelpSource, opts: KeyHelpOptions = {}): Eleme
         width: natural,
       }),
     });
-    root.append(...(expanded ? longRows(entries) : shortRows(entries, columns)));
+    // one at a time rather than spread: a row for each binding of the app (SIG-417)
+    for (const row of expanded ? longRows(entries) : shortRows(entries, columns)) {
+      root.append(row);
+    }
     return true;
   };
 
@@ -530,7 +533,7 @@ export function describedHosts(args: readonly (Element | DescribeListViewOptions
   }
   const { activate } = last as DescribeListViewOptions;
   if (activate !== undefined && (typeof activate !== 'string' || activate === '')) {
-    throw new TypeError(__`Expected activate to be a non-empty string`);
+    throw new TypeError(`Expected activate to be a non-empty string`);
   }
   return { hosts: args.slice(0, -1) as readonly Element[], options: { activate } };
 }

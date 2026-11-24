@@ -365,16 +365,16 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
     typeof (source as { text?: unknown } | null)?.text !== 'string' &&
     !reads
   ) {
-    throw new TypeError(__`Expected tree items to be an array, a root node, a State or a Computed`);
+    throw new TypeError(`Expected tree items to be an array, a root node, a State or a Computed`);
   }
   for (const name of ['disabled', 'onActivate', 'row'] as const) {
     if (props[name] !== undefined && typeof props[name] !== 'function') {
-      throw new TypeError(__`Expected tree ${name} to be a function`);
+      throw new TypeError(`Expected tree ${name} to be a function`);
     }
   }
   if (props.expanded !== undefined && !(props.expanded instanceof State)) {
     if (typeof (props.expanded as Iterable<T>)[Symbol.iterator] !== 'function') {
-      throw new TypeError(__`Expected tree expanded to be an iterable of values or a State`);
+      throw new TypeError(`Expected tree expanded to be an iterable of values or a State`);
     }
   }
 
@@ -389,7 +389,7 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
       : new State<ReadonlySet<T>>(new Set(props.expanded ?? []));
   const current = controlState<T | undefined>(
     props.current,
-    __`Expected tree current to be a value or a State, not a Computed, since the tree writes it`
+    `Expected tree current to be a value or a State, not a Computed, since the tree writes it`
   );
 
   /** The reads of branches whose `items` is a function, by value. */
@@ -554,7 +554,7 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
 
   const accept = (value: T, items: unknown, before?: readonly TreeChoiceItem<T>[]): void => {
     if (!Array.isArray(items)) {
-      fail(value, __`Expected items to be an array`, before);
+      fail(value, `Expected items to be an array`, before);
       return;
     }
     try {
@@ -682,7 +682,7 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
         up.set(key, parent);
         if (up.size === size) {
           throw new TypeError(
-            __`Expected every tree node to have a value of its own: ${String(key)} is used twice`
+            `Expected every tree node to have a value of its own: ${String(key)} is used twice`
           );
         }
         // reached under a closed branch and shown as well: counted once
@@ -745,7 +745,7 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
           } else if (Array.isArray(what)) {
             children = what;
           } else {
-            throw new TypeError(__`Expected items to be an array`);
+            throw new TypeError(`Expected items to be an array`);
           }
         }
 
@@ -1320,7 +1320,7 @@ export function describeTreeListView(
   const found = hosts.map((host) => {
     const model = MODELS.get(host);
     if (model === undefined) {
-      throw new TypeError(__`Expected an element that TreeListView() returned`);
+      throw new TypeError(`Expected an element that TreeListView() returned`);
     }
     return { keys: model.keys, scope: host };
   });

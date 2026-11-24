@@ -650,6 +650,31 @@ describe('attachTooltip()', () => {
     expect(picture(s.root)[4]?.slice(2)).toBe('| Writes it to disk |');
   });
 
+  it('should draw an SGR sequence in its text as nothing rather than as literal characters (SIG-652)', async () => {
+    // the element tree strips the ESC and not what follows it, so `ESC[31mhi` was
+    // drawn `[31mhi` -- as note() and outline() record of a string they are given
+    const red = `${ESC}[31mred${ESC}[39m`;
+    const s = scene();
+    const tip = tipOn(s, { delay: 0, text: `Is ${red}` });
+    await hover(s);
+    expect(picture(s.root)[4]?.slice(2)).toBe('| Is red |');
+
+    tip.setText(`${ESC}[1mBold${ESC}[22m and ${red}`);
+    const lines = picture(s.root).join('\n');
+    expect(lines).toContain('| Bold and red |');
+    expect(lines).not.toContain('[');
+  });
+
+  it('should treat a text of only an SGR sequence as nothing to say (SIG-652)', async () => {
+    const s = scene();
+    const tip = tipOn(s, { delay: 0, text: `${ESC}[31m${ESC}[39m` });
+    await hover(s);
+    expect(picture(s.root).join('\n')).not.toContain('+-');
+
+    tip.setText(`${ESC}[31mhi${ESC}[39m`);
+    expect(picture(s.root)[4]?.slice(2)).toBe('| hi |');
+  });
+
   it('should hide a bubble with nothing to say, and bring it back with words (SIG-464)', async () => {
     // what a line chart's crosshair asks for where the app's readout says
     // nothing at a sample: an empty box beside the anchor says only that

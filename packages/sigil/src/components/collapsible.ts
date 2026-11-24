@@ -116,10 +116,10 @@ export function collapsibleGroup(): CollapsibleGroup {
  */
 export function Collapsible(props: CollapsibleProps): Element {
   if (typeof props.title !== 'string') {
-    throw new TypeError(__`Expected a collapsible title to be a string`);
+    throw new TypeError(`Expected a collapsible title to be a string`);
   }
   if (props.children !== undefined && typeof props.children !== 'function') {
-    throw new TypeError(__`Expected collapsible children to be a function that builds the body`);
+    throw new TypeError(`Expected collapsible children to be a function that builds the body`);
   }
   if (
     props.open !== undefined &&
@@ -128,12 +128,12 @@ export function Collapsible(props: CollapsibleProps): Element {
   ) {
     // a truthy string would read as open and then never compare equal to `true`
     // again, which is the hole `toggle()` refuses its `initial` over
-    throw new TypeError(__`Expected collapsible open to be a boolean or a State`);
+    throw new TypeError(`Expected collapsible open to be a boolean or a State`);
   }
 
   const members = props.group === undefined ? undefined : MEMBERS.get(props.group);
   if (props.group !== undefined && members === undefined) {
-    throw new TypeError(__`Expected collapsible group to come from collapsibleGroup()`);
+    throw new TypeError(`Expected collapsible group to come from collapsibleGroup()`);
   }
 
   const open = props.open instanceof State ? props.open : new State(props.open ?? false);
@@ -273,7 +273,7 @@ export function describeCollapsible(
   const titles = sections.map((section) => {
     const found = TITLES.get(section);
     if (found === undefined) {
-      throw new TypeError(__`Expected an element that Collapsible() returned`);
+      throw new TypeError(`Expected an element that Collapsible() returned`);
     }
     return found;
   });

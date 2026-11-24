@@ -252,5 +252,10 @@ export function codeView(code: string, opts: CodeViewOptions): Element {
     });
   });
 
-  return box({ class: `${base}-view`, 'flex-direction': 'column', ...opts.props }, ...rows);
+  // one at a time rather than spread into `box()`: a row for each line of code (SIG-417)
+  const view = box({ class: `${base}-view`, 'flex-direction': 'column', ...opts.props });
+  for (const row of rows) {
+    view.append(row);
+  }
+  return view;
 }

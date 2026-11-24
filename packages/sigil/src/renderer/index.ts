@@ -78,6 +78,7 @@ import {
 } from '../style/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
 import { errorMessage } from '../util/error-message.js';
+import { hearTimersOn } from '../util/timed.js';
 import { createHeldRoot, disposeOwner, drainMounts, getOwner, type Owner } from './owner.js';
 
 export { For, type ForProps, Show, type ShowProps } from './control.js';
@@ -1461,6 +1462,9 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
         // `teardown()` disposes it directly, and reporting what the cleanups
         // threw is the renderer's rather than the caller's
         owner = getOwner();
+        // so a timer armed under this renderer finds the terminal's hook without
+        // being handed the terminal (SIG-653)
+        hearTimersOn(owner, terminal.stdin);
         return component();
       },
       scope.effect,

@@ -50,7 +50,6 @@ import {
   raw,
   type RawPainter,
 } from '../element/index.js';
-import { __ } from '../i18n/index.js';
 import type { MouseEvent } from '../input/index.js';
 import { createEffect } from '../renderer/index.js';
 import { State, untrack } from '../signals/index.js';
@@ -85,6 +84,18 @@ export interface TextAreaCaret {
   readonly col: number;
   /** The line, from 0. */
   readonly line: number;
+}
+
+/**
+ * What is selected: the place it began and the place it ends, which is where the
+ * caret is. Either end may come first, so a selection made leftwards has its
+ * `caret` before its `anchor`; nothing is selected while the two are one place.
+ */
+export interface TextAreaSelection {
+  /** Where the selection began, which `caret` is the other end of. */
+  readonly anchor: TextAreaCaret;
+  /** Where it ends and the caret is: the end a Shift-arrow moves. */
+  readonly caret: TextAreaCaret;
 }
 
 export interface TextAreaProps {
@@ -161,6 +172,29 @@ export interface TextAreaProps {
    */
   rows?: number;
   /**
+   * What is selected: the place it began, and the place it ends, where the caret
+   * is.
+   *
+   * A selection is the shape `caret` is, for the same reasons. A `State` is the
+   * selection itself: every move and every edit writes it, with the two ends the
+   * same place while nothing is selected, and an app that writes it selects
+   * there -- moving the caret to its `caret` end and scrolling that into view --
+   * which is how a match a search found is selected and how a status line says
+   * `12 selected`. A place out of range is read as the nearest one and one inside
+   * a cluster as the end of that cluster, and the state is written back with
+   * what the area made of it. The places are lines and UTF-16 offsets, as
+   * `caret`'s are.
+   *
+   * Writing `caret` instead collapses the selection onto that place. Writing both
+   * in one turn selects, since a selection says where the caret is and a caret
+   * does not say what is selected. A write to `value` clears the selection, and
+   * one made with it, in the same turn, selects in the new text. A write that
+   * lands during a drag ends the drag, so the next motion does not put the
+   * selection's end back under the pointer. A plain selection is where it
+   * starts; a `State` is one area's.
+   */
+  selection?: TextAreaSelection | State<TextAreaSelection>;
+  /**
    * What Tab types -- `'  '`, or `'\t'`, which draws as one column the way it
    * does everywhere else in this library.
    *
@@ -229,6 +263,16 @@ function same(a: Place, b: Place): boolean {
   return a.line === b.line && a.col === b.col;
 }
 
+/** Whether a value is a line and a column. */
+function isPlace(at: unknown): at is TextAreaCaret {
+  return (
+    typeof at === 'object' &&
+    at !== null &&
+    typeof (at as TextAreaCaret).line === 'number' &&
+    typeof (at as TextAreaCaret).col === 'number'
+  );
+}
+
 /**
  * Builds a multi-line text area.
  *
@@ -242,21 +286,21 @@ export function TextArea(props: TextAreaProps = {}): Element {
     typeof props.value !== 'string' &&
     !(props.value instanceof State)
   ) {
-    throw new TypeError(__`Expected a text area value to be a string or a State`);
+    throw new TypeError(`Expected a text area value to be a string or a State`);
   }
   const disabled = controlCondition(
     props.disabled,
-    __`Expected text area disabled to be a boolean, a State, a Computed or a function`
+    `Expected text area disabled to be a boolean, a State, a Computed or a function`
   );
   if (props.placeholder !== undefined && typeof props.placeholder !== 'string') {
-    throw new TypeError(__`Expected a text area placeholder to be a string`);
+    throw new TypeError(`Expected a text area placeholder to be a string`);
   }
   // a mark is drawn on every row, and the grid throws on a control character
   if (
     props.gutter !== undefined &&
     (typeof props.gutter !== 'string' || CONTROL.test(props.gutter))
   ) {
-    throw new TypeError(__`Expected a text area gutter to be a string with no control character`);
+    throw new TypeError(`Expected a text area gutter to be a string with no control character`);
   }
   // what Tab types goes into the value, so it keeps to what a paste is allowed
   // to leave there: a tab, and no line break or other control character
@@ -267,19 +311,19 @@ export function TextArea(props: TextAreaProps = {}): Element {
       pastedBlock(props.tab) !== props.tab ||
       props.tab.includes('\n'))
   ) {
-    throw new TypeError(__`Expected a text area tab to be a non-empty string with no line break`);
+    throw new TypeError(`Expected a text area tab to be a non-empty string with no line break`);
   }
   if (props.rows !== undefined && !(Number.isInteger(props.rows) && props.rows > 0)) {
-    throw new TypeError(__`Expected text area rows to be a positive whole number`);
+    throw new TypeError(`Expected text area rows to be a positive whole number`);
   }
   if (props.width !== undefined && !(Number.isInteger(props.width) && props.width > 0)) {
-    throw new TypeError(__`Expected a text area width to be a positive whole number`);
+    throw new TypeError(`Expected a text area width to be a positive whole number`);
   }
   if (props.highlight !== undefined && typeof props.highlight !== 'function') {
-    throw new TypeError(__`Expected a text area highlight to be a function`);
+    throw new TypeError(`Expected a text area highlight to be a function`);
   }
   if (props.lang !== undefined && typeof props.lang !== 'string') {
-    throw new TypeError(__`Expected a text area lang to be a string`);
+    throw new TypeError(`Expected a text area lang to be a string`);
   }
   if (
     props.caret !== undefined &&
@@ -289,7 +333,19 @@ export function TextArea(props: TextAreaProps = {}): Element {
       typeof props.caret.line !== 'number' ||
       typeof props.caret.col !== 'number')
   ) {
-    throw new TypeError(__`Expected a text area caret to be a line and a column, or a State`);
+    throw new TypeError(`Expected a text area caret to be a line and a column, or a State`);
+  }
+  if (
+    props.selection !== undefined &&
+    !(props.selection instanceof State) &&
+    !(
+      typeof props.selection === 'object' &&
+      props.selection !== null &&
+      isPlace(props.selection.anchor) &&
+      isPlace(props.selection.caret)
+    )
+  ) {
+    throw new TypeError('Expected a text area selection to be an anchor and a caret, or a State');
   }
 
   const value = props.value instanceof State ? props.value : new State(props.value ?? '');
@@ -379,18 +435,52 @@ export function TextArea(props: TextAreaProps = {}): Element {
     props.caret === undefined ? untrack(() => caretState.get()) : undefined;
 
   /**
-   * Moves the caret to a place an app wrote: inside the value, on a cluster
-   * boundary, with nothing selected, and brought into view.
+   * The selection as a state, in the way and for the reasons the caret is one.
+   * Made here when none was handed in, starting collapsed on the caret.
+   */
+  const selectionState =
+    props.selection instanceof State
+      ? props.selection
+      : new State<TextAreaSelection>(
+          props.selection ?? {
+            anchor: { col: caret.col, line: caret.line },
+            caret: { col: caret.col, line: caret.line },
+          }
+        );
+  /** What the area last wrote to `selectionState`, or the app's own write once taken in: `said`'s rule. */
+  let saidSelection: TextAreaSelection | undefined =
+    props.selection === undefined ? untrack(() => selectionState.get()) : undefined;
+
+  /**
+   * The nearest place in the value to one an app wrote: on a line, on a cluster
+   * boundary.
    *
    * Run time is where a `State` is written, so nothing here throws: a part that
    * is not a number reads as 0, and a place out of range as the nearest one.
    */
-  function place(at: TextAreaCaret | undefined): void {
+  function nearest(at: TextAreaCaret | undefined): Place {
     const whole = (part: unknown): number =>
       typeof part === 'number' && !Number.isNaN(part) ? Math.trunc(part) : 0;
     const line = Math.min(Math.max(whole(at?.line), 0), lines.length - 1);
     const text = lines[line];
-    caret = { col: snap(text, Math.min(Math.max(whole(at?.col), 0), text.length)), line };
+    return { col: snap(text, Math.min(Math.max(whole(at?.col), 0), text.length)), line };
+  }
+
+  /** The selection the area holds, with both ends the caret while nothing is selected. */
+  function selectionNow(): TextAreaSelection {
+    const tail = anchor !== undefined && !same(anchor, caret) ? anchor : caret;
+    return {
+      anchor: { col: tail.col, line: tail.line },
+      caret: { col: caret.col, line: caret.line },
+    };
+  }
+
+  /**
+   * Moves the caret to a place an app wrote: inside the value, on a cluster
+   * boundary, with nothing selected, and brought into view.
+   */
+  function place(at: TextAreaCaret | undefined): void {
+    caret = nearest(at);
     anchor = undefined;
     goal = undefined;
     follow = true;
@@ -403,17 +493,46 @@ export function TextArea(props: TextAreaProps = {}): Element {
   }
 
   /**
-   * Writes where the caret is to `caretState`, when it is not what the state already
-   * says -- after taking in a write the app made since the area last looked, which
-   * an `onChange` can have made in the middle of the edit this redraw is for.
+   * Selects what an app wrote, with the caret at its `caret` end: both ends
+   * inside the value and on cluster boundaries, and that end brought into view.
+   * The caret's own state is left to say where it went the way any move does.
+   */
+  function select(want: TextAreaSelection | undefined): void {
+    const head = nearest(want?.caret);
+    const tail = nearest(want?.anchor);
+    caret = head;
+    anchor = same(tail, head) ? undefined : tail;
+    goal = undefined;
+    follow = true;
+    dragging = false;
+    // kept when it already says what was selected, as a caret write is
+    const exact = (at: TextAreaCaret | undefined, to: Place): boolean =>
+      at?.line === to.line && at.col === to.col;
+    saidSelection = exact(want?.anchor, tail) && exact(want?.caret, head) ? want : undefined;
+  }
+
+  /**
+   * Writes where the caret is to `caretState` and what is selected to
+   * `selectionState`, where they are not what the states already say -- after
+   * taking in a write the app made since the area last looked, which an
+   * `onChange` can have made in the middle of the edit this redraw is for.
    */
   function publish(): void {
     // the value too, which an `onChange` may have written with the caret: the
     // caret is placed in the new value, not in the lines the edit left
-    untrack(() => adopt(value.get(), caretState.get()));
+    untrack(() => adopt(value.get(), caretState.get(), selectionState.get()));
     if (said?.line !== caret.line || said.col !== caret.col) {
       said = { col: caret.col, line: caret.line };
       caretState.set(said);
+    }
+    const now = selectionNow();
+    if (
+      saidSelection === undefined ||
+      !same(saidSelection.anchor, now.anchor) ||
+      !same(saidSelection.caret, now.caret)
+    ) {
+      saidSelection = now;
+      selectionState.set(now);
     }
   }
 
@@ -1302,13 +1421,18 @@ export function TextArea(props: TextAreaProps = {}): Element {
   };
 
   /**
-   * Takes in what the app wrote to `value` and to `caret` since the area last
-   * looked, the value first: a value written puts the caret at its end, and a
-   * caret written with it then puts it where the app said, in the new text.
+   * Takes in what the app wrote to `value`, `caret` and `selection` since the
+   * area last looked, in that order: a value written puts the caret at its end, a
+   * caret written with it then puts it where the app said, in the new text, and a
+   * selection written with either selects.
    *
    * @returns Whether there was anything to take in.
    */
-  function adopt(now: string, want: TextAreaCaret | undefined): boolean {
+  function adopt(
+    now: string,
+    want: TextAreaCaret | undefined,
+    wantSelection: TextAreaSelection | undefined
+  ): boolean {
     let moved = false;
     if (now !== seen) {
       seen = now;
@@ -1322,6 +1446,11 @@ export function TextArea(props: TextAreaProps = {}): Element {
       place(want);
       moved = true;
     }
+    // after the caret, so both written in one turn select
+    if (wantSelection !== saidSelection) {
+      select(wantSelection);
+      moved = true;
+    }
     return moved;
   }
 
@@ -1332,7 +1461,7 @@ export function TextArea(props: TextAreaProps = {}): Element {
    * where the caret was, and the area's own write would then replace the app's.
    */
   function settle(): void {
-    if (untrack(() => adopt(value.get(), caretState.get()))) {
+    if (untrack(() => adopt(value.get(), caretState.get(), selectionState.get()))) {
       redraw();
     }
   }
@@ -1341,7 +1470,7 @@ export function TextArea(props: TextAreaProps = {}): Element {
 
   createEffect(() => {
     // read here, so a write the app makes replaces what the area holds
-    adopt(value.get(), caretState.get());
+    adopt(value.get(), caretState.get(), selectionState.get());
     redraw();
   });
 

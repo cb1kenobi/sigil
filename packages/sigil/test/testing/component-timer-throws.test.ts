@@ -2,7 +2,7 @@ import { stopwatch, timer } from '../../src/components/clock.js';
 import { createDecrypt, decryptReveal, decryptState } from '../../src/components/decrypt.js';
 import { showToast } from '../../src/components/toast.js';
 import { box } from '../../src/element/index.js';
-import { createRoot, timed } from '../../src/renderer/index.js';
+import { createBranch, runWithOwner, createRoot, render, timed } from '../../src/renderer/index.js';
 import { createEffects } from '../../src/signals/index.js';
 import { createTestTerminal } from '../../src/testing/index.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -295,5 +295,143 @@ describe('timed()', () => {
     run();
 
     expect(errors).toEqual([new Error('boom')]);
+  });
+});
+
+/**
+ * A timer armed under a renderer finds the hook of the terminal the renderer was
+ * given, so `showToast(app.view, ...)` and a `decryptReveal()` called inside the
+ * tree need no `terminal` of their own (SIG-653).
+ */
+describe('a component timer armed under a renderer, with no terminal of its own', () => {
+  it('should hear a toast raised on the renderer, as every example raises one', () => {
+    const ui = createTestTerminal();
+    const errors: unknown[] = [];
+    ui.onTimerError((error) => void errors.push(error));
+    const view = render(() => box({}), { terminal: ui.terminal });
+
+    const handle = showToast(view, {
+      message: 'Saved',
+      onClose: () => {
+        throw new Error('boom');
+      },
+      timeout: 100,
+    });
+    vi.advanceTimersByTime(100);
+
+    expect(errors).toEqual([new Error('boom')]);
+    expect(handle.open).toBe(false);
+    view.dispose();
+  });
+
+  it('should hear a toast raised on the root element from inside the tree', () => {
+    const ui = createTestTerminal();
+    const errors: unknown[] = [];
+    ui.onTimerError((error) => void errors.push(error));
+    const root = box({});
+    const view = render(
+      () => {
+        showToast(root, {
+          message: 'Saved',
+          onClose: () => {
+            throw new Error('boom');
+          },
+          timeout: 100,
+        });
+        return root;
+      },
+      { terminal: ui.terminal }
+    );
+    vi.advanceTimersByTime(100);
+
+    expect(errors).toEqual([new Error('boom')]);
+    view.dispose();
+  });
+
+  it('should leave a toast raised on the renderer uncaught where nothing is listening', () => {
+    const ui = createTestTerminal();
+    const view = render(() => box({}), { terminal: ui.terminal });
+    showToast(view, {
+      message: 'Saved',
+      onClose: () => {
+        throw new Error('boom');
+      },
+      timeout: 100,
+    });
+
+    expect(() => vi.advanceTimersByTime(100)).toThrow('boom');
+    view.dispose();
+  });
+
+  it('should hear a decryptReveal() called directly inside the tree', () => {
+    const ui = createTestTerminal();
+    const errors: unknown[] = [];
+    ui.onTimerError((error) => void errors.push(error));
+    const state = decryptState('ab');
+    let clock = 0;
+    const view = render(
+      () => {
+        decryptReveal(state, {
+          animate: () => true,
+          interval: 10,
+          jumble: 0,
+          now: () => clock,
+          onDone: () => {
+            throw new Error('boom');
+          },
+          random: () => 0.5,
+          reveal: 50,
+          revealInterval: 10,
+        });
+        return box({});
+      },
+      { terminal: ui.terminal }
+    );
+
+    clock = 100;
+    vi.advanceTimersByTime(10);
+
+    expect(errors).toEqual([new Error('boom')]);
+    view.dispose();
+  });
+});
+
+describe('timed(), given an owner', () => {
+  it('should read the hook of the terminal the renderer under it was given', () => {
+    const ui = createTestTerminal();
+    const errors: unknown[] = [];
+    ui.onTimerError((error) => void errors.push(error));
+    const view = render(() => box({}), { terminal: ui.terminal });
+
+    timed(view.owner, () => {
+      throw new Error('boom');
+    })();
+
+    expect(errors).toEqual([new Error('boom')]);
+    view.dispose();
+  });
+
+  it('should walk up from a branch owner, which is where a Show or For body runs', () => {
+    const ui = createTestTerminal();
+    const errors: unknown[] = [];
+    ui.onTimerError((error) => void errors.push(error));
+    const view = render(() => box({}), { terminal: ui.terminal });
+    const branch = runWithOwner(view.owner, () => createBranch());
+
+    timed(branch.owner, () => {
+      throw new Error('boom');
+    })();
+
+    expect(errors).toEqual([new Error('boom')]);
+    branch.dispose();
+    view.dispose();
+  });
+
+  it('should end the walk at a parent that is null, rethrowing what was thrown', () => {
+    expect(() =>
+      timed({ parent: null }, () => {
+        throw new Error('boom');
+      })()
+    ).toThrow('boom');
   });
 });

@@ -258,31 +258,32 @@ export function treeView(
     Math.floor(opts.width ?? terminalWidth({ env: opts.env })) - indent
   );
 
-  return {
-    element: box(
-      {
-        class: 'sigil-tree',
-        'flex-direction': 'column',
-        'max-width': room,
-        'padding-left': indent,
-      },
-      ...treeLines(items, opts, room).map((line) =>
-        box(
-          { class: 'sigil-tree-line', 'flex-direction': 'row' },
-          // `nowrap` rather than `pre`: the line is already wrapped, and a guide
-          // that is all spaces must keep its width, which `pre` does not
-          ...(line.guide
-            ? [textNode(line.guide, { ...TREE_FIXED, class: 'sigil-tree-guide sigil-muted' })]
-            : []),
-          ...(line.marker
-            ? [textNode(line.marker, { ...TREE_FIXED, class: 'sigil-tree-marker sigil-muted' })]
-            : []),
-          textNode(line.text, { ...TREE_FIXED, class: 'sigil-tree-label' })
-        )
+  // appended one at a time rather than spread into `box()`: a tree has a line
+  // for each of its items, however many that is (SIG-417)
+  const element = box({
+    class: 'sigil-tree',
+    'flex-direction': 'column',
+    'max-width': room,
+    'padding-left': indent,
+  });
+  for (const line of treeLines(items, opts, room)) {
+    element.append(
+      box(
+        { class: 'sigil-tree-line', 'flex-direction': 'row' },
+        // `nowrap` rather than `pre`: the line is already wrapped, and a guide
+        // that is all spaces must keep its width, which `pre` does not
+        ...(line.guide
+          ? [textNode(line.guide, { ...TREE_FIXED, class: 'sigil-tree-guide sigil-muted' })]
+          : []),
+        ...(line.marker
+          ? [textNode(line.marker, { ...TREE_FIXED, class: 'sigil-tree-marker sigil-muted' })]
+          : []),
+        textNode(line.text, { ...TREE_FIXED, class: 'sigil-tree-label' })
       )
-    ),
-    width: room + indent,
-  };
+    );
+  }
+
+  return { element, width: room + indent };
 }
 
 /**
@@ -440,7 +441,7 @@ export function treeChoiceOf<T = string>(item: TreeChoiceItem<T>): TreeChoicePar
     };
   }
   if (item === null || typeof item !== 'object' || typeof item.text !== 'string') {
-    throw new TypeError(__`Expected each item to be a string or an object with a text string`);
+    throw new TypeError(`Expected each item to be a string or an object with a text string`);
   }
   return {
     branch: item.items !== undefined,
@@ -558,7 +559,7 @@ export function selectTree<T = string>(opts: SelectTreeOptions<T>): Promise<T> {
     depth: number
   ): TreeNode<T>[] {
     if (!Array.isArray(items)) {
-      throw new TypeError(__`Expected items to be an array`);
+      throw new TypeError(`Expected items to be an array`);
     }
     const choices = items.map((item) => treeChoiceOf<T>(item));
     const { column, drawn } = outlineMarkers(

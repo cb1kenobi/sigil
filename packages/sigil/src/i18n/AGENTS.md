@@ -420,6 +420,56 @@ and the check, and `src/i18n/keys.ts` is generated.
   **55** now, and 2 plural: the prompts are the section below, and no figure
   anywhere should be read as the current count -- `SIGIL_KEYS.length` is.
 
+- **The `i18n-keys` entry doubled because 175 developer errors had been tagged
+  with `__`, against the decision that says they stay English (SIG-658).** The
+  ceiling was set by SIG-328 at 18 KiB over **9,446 B**, when the table held
+  **305 keys**; SIG-635 re-measured every ceiling, #646 raised this one to 37 KiB to
+  make `main` green at **18,451 B**, and neither said why it had moved. The entry was **18,518 B at 480 keys** when SIG-658 measured
+  it. That is not code pulled in: the entry is one module that imports nothing,
+  and its key text accounts for every byte to within 61 B. It was the table
+  itself, rebuilt from every commit that touched `keys.ts`. **Two things grew at
+  once** -- 175 more keys, and a mean key that went from 27.4 B to 35.2 B -- and
+  both are one family: every key beginning `Expected ` was **50 keys and 2.5 KB**
+  at SIG-328 and **176 keys and 9.9 KB** by SIG-658, which is **about 82% of the
+  growth** and more than half the table. Each is a `TypeError` or `RangeError` a
+  component throws at a caller that handed it a bad prop -- `Expected a radio set
+  value to be a value or a State, not a function no option holds, ...` -- and
+  they arrived one component at a time, accelerating with SIG-199's form controls
+  on 10 November and continuing through menus, the slider, the text area, tabs, the diff view and the
+  rest, each ticket adding a handful, which is why no single change looked large.
+
+  They were a drift, not a decision. "What is deliberately out" below says the
+  **139 developer-facing errors** (as of SIG-53) stay English, because a translated `Expected
+  option choices to be an array` is a bug report in a language the maintainer
+  cannot read, and `src/components/AGENTS.md` records a chart's new messages as
+  plain for that reason. The component tickets never read it, tagged the
+  sentence the way every neighbouring user-facing sentence is tagged, and
+  regenerated `keys.ts` -- whose test only asks that the table equal the source,
+  so it passed. SIG-658 took the tag off 188 of the 189 sites and regenerated: **305
+  keys and 8,610 B**, which is the key count SIG-328 measured, and the ceiling is
+  back at 18 KiB where it had it. The one it kept is `Expected a list of values`,
+  which a user's config file provokes rather than a developer's code and which
+  `src/config/AGENTS.md` lists as translated; a first sweep took it with the rest
+  and review caught it, which is the case for `Expected ` being a convention and
+  not a line. The English
+  of every message is byte-identical, since `__` returns it untouched when no
+  catalog is loaded.
+
+  Two things hold it. `should hold no developer error` in
+  `packages/cli/test/i18n-keys.test.ts` fails on any key beginning `Expected `
+  but that one, naming it, which is the convention every one of these followed and the one
+  that makes the check cheap -- it is a convention rather than a proof, so a
+  developer error written another way is not caught by it. And `the i18n-keys
+  entry` in `test/dist.test.ts` pins the other half: one module, importing
+  nothing, costing what its strings cost to within 512 B, so that a second table
+  or pulled-in code fails by name where a ceiling would stay green until it had
+  doubled again. **Left alone and worth a look**, because they are `__` tags on
+  messages whose reader is a developer and the `Expected ` test cannot see them:
+  `A TreeListView reads items.get() inside a Computed ...`, `{0} sets {1}
+  itself, so an {2} in its props would be replaced ...` and `Cannot write a line
+  after one with no newline`. Together they are under a kilobyte, so they were
+  not worth widening the sweep inside a ticket about a measurement.
+
 - **`[options]`, `[command]` and `<command>` are translated and `<entry>` is
   not.** The asymmetry is right: those three are _metasyntax_ a user never
   types, where an argument or option name is the API they do type. So a usage
