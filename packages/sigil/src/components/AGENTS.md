@@ -12476,6 +12476,48 @@ there is the bars, which are drawn on every line.
   the boxes above it. The parse-time `growth()` tests are left on the clock; they
   have never failed, and a parse has no call to count.
 
+- **The parse-time `growth()` tests were left on the clock, and one timed out
+  (SIG-649).** The sentence above said they had never failed. A macOS runner then
+  timed `a link that never closes` out at the default ten seconds -- the same run
+  passed on Linux and Windows -- and the file had failed once in a full local run
+  of two builders. The timeout itself was not reproduced: the file takes about
+  0.7 s idle. What was reproduced is the other half of the same cause, the ratio
+  failing under load, because this file read the wall clock while the
+  highlighter's linear-time check had already moved to CPU time with a span for
+  the small side (SIG-627, SIG-640). It was a second copy of a measurement whose
+  fixes had landed in the first, and it is one function now, `growthOf()` in
+  `test/growth.ts`, which both files call. The same ratio, the same 24, the same
+  sizes. Under 200 busy loops on 18 cores the old file failed `_*` and its
+  siblings at 31.8 and 31.7 against 24 in two of three runs, and the new one
+  passed every run. The CPU clock is not fine everywhere, and the first push of
+  this change found out how: `process.threadCpuUsage()` is microseconds on macOS
+  and bills in scheduler ticks on the Linux CI runners, about four milliseconds a
+  step. A small read repeated 256 times read as nothing, `the clock read nothing
+  over 256 reads`, in `highlight.test.ts` and in this file on three Ubuntu jobs --
+  and the branch this one is stacked on (SIG-640) failed the same way on Ubuntu,
+  so the flake was already in what this change shared. `growthOf()` therefore asks
+  the clock rather than the platform: it spins on it for up to 40 ms, and if its
+  average step is over a tenth of a millisecond it reads the wall clock instead.
+  Review round 2 found that the first version took the smallest step, which a
+  clock billed at context switches as well as ticks would make one short step of
+  50 microseconds; the average is what a span has to be more than.
+  That covers Windows, which used to be named, and whatever comes next. On a tick
+  clock the load fix is not there, and what is left is the old best of seven over
+  a span. `test/growth.test.ts` stubs two such clocks and fails without the probe.
+
+  A CPU clock does nothing for a wall-clock budget, which is what a test timeout
+  is, and **the budget is the fix for the timeout**: the file's `describe` carries
+  `BUDGET` (120 s), twelve times the default. It is not a limit on how long a
+  linear read takes, which the ratio asks and no budget can; it is there so that a
+  starved runner fails on a quadratic and on nothing else, and a synchronous parse
+  cannot be timed out, so it hides no hang. The work is not smaller than it was.
+  The shared span of 3 ms on the small side made the file do about two and a half
+  times its old work (1.6 s against 0.6 s idle, measured on review), which is why
+  `growthOf()` takes a `span` and this file asks for 1 ms: its smallest document
+  already costs a good part of one, and it is now about 0.7 s, which takes about 1,000
+  times its 110 ms to reach the budget where the old one took about 110 times its
+  91 ms to reach ten seconds, and 430 times for the slowest test, the emphasis one.
+
 - **The ticket's other lazy figure, 0.54 s for 128 KB, was the parser, and is
   left.** `parseMarkdown()` of 64,000 lazy lines took 8 ms unquoted and 493 ms
   under 99 quotes, on both builds. Every level of quote asks `interrupts()` of
@@ -14806,7 +14848,7 @@ measurements, the review findings and the sabotage pass are in
   cursor per run length; and Markdown's searches are made once per document rather
   than per line. That last one was a review finding before any test ran: per line,
   a `[` with no `]` after it scanned to the end of the document from every line
-  that had one. `linear time` in `test/components/highlight.test.ts` reads thirty
+  that had one. `linear time` in `test/components/highlight.test.ts` reads sixty-two
   pathological inputs at 32K characters and at eight times that, best of seven
   with the sizes taking turns, and asks that the larger cost less than three times
   eight -- linear is eight and quadratic sixty-four. The backtick runs are read at
@@ -14817,6 +14859,32 @@ measurements, the review findings and the sabotage pass are in
   macOS runners, while a quadratic made of one `indexOf()` per opener reads the
   same million in 2.4 s on a laptop without coverage. No deadline separates two
   ranges that overlap, and a ratio is what coverage and a slow runner leave alone.
+- **The linear-time check reads lines as well as characters, and its small side
+  is a span rather than a floor (SIG-640).** Thirty shapes were all one line for
+  YAML, so a cost per line in `lexYaml` -- which is a cost per character on a line
+  five characters long -- passed all of them. Every lexer that keeps state across
+  lines now has a document of short lines in the list, YAML six, and `ts` one for
+  the shared script lexer's own reading of a line -- and, after review, a shape for
+  each branch of that state that a line can reach and the others cannot: a diff's
+  `+++` after its `---`, a here-document that is closed, a fence with a body. A deliberate per-line quadratic
+  in `lexYaml` fails all six and a per-line one in each other lexer fails the
+  shapes that lexer was given. The other half was `Math.max(best, 2)` on both
+  sides: while a small read cost under about 0.75 ms the floor stood in for it, and
+  a large one up to twice the allowed ratio of the real one passed. Measured with
+  the old formula against a quadratic in `lexYaml` made small enough to sit under
+  it, the six line shapes grew 14 to 45 times at eight times the size, the old
+  check caught one of them and the new one catches five. The floor is gone, and what replaces it
+  is reading the same text enough times that the clock has something to read: the
+  small side is repeated until it fills 3 ms of the clock the test uses, the large
+  side as often as makes the same work, and what is compared is the cost of one
+  read of each. That keeps what SIG-627 fixed -- CPU time, best of seven, the sizes
+  taking turns -- and was run 20 times in a row and six more at a load average of
+  35 without a failure. `lexYaml` itself turned out to be linear on every shape. The check found a
+  real quadratic elsewhere, in the shell lexer: here-documents were taken off the
+  queue of those opened on a line with `shift()`, which moves every entry after it,
+  so `<<a ` repeated on one line and closed by a line each cost the square of the
+  count past about 16,000 of them -- 55 ms at 197K characters and 941 ms at 786K.
+  It is walked by index now, and `<<a <<a ...` is in the list.
 - **Spans come out in order and never overlap, and two of one token that touch are
   one.** The order is what the text area's filing assumes ("a highlighter emits its
   spans in order, so that is almost always a step or two"), and the merge is why an
