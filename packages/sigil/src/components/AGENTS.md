@@ -11211,7 +11211,13 @@ field joins like anything else focusable.
   and Alt-F are not editing keys at all, and Ctrl or Alt with Backspace, Delete,
   Left or Right is the single character it always was; Ctrl-U stays, since it
   names no word. Asked of `mask` rather than of which function was called, so a
-  field built another way is held to the same rule.
+  field built another way is held to the same rule. What follows for a masked
+  `TextField` is that the five keys are no longer claimed: `editLine()` answers
+  `undefined`, a printable-key check declines them too, and they go on to the form,
+  dialog or app binding around it -- where a masked field used to swallow them.
+  Deliberate for want of a reason to swallow a key that edits nothing, and it is
+  the one place the decision reaches an app: a dialog whose login field is masked
+  and whose app binds Ctrl-W sees that binding fire.
 
   **A list's highlight goes back to the top only when an edit changed the value.**
   The palette and `path()` reset it on Backspace, Delete and Ctrl-U whether or not
@@ -11220,7 +11226,10 @@ field joins like anything else focusable.
   already asked. So Backspace at the start of the line no longer drops a highlight
   the reader had moved to. `pager.ts`'s `/` field is not in the table: it holds a
   draft with no caret, so there is nothing for Alt-B to move, and its Backspace is
-  a pop. `test/components/single-line-keys.test.ts` drives the same keys through
+  a pop. **A word is whitespace-delimited everywhere, `path()` included**, so
+  Ctrl-W on `src/components/foo` clears the whole of it rather than taking a
+  segment: it is the table's answer and not a path rule, and a segment-wise delete
+  would be a key `path()` owned. `test/components/single-line-keys.test.ts` drives the same keys through
   every field, so a field that stops sharing the table fails by name.
 
 - **The value is a string to start from or a `State<string>` that is the value,

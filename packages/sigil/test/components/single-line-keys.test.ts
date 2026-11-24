@@ -179,6 +179,11 @@ describe('number()', () => {
     expect(await held([LEFT, ALT_BACKSPACE, '9'])).toBe(95);
   });
 
+  it('should take the rest of the number off with alt-d, and the start of it with ctrl-u', async () => {
+    expect(await held([HOME, ALT_D, '9'])).toBe(9);
+    expect(await held([LEFT, LEFT, CTRL_U])).toBe(45);
+  });
+
   it('should jump to the start with alt-b and to the end with alt-f', async () => {
     expect(await held([ALT_B, '9'])).toBe(912345);
     expect(await held([HOME, ALT_F, '9'])).toBe(123459);

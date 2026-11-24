@@ -53,6 +53,7 @@ const ENTER = '\r';
 const TAB = '\t';
 const UP = '\u001b[A';
 const DOWN = '\u001b[B';
+const LEFT = '\u001b[D';
 const BACKSPACE = '\u007f';
 
 /** Sends keys one at a time, letting the prompt act on each. */
@@ -604,6 +605,21 @@ describe('path()', () => {
       await type(ui.stdin, 'b', UP, ENTER);
 
       expect(await answer).toEqual({ value: abs('beta.yaml') });
+    });
+
+    it('should keep the highlight for an edit that changed nothing', async () => {
+      const { answer, ui } = open();
+      // Ctrl-K at the end of the line takes nothing off
+      await type(ui.stdin, 'b', 'e', DOWN, '\u000b', ENTER);
+
+      expect(await answer).toEqual({ value: abs('beta.json') });
+    });
+
+    it('should drop the highlight when a word key changes the text', async () => {
+      const { answer, ui } = open();
+      await type(ui.stdin, 'b', 'e', DOWN, LEFT, '\u000b', ENTER);
+
+      expect(await answer).toEqual({ value: abs('b') });
     });
 
     it('should drop the highlight when the text changes', async () => {

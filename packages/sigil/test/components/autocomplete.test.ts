@@ -603,6 +603,31 @@ describe('autocomplete() over a source', () => {
     await answer;
   });
 
+  it('should ask again for a word key that changed the term, and not for one that did not', async () => {
+    const ui = screenSetup({ rows: 10 });
+    const source = vi.fn(async (term: string) => [`${term}-result`]);
+    const answer = settle(open(ui, { source }));
+
+    await type(ui.stdin, ...'foo bar');
+    source.mockClear();
+
+    // a word key that moves the caret is not a new term
+    await type(ui.stdin, '\u001bb', '\u001bf');
+    expect(source).not.toHaveBeenCalled();
+
+    await type(ui.stdin, '\u0017');
+    expect(source.mock.calls.at(-1)?.[0]).toBe('foo ');
+    await type(ui.stdin, '\u001b\u007f');
+    expect(source.mock.calls.at(-1)?.[0]).toBe('');
+    // nothing left to take, so nothing to ask
+    source.mockClear();
+    await type(ui.stdin, '\u0017', '\u000b');
+    expect(source).not.toHaveBeenCalled();
+
+    await type(ui.stdin, CTRL_C);
+    await answer;
+  });
+
   it('should abort the previous lookup when the term changes', async () => {
     const ui = screenSetup({ rows: 10 });
     const signals: AbortSignal[] = [];

@@ -391,8 +391,9 @@ export interface EditLineOptions {
  * @param k - The key.
  * @param edit - The value and where the cursor is.
  * @param options - What to leave out.
- * @returns The value and the cursor after the key, which is `edit` itself when
- *   the key changed nothing, or `undefined` when the key is not an editing key.
+ * @returns The value and the cursor after the key -- a new object even when the
+ *   key changed nothing, so compare `.value` -- or `undefined` when the key is not
+ *   an editing key.
  */
 export function editLine(k: Key, edit: Edit, options: EditLineOptions = {}): Edit | undefined {
   const { cursor, value } = edit;

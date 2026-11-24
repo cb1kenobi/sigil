@@ -929,6 +929,7 @@ export const HELPERS: Readonly<Record<string, readonly string[]>> = {
     'deleteAfter',
     'deleteBefore',
     'deleteRange',
+    'editLine',
     'insertAt',
     'isControlChar',
     'isSpaceCluster',
