@@ -47,7 +47,8 @@ export interface TableOptions extends StyledOptions {
  * `selectRow()` takes one in a cell as well, since its cells are these. It is
  * built at whatever colour level it was asked for: neither passes its own down,
  * because a built tree cannot be rebuilt at another level without the function
- * that made it.
+ * that made it. A badge does not mind, since it holds both of its forms and the
+ * renderer's level decides which is drawn.
  */
 export interface TableCellView {
   /** The cell's tree. */

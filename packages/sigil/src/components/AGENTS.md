@@ -4175,21 +4175,84 @@ whole of it: the encoder, `qrLines()`, `qrcodeView()` and the facade.
   level and shown at another draws what the facade does at the second (`should draw
   at the level it is shown at, whatever level it was built at`, in `display.test.ts`
   and `large-text.test.ts`, each with a control that the level changes the output).
-  Views that do read a level when they are built, and so have the SIG-629 limit in
-  full, are `badgeView()` (its brackets) and `markdownView()` (it keeps an OSC 8
-  link only above level 0, so a view built at 3 and shown at 0 loses the URL
-  altogether). Neither is changed here; a `badgeView()` in a table cell is
-  already recorded on `TableCellView`. `imageView()` reads the level at paint time,
-  which is live, so a paint-time read of the renderer's level does exist; a
-  builder-time one does not, and that is what ruled the mount-time design out.
+  Views that read a level when they are built, and so had the SIG-629 limit in full,
+  were `badgeView()` (its brackets) and `markdownView()` (it kept an OSC 8 link only
+  above level 0, so a view built at 3 and shown at 0 lost the URL altogether). SIG-644
+  moved both onto the sheet, which is the entry "A badge and a markdown link hold both
+  forms" below. `imageView()` reads the level at paint time, which is live, so a
+  paint-time read of the renderer's level does exist; a builder-time one does not, and
+  that is what ruled the mount-time design out.
   Descendant selectors on the painted code are unchanged, but a child selector
   (`.sigil-qrcode > .sigil-qrcode-body`) no longer reaches the borrowed bodies,
   which are one box deeper.
 
-  The four rules are exceptions in `should declare on a role, bar seventeen exceptions that say why`:
+  The four rules are exceptions in `should declare on a role, bar twenty-one exceptions that say why`:
   they are which form takes space, not a look. Pinned by `the scheme a tree
   follows` in `test/components/qrcode.test.ts`, which mounts a real renderer and
   flips `setColorScheme()`.
+
+- **A badge and a markdown link hold both forms, and the sheet shows the one for the
+  renderer's level (SIG-644).** `badgeView()` and `Badge` decided brackets against
+  padding from `colorLevelOf(opts)` when they were built, and `markdownView()` kept
+  an OSC 8 link only above level 0 and otherwise wrote the URL out -- so a view built
+  at 3 and shown at 0 drew padding with no inverse behind it, and a markdown link
+  lost its URL altogether. SIG-629's answer was the right one for both, and its
+  recorded cost holds for both: **a cascade without the framework's sheet draws
+  every form** (` PASS [PASS]`, and `docs docs (https://x)` for a hyperlink), pinned by
+  a test for each. Four more exceptions in the sheet, `.sigil-badge-padded` and
+  `.sigil-badge-bracketed` (the same pair `.sigil-qrcode-*` is) and
+  `.sigil-markdown-hyperlinked` and `.sigil-markdown-url-bare`.
+
+  **A badge is a row of two texts now, and not one `text`.** The padded text
+  (`" PASS "`) and the bracketed one (`"[PASS]"`) each carry the variant classes, so
+  the inverse and the role colour reach whichever is drawn; both are two columns
+  wider than the label, so the width does not depend on the level. `Badge` is the
+  row, so its `class` and `props` are the row's (with `overflow: hidden` under them,
+  so a `width` or a shrink on the row clips the label as it did when the props were
+  on the one text; a prop that is about the _text_ -- `href`, `text-overflow`,
+  `text-align`, `inverse`, `white-space` -- no longer reaches the label, and
+  nothing forwards it: it is a limit, and a theme class on the variant is the way) and its variant classes are on the two texts inside -- a caller who read `el.classes` for `sigil-success` reads a child
+  now. `colorLevel` on `Badge` is accepted and not read. `badge()` the string is
+  unchanged: it renders the same tree at `colorLevelOf(opts)` under the sheet.
+  The rejected alternative was one `text` that picked its content at paint, which
+  would have needed a paint hook on `text` for one component.
+
+  **A markdown link in a view holds both forms of the word it ends, when the terminal
+  can draw a hyperlink.** `hyperlinks` -- the option, or `supportsHyperlinks()` -- no
+  longer has the level folded into it for a view. `words()` marks the `(url)` piece
+  where a link ends, in the word it ends in, and `wordViews()` makes two forms of that
+  word: the word without the piece, which carries `.sigil-markdown-hyperlinked` and is
+  what is drawn above level 0, and the word cut at each URL so that the URL starts a
+  word of its own (taking what is stuck to it, a comma, along), which carries
+  `.sigil-markdown-url-bare` and is what the static form always was. The sheet
+  hides one at each level, and a hidden item takes no room and no gap, which is what
+  lets both sit in one wrapping row. The first attempt put the URL in the link's last
+  word with a column of margin, which fixed the punctuation and broke everything
+  else: a URL that did not fit beside its word wrapped between pieces, orphaning the
+  comma and indenting a continuation line, and the fit check missed the margin so a
+  line ran a column over. Two words, as the facade has them, wrap as the facade does,
+  and `should wrap a link exactly as the facade does` compares the two at seven widths
+  and both levels. The cost is a copy of one word per link rather than of a document,
+  and two known differences at level 0, both in the corners of the static form's
+  own merging. A URL wider than the line followed with no space by other styled text
+  -- another link's words, inline code, an image -- is merged into one breakable text
+  in the static form and not here, because the neighbour's piece differs from the URL's
+  (width 10 and `[a](u)[b](v)`). And a URL holding a space is one word here, where
+  `emit()` splits the static form at it, so it wraps differently from the facade
+  unless the line is wide enough for it whole. Neither is pinned. A terminal that cannot draw a hyperlink, a
+  relative link with no `baseUrl` and an autolink whose text is its URL are as they
+  were: there is one form, so there is nothing to choose. The `markdown()` string
+  facade draws at the level it was given and builds the form for it, so its output is
+  byte for byte what it was.
+
+  **A link in a table is the limit, and it is the SIG-629 one.** A column is as wide
+  as what is drawn in it, `tableWidths()` reads the words, and a cell cannot hold two
+  widths: holding both would size every column for the URL form and leave a README's
+  table with blank columns on every terminal that draws hyperlinks, which is the
+  common case, to fix the uncommon one. So a link in a table cell is decided at the
+  level the view was built at, as it was, and a table built at 3 and shown at 0 loses
+  its URLs. Not widened here; the way out is a renderer-level read at mount, which
+  does not exist.
 
 - **The right-hand quiet zone survives because of the background, and the two
   halves of that are different mechanisms.** `renderToString()` drops a trailing
@@ -8281,17 +8344,17 @@ split is `note()` and `noteView()`'s.
   trailing space; `nowrap` keeps both, and `inverse` then reaches them. A no-break
   space, which `note()` uses for its title, would also work but has to be turned
   back into a space on the way out, which a table cannot do for one cell.
-- **At colour level 0 the padding is brackets, and the component decides it.** The
-  inverse is dropped there, so `PASS` is `PASS` with spaces around it and a
-  badge in a log line is not set apart from what it labels. Which characters are
-  drawn is content, not style, so the sheet cannot say it -- the QR code decides
-  its glyphs from the level for the same reason. Brackets rather than a symbol or
-  the label upper-cased: the label is the app's and is never altered, and `[beta]`
-  reads in a pipe. Both forms take two columns, so the width does not depend on the
-  level and `badgeView()` can report one `width`. The level is
-  `colorLevel ?? ansi.level`, the default a table uses too, so a badge and the
-  table around it agree unless one of them is overridden; an override has to be
-  mirrored on both, and the cost of not doing so is a shape, not a width.
+- **At colour level 0 the padding is brackets, and the sheet decides it (SIG-644; the
+  component did until then).** The inverse is dropped there, so `PASS` is `PASS`
+  with spaces around it and a badge in a log line is not set apart from what it
+  labels. Which characters are drawn is content, not style, so it is a second text
+  rather than a rule: the badge holds both and the sheet shows one, because the
+  level is the renderer's and a view is built before there is one -- the QR code
+  does the same. Brackets rather than a symbol or the label upper-cased: the label
+  is the app's and is never altered, and `[beta]` reads in a pipe. Both forms take
+  two columns, so the width does not depend on the level and `badgeView()` can
+  report one `width`. The level used to be `colorLevel ?? ansi.level`, mirrored on
+  the table around it; nothing needs mirroring now.
 - **A table cell may be a view, and a string badge cannot be one.** A string cell
   has its escape sequences dropped by `toDisplayText()` -- which is right, it is
   how a stray `ESC` is kept off the screen -- so a styled `badge()` string in a
@@ -10939,12 +11002,12 @@ text in cells want the same. The survey answer is **one**, and it already had it
 - **The answered line leaves a view out.** It is a string, and a view has no text
   form; `short` is the lever and its doc says so. Inventing one -- an optional
   `text` on `TableCellView` -- would be API with one reader.
-- **The colour level stays the caller's.** A view is built at the level it was
-  asked for and neither `table()` nor `selectRow()` passes its own down: a view is
-  an already-built tree, and rebuilding it at another level needs the function
-  that made it, which a `{ element, width }` does not carry. The badge entry
-  already says to pass the same `colorLevel` to both, and the cost of not doing so
-  is a shape, not a width.
+- **The colour level stays the caller's, and a badge no longer needs it.** A view is
+  built at the level it was asked for and neither `table()` nor `selectRow()` passes
+  its own down: a view is an already-built tree, and rebuilding it at another level
+  needs the function that made it, which a `{ element, width }` does not carry. A
+  badge held the one place that mattered, and SIG-644 made it follow the renderer's
+  level, so a badge cell is right at either.
 
 **The sites that do not want one, and why:**
 
@@ -12817,8 +12880,9 @@ exception per widget. This is the one answer, and every widget below follows it.
   `  Yes  ` and the prompts' `❯` in a pointer column that is `visibility: hidden`
   until its row is active: the marker takes the place of a blank, so the focus
   moves nothing, and it is drawn at every level, so the control needs to know
-  nothing about the level -- the badge's level-0 brackets are decided from a level
-  handed to it, which a control in a tree is never handed. It comes from the same
+  nothing about the level -- the badge's level-0 brackets were decided from a level
+  handed to it until SIG-644 moved them onto the sheet, which a control in a tree is
+  never handed. It comes from the same
   `onFocusChange`. A control whose focus has no blank to stand in -- a tab label,
   a collapsible title, a caret -- shows no focus at level 0, which is the cost
   the three retired rules already recorded and is not widened here.

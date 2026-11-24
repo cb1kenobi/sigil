@@ -71,6 +71,11 @@ export interface MarkdownOptions extends StyledOptions {
    * Whether a link is an OSC 8 hyperlink, with its URL out of sight, or its words
    * with the URL after them. Defaults to `supportsHyperlinks()` for `stream`, and
    * is always the second at colour level 0, which writes no escape sequence.
+   *
+   * In `markdownView()` the level is the renderer's rather than the view's: a link
+   * outside a table holds both forms, and the sheet shows the URL where the
+   * renderer draws at level 0 (SIG-644). A link in a table is decided here, at the
+   * level the view was built at.
    */
   hyperlinks?: boolean;
   /** The platform to detect for. Defaults to `process.platform`. */
@@ -140,7 +145,14 @@ interface Context {
   readonly env: Record<string, string | undefined> | undefined;
   /** The fewest columns a list or quote may leave its blocks by indenting them. */
   readonly floor: number;
+  /**
+   * Whether a link holds both forms and lets the sheet choose by the renderer's
+   * level: the terminal can draw a hyperlink, and the words are not in a table,
+   * whose column widths are measured from what is drawn and so cannot hold two.
+   */
+  readonly follow: boolean;
   readonly highlight: MarkdownOptions['highlight'];
+  /** Whether a link is an OSC 8 hyperlink with no URL beside it, at the level it was built at. */
   readonly hyperlinks: boolean;
   readonly platform: string | undefined;
   readonly room: number;
@@ -151,6 +163,11 @@ interface Context {
 interface Piece {
   classes: string;
   href: string;
+  /**
+   * Whether it is a link's URL for level 0, which is not a piece of the word it
+   * sits in: it is the start of a word of its own in the form drawn there.
+   */
+  mark?: boolean;
   text: string;
 }
 
@@ -168,6 +185,24 @@ export function markdownView(
   source: string | readonly MarkdownBlock[],
   opts: MarkdownOptions = {}
 ): MarkdownView {
+  return buildView(source, opts, true);
+}
+
+/**
+ * The tree for a document, for a caller that is a view and one that is a snapshot.
+ *
+ * @param source - The markdown, or blocks `parseMarkdown()` already read.
+ * @param opts - The room, the links, and the theme.
+ * @param live - Whether a link outside a table holds both forms for the sheet to
+ *   choose between. The facade passes `false`: it draws at the level it was given
+ *   and has nothing to follow.
+ * @returns The tree, and the room it was built for.
+ */
+function buildView(
+  source: string | readonly MarkdownBlock[],
+  opts: MarkdownOptions,
+  live: boolean
+): MarkdownView {
   if (typeof source !== 'string' && !Array.isArray(source)) {
     throw new TypeError(__`Expected markdown to be a string or parsed blocks`);
   }
@@ -179,22 +214,23 @@ export function markdownView(
     asked > 0 ? asked : terminalWidth({ env: opts.env, stream: opts.stream })
   );
   const level = colorLevelOf(opts);
+  const capable =
+    opts.hyperlinks ??
+    supportsHyperlinks({
+      env: opts.env,
+      stream: opts.stream ?? process.stdout,
+    });
 
   const ctx: Context = {
     baseUrl: opts.baseUrl,
     depth: 0,
     env: opts.env,
     floor: Math.min(MIN_TEXT, Math.max(MIN_TEXT_NARROW, Math.floor(width / 3))),
+    follow: live && capable,
     highlight: opts.highlight,
     // level 0 is "write no escape sequences", and an OSC 8 is one -- so the URL
     // goes beside the words whatever the terminal could have done with it
-    hyperlinks:
-      level > 0 &&
-      (opts.hyperlinks ??
-        supportsHyperlinks({
-          env: opts.env,
-          stream: opts.stream ?? process.stdout,
-        })),
+    hyperlinks: level > 0 && capable,
     platform: opts.platform,
     room: width,
     unicode: unicodeSupported(opts.env, opts.platform),
@@ -222,7 +258,7 @@ export function markdown(
   source: string | readonly MarkdownBlock[],
   opts: MarkdownOptions = {}
 ): string {
-  const { element, width } = markdownView(source, opts);
+  const { element, width } = buildView(source, opts, false);
 
   return renderToString(element, {
     cascade: themedCascade(opts),
@@ -689,7 +725,10 @@ const JUSTIFY: Record<NonNullable<MarkdownAlign>, string> = {
  */
 function tableBlock(block: Extract<MarkdownBlock, { type: 'table' }>, ctx: Context): Element {
   const columns: Column[] = block.align.map((align) => ({ align: align ?? 'left' }));
-  const lines = [block.head, ...block.rows].map((row) => row.map((cell) => words(cell, ctx)));
+  // a column is as wide as what is drawn in it, so a cell cannot hold a URL that
+  // only some levels draw: its links are decided at the level the view was built at
+  const inCell: Context = { ...ctx, follow: false };
+  const lines = [block.head, ...block.rows].map((row) => row.map((cell) => words(cell, inCell)));
   const natural = tableWidths(
     [],
     lines.map((row) => row.map((cell) => ({ text: '', width: Math.max(1, lineWidth(cell)) }))),
@@ -895,7 +934,18 @@ function words(runs: readonly MarkdownInline[], ctx: Context): Word[][] {
         const target = linkTarget(run.href, ctx);
         walk(run.children, join(classes, 'sigil-markdown-link sigil-accent'), target.href, () => {
           const said = markdownText(run.children).trim();
-          if (target.shown !== '' && target.shown !== said) {
+          if (target.shown !== '' && target.shown !== said && target.href !== '') {
+            // both forms. The URL is marked where it falls, in the word the link ends
+            // in, and `wordViews()` makes the two words out of it: the link as it is
+            // above level 0, and what the static form is at level 0, where the URL
+            // starts a word of its own
+            word.push({
+              classes: 'sigil-markdown-url sigil-muted',
+              href: '',
+              mark: true,
+              text: `(${target.shown})`,
+            });
+          } else if (target.shown !== '' && target.shown !== said) {
             // its own word, after a space, so the URL breaks onto a line of its
             // own rather than taking the last word of the link with it
             end();
@@ -982,10 +1032,14 @@ function linkTarget(href: string, ctx: Context): { href: string; shown: string }
   if (absolute === undefined) {
     return { href: '', shown: written };
   }
-  if (ctx.hyperlinks) {
+  if (ctx.hyperlinks || ctx.follow) {
     // OSC 8 carries a URI, which is printable ASCII: anything else is
     // percent-encoded, the way a browser would before it sent it
-    return { href: absolute.replaceAll(/[^\x21-\x7E]+/gu, (it) => encodeURI(it)), shown: '' };
+    return {
+      href: absolute.replaceAll(/[^\x21-\x7E]+/gu, (it) => encodeURI(it)),
+      // a view that follows the renderer's level holds the URL as well
+      shown: ctx.follow ? absolute.replace(/^mailto:/i, '') : '',
+    };
   }
   return { href: '', shown: absolute.replace(/^mailto:/i, '') };
 }
@@ -1017,11 +1071,68 @@ function flow(
         'flex-wrap': 'wrap',
         ...(justify === undefined ? {} : { 'justify-content': justify }),
       },
-      ...line.map((word) => wordView(word, room))
+      ...line.flatMap((word) => wordViews(word, room))
     )
   );
 
   return box({ class: classes, 'flex-direction': 'column', 'min-width': 0 }, ...rows);
+}
+
+/**
+ * A word, as the elements that draw it: one, or two forms of it where it holds a link's URL.
+ *
+ * A link in a view that follows the renderer's level is a word with a marked piece,
+ * the URL, in it. Above level 0 the word is drawn without that piece, so what
+ * follows the link -- a comma, a full stop -- stays against it. At level 0 the same
+ * word is cut where each URL falls, and the URL starts a word of its own, which is
+ * how the static form is laid out: the URL wraps as one word and takes the
+ * punctuation after it with it. The sheet shows one of the two; the one it hides
+ * takes no room, and no gap either.
+ *
+ * @param word - The word.
+ * @param room - The columns the line has.
+ * @returns The elements, in the order they are drawn.
+ */
+function wordViews(word: Word, room: number): Element[] {
+  if (!word.some((it) => it.mark === true)) {
+    return [wordView(word, room)];
+  }
+
+  const forms: Element[] = [];
+  // the word as the static form has it above level 0: what the URL separated is
+  // one piece again where the two are in one style, as `emit()` has them
+  const whole: Piece[] = [];
+  for (const it of word) {
+    const last = whole.at(-1);
+    if (it.mark === true) {
+      continue;
+    }
+    if (last && last.classes === it.classes && last.href === it.href) {
+      whole[whole.length - 1] = { ...last, text: last.text + it.text };
+    } else {
+      whole.push(it);
+    }
+  }
+  if (whole.length > 0) {
+    forms.push(wordView(whole, room).addClass('sigil-markdown-hyperlinked'));
+  }
+  let part: Piece[] = [];
+  const spelled: Piece[][] = [];
+  for (const it of word) {
+    if (it.mark === true) {
+      if (part.length > 0) {
+        spelled.push(part);
+      }
+      part = [{ ...it, mark: false }];
+    } else {
+      part.push(it);
+    }
+  }
+  spelled.push(part);
+  for (const each of spelled) {
+    forms.push(wordView(each, room).addClass('sigil-markdown-url-bare'));
+  }
+  return forms;
 }
 
 /**
