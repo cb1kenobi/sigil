@@ -8,6 +8,18 @@ import { main } from '@ttylabs/sigil';
 await main({
   schema: {
     commands: {
+      // a message longer than one block, from an error that asks for the exit
+      // code it names: `2> log` on a full file cuts the message off, and the
+      // code is the only thing left to say so (`output.test.ts`)
+      fail: {
+        desc: 'Fail with a long message, and the exit code argv names',
+        args: ['[code]'],
+        run: (state) => {
+          throw Object.assign(new Error('a message that does not fit. '.repeat(100)), {
+            exitCode: Number(state.argv.code ?? 1),
+          });
+        },
+      },
       list: {
         desc: 'List the items, as data',
         format: true,

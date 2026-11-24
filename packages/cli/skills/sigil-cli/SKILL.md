@@ -118,8 +118,8 @@ What `check` does **not** do, so only `build` or `package` finds it:
 These are the runtime's routing rules (its skill explains them); this is what
 `check` and `build` do about each. Errors stop a build; warnings do not.
 
-- **Error:** a route whose file or directory name has whitespace, a `,` or a
-  `/`, or starts with `<`, `[`, `!` or `@`. A route is named exactly as its
+- **Error:** a route whose file or directory name has whitespace, a `,`, a
+  `/` or a control or format character, or starts with `<`, `[`, `!` or `@`. A route is named exactly as its
   file. Rename it, and alias or hide it in a `commands.json` instead.
 - **Error:** two routes claiming one name, such as `deploy.ts` beside a
   `deploy/` directory.

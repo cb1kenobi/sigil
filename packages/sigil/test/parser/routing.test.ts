@@ -1,6 +1,7 @@
 import { isPrivateRoute, resolveRoutes } from '../../src/parser/command/routes.js';
 import { parse } from '../../src/parser/parse.js';
 import { Internal } from '../../src/types.js';
+import { escapeControls } from '../../src/util/escape-controls.js';
 import { tempDir } from '../temp.js';
 import { type Dirent, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -1014,11 +1015,44 @@ describe('filesystem routing', () => {
         expect(message).not.toMatch(/\p{Cc}/u);
       });
 
-      it('should not refuse a control character for being one', () => {
-        // outside this decision: only what a name string would read is refused
-        expect(
-          resolveRoutes('/nowhere', [entry('a\x07b.mjs')]).map((route) => route.name)
-        ).to.deep.equal(['a\x07b']);
+      it('should refuse a control or format character in a name, for being one (SIG-662)', () => {
+        // a routed name is the file system's, and `Did you mean` offers it back to a
+        // terminal: a name holding one is a name nobody can type and a sequence
+        // waiting for something to print it. U+2028 is `\p{Zl}`, which is neither
+        // `\p{Cc}` nor `\p{Cf}`, and `/\s/` already refuses it as whitespace
+        for (const code of [0x07, 0x1b, 0x7f, 0x9b, 0xad, 0x200b, 0x202e]) {
+          const name = `a${String.fromCodePoint(code)}b`;
+          let message = '';
+          try {
+            resolveRoutes('/nowhere', [entry(`${name}.mjs`)]);
+          } catch (err) {
+            message = (err as Error).message;
+          }
+
+          const shown = escapeControls(name);
+          expect(message, shown).toContain(`Cannot route the file "${shown}.mjs"`);
+          expect(message, shown).toContain(
+            'contains a control or format character, which a terminal would act on or draw as something else'
+          );
+          expect(message, shown).not.toMatch(/[\p{Cc}\p{Cf}]/u);
+        }
+      });
+
+      it('should let the two joiners through, since a script spells words with them', () => {
+        // Persian needs U+200C and several Indic scripts U+200D; neither reorders
+        // or hides anything the way the bidi controls and U+200B do
+        for (const code of [0x200c, 0x200d]) {
+          const name = `a${String.fromCodePoint(code)}b`;
+          expect(
+            resolveRoutes('/nowhere', [entry(`${name}.mjs`)]).map((route) => route.name)
+          ).to.deep.equal([name]);
+        }
+      });
+
+      it('should refuse a control or format character in a directory name too', () => {
+        expect(() => resolveRoutes('/nowhere', [entry('d\x1b[2J', true)])).toThrow(
+          /Cannot route the directory "d\\x1B\[2J" in "[^"]*": the command name "d\\x1B\[2J" contains a control or format character/
+        );
       });
 
       it('should escape a control character in a directory name it echoes', () => {
@@ -1034,19 +1068,24 @@ describe('filesystem routing', () => {
         expect(message).not.toMatch(/\p{Cc}/u);
       });
 
-      it('should escape a control character in the two names a collision echoes', () => {
-        // `a ESC` as a file and as a directory are one command, and both spellings,
-        // the name and the directory they are in are echoed
+      it('should escape a character no route refuses in the two names a collision echoes', () => {
+        // a control or format character is refused before two names can collide
+        // (SIG-662), so this uses U+3164 HANGUL FILLER, which `escapeControls()`
+        // names and `assertRouteName()` does not: `a` plus it as a file and as a
+        // directory are one command, and both spellings, the name and the directory
+        // they are in are echoed
         let message = '';
         try {
-          resolveRoutes('/no\x1b[31mwhere', [entry('a\x1b.mjs'), entry('a\x1b', true)]);
+          resolveRoutes('/no\x1b[31mwhere', [entry('a\u3164.mjs'), entry('a\u3164', true)]);
         } catch (err) {
           message = (err as Error).message;
         }
 
-        expect(message).toContain('both declare a "a\\x1B" command: "a\\x1B" and "a\\x1B.mjs"');
+        expect(message).toContain(
+          'both declare a "a\\u{3164}" command: "a\\u{3164}" and "a\\u{3164}.mjs"'
+        );
         expect(message).toContain('no\\x1B[31mwhere');
-        expect(message).not.toMatch(/\p{Cc}/u);
+        expect(message).not.toMatch(/[\p{Cc}\p{Default_Ignorable_Code_Point}]/u);
       });
 
       it('should refuse a directory by the same rules, naming it', () => {

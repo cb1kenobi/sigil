@@ -48,6 +48,15 @@ const FORGED = 'sigil-forge\nforged.ts:1:1: error: pwned-';
 const TITLE = 'h\u001b]0;PWN\u0007d';
 
 /**
+ * A command's file name that a route is allowed to have and a terminal still
+ * should not be shown raw: U+3164 HANGUL FILLER is drawn blank, which
+ * `escapeControls()` names and `assertRouteName()` does not refuse. The retitle
+ * above cannot be one, because a control or format character in a route's name is
+ * refused outright (SIG-662) -- and that refusal is its own test, in `tree.test.ts`.
+ */
+const BLANK = 'h\u3164d';
+
+/**
  * Every control character left in some output, newlines aside.
  *
  * SGR is taken off first, and only SGR: `FORCE_COLOR` colours what the report
@@ -751,7 +760,7 @@ function appNamed(name: string): string {
   writeFileSync(join(pkg, 'package.json'), JSON.stringify({ main: 'index.js', name: `p${TITLE}` }));
   writeFileSync(join(pkg, 'index.js'), "exports.x = 'inlined';\n");
   writeFileSync(
-    join(app, 'src', 'commands', `a${TITLE}.js`),
+    join(app, 'src', 'commands', `a${BLANK}.js`),
     `import { x } from ${JSON.stringify(`p${TITLE}`)};\n` +
       `export default { desc: ${JSON.stringify(`d${TITLE}\nmore`)}, hidden: true, run: () => process.stdout.write(\`\${x}\\n\`) };\n`
   );
@@ -809,8 +818,8 @@ describe.skipIf(process.platform === 'win32')('a build that succeeds', () => {
     expect(code, stderr).toBe(0);
     expect(controls(stderr), stderr).toEqual([]);
     expect(controls(stdout), stdout).toEqual([]);
-    expect(stdout).toContain(`a${escapeControls(TITLE)} (hidden)`);
-    expect(stdout).toContain(escapeControls(displayPath(join('src', 'commands', `a${TITLE}.js`))));
+    expect(stdout).toContain(`a${escapeControls(BLANK)} (hidden)`);
+    expect(stdout).toContain(escapeControls(displayPath(join('src', 'commands', `a${BLANK}.js`))));
     // the description keeps its line break for the table to lay out, and is
     // escaped otherwise
     expect(stdout).toContain(`d${escapeControls(TITLE)} more`);
@@ -825,7 +834,7 @@ describe.skipIf(process.platform === 'win32')('a build that succeeds', () => {
     const { code, stderr } = await build(app, '0', '--bin', 'src/index.ts');
 
     expect(code, stderr).toBe(1);
-    expect(stderr).toContain(`"a${escapeControls(TITLE)}" was found by walking`);
+    expect(stderr).toContain(`"a${escapeControls(BLANK)}" was found by walking`);
     expect(controls(stderr), stderr).toEqual([]);
   }, 60_000);
 

@@ -1,6 +1,7 @@
 import debug from './debug/index.js';
 import { assertSerialized, formatFor, type SerializedError } from './format.js';
 import { __ } from './i18n/index.js';
+import { isStreamGone, writeTo } from './output.js';
 import type { ErrorContext, ErrorHandlerOptions } from './types.js';
 import { errorMessage, readString } from './util/error-message.js';
 import { safeLog as safeLogTo } from './util/safe-log.js';
@@ -220,13 +221,67 @@ export function errorHandler(err: unknown, opts: ErrorHandlerOptions = {}): void
   // a stream that is already gone -- a destroyed socket, a closed pipe --
   // must not turn rendering an error into a second, worse error. This only
   // covers a throwing `write`; an asynchronous EPIPE arrives as an `error`
-  // event on the stream, which is the terminal wrapper's job once there is
-  // one again.
+  // event on the stream, which `guardOutput()` listens for.
+  //
+  // Through `writeTo()` for the process's own stderr, which is the one place that
+  // knows a regular file takes a write in part: `mycli 2> log` on a full disk lost
+  // the message itself, with nothing to say so, because Node discards the byte
+  // count. A stream the caller handed in is `write()` as it always was -- an
+  // `fs.WriteStream` has a descriptor and a queue of its own, and writing round
+  // the queue puts the message ahead of what it holds. What `writeTo()` throws on
+  // a cut-off is caught below like any other failed write, because the error path
+  // has nowhere left to report to -- stderr is the thing that failed
+  let code = errorExitCode(err);
+  const own = stderr === process.stderr;
+  const line = `${trimTrailingNewlines(text)}\n`;
   try {
-    stderr.write(`${trimTrailingNewlines(text)}\n`);
+    if (own) {
+      writeTo(process.stderr, line);
+    } else {
+      stderr.write(line);
+    }
   } catch (writeErr) {
     safeLog(writeErr);
+    // the verdict is still the error's own, so a usage error is still 2 and the
+    // message that could not be written is not allowed to change that. The one
+    // exception is an exit code of `0`, which an error may ask for -- that is how
+    // a help short-circuit exits cleanly -- and which here would report success
+    // over a message that never landed. A reader who went away is not that: nothing
+    // was cut off, so the code stays what it was, and neither is a stream the
+    // caller supplied, whose failure is the caller's to account for
+    if (code === 0 && own && !readerGone(writeErr)) {
+      code = defaultExitCode;
+    }
   }
 
-  process.exitCode = errorExitCode(err);
+  process.exitCode = code;
+}
+
+/**
+ * Whether a failed write to stderr is the reader having left, asked without
+ * letting a hostile error throw out of the error path.
+ *
+ * @param err - What the write threw.
+ * @returns `true` when it, or its cause, is `EPIPE` and its relatives.
+ */
+function readerGone(err: unknown): boolean {
+  try {
+    return isStreamGone(err, process.stderr) || isStreamGone(cause(err), process.stderr);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * What an error says it was caused by, without letting a getter throw.
+ *
+ * @param err - The error.
+ * @returns Its `cause`, or `undefined`.
+ */
+function cause(err: unknown): unknown {
+  try {
+    return (err as { cause?: unknown } | null | undefined)?.cause;
+  } catch {
+    return undefined;
+  }
 }

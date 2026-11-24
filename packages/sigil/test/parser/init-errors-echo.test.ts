@@ -399,18 +399,26 @@ describe('a name `\\s` lets through and a name nothing validates', () => {
 // nothing for these to read there
 describe.skipIf(process.platform === 'win32')('a name the file system chose', () => {
   for (const { escaped, kind, raw } of HOSTILE) {
-    it(`should escape ${kind} in a directory holding two index modules`, async () => {
+    it(`should refuse ${kind} in a directory name, and echo it escaped (SIG-662)`, async () => {
       const root = tempDir('sigil-init-errors-');
       const dir = join(root, `d${raw}`);
       mkdirSync(dir);
       writeFileSync(join(dir, 'index.js'), 'export default {};');
-      writeFileSync(join(dir, 'index.ts'), 'export default {};');
 
       const message = await messageOf(() =>
         parse({ argv: [`d${raw}`], schema: { commands: root } })
       );
-      expect(message).toContain(`d${escaped}`);
-      expect(message).toContain('has more than one index module');
+      expect(message).toContain(`Cannot route the directory "d${escaped}"`);
+      expect(message).toContain('contains a control or format character');
+      expect(message).not.toMatch(RAW);
+    });
+
+    it(`should refuse ${kind} in a file name, and echo it escaped (SIG-662)`, async () => {
+      const root = tempDir('sigil-init-errors-');
+      writeFileSync(join(root, `f${raw}.js`), 'export default {};');
+
+      const message = await messageOf(() => parse({ argv: ['x'], schema: { commands: root } }));
+      expect(message).toContain(`Cannot route the file "f${escaped}.js"`);
       expect(message).not.toMatch(RAW);
     });
 
@@ -425,6 +433,20 @@ describe.skipIf(process.platform === 'win32')('a name the file system chose', ()
       );
       expect(message).toContain(`p${escaped}`);
       expect(message).toContain('Failed to JSON parse');
+      expect(message).not.toMatch(RAW);
+    });
+
+    // V8's message quotes the text it failed on, and a manifest in an installed
+    // app's commands directory is not the app's own file (SIG-662)
+    it(`should escape ${kind} in the text V8 quotes of a manifest that is not JSON`, async () => {
+      const root = tempDir('sigil-init-errors-');
+      const dir = join(root, 'p');
+      mkdirSync(dir);
+      writeFileSync(join(dir, 'package.json'), `[${raw}`);
+
+      const message = await messageOf(() => parse({ argv: ['p'], schema: { commands: root } }));
+      expect(message).toContain('Failed to JSON parse');
+      expect(message).toContain(escaped);
       expect(message).not.toMatch(RAW);
     });
 
@@ -468,6 +490,40 @@ describe.skipIf(process.platform === 'win32')('a name the file system chose', ()
       expect(message).not.toMatch(RAW);
     });
   }
+});
+
+// a control or format character is refused as a route name before anything can be
+// said about two index modules, so this site is reached by a character the refusal
+// does not name and `escapeControls()` does: U+3164 HANGUL FILLER, drawn blank
+describe.skipIf(process.platform === 'win32')('a name the refusal lets through', () => {
+  it('should escape it in a directory holding two index modules', async () => {
+    const root = tempDir('sigil-init-errors-');
+    const dir = join(root, `d${String.fromCodePoint(0x3164)}`);
+    mkdirSync(dir);
+    writeFileSync(join(dir, 'index.js'), 'export default {};');
+    writeFileSync(join(dir, 'index.ts'), 'export default {};');
+
+    const message = await messageOf(() =>
+      parse({ argv: [`d${String.fromCodePoint(0x3164)}`], schema: { commands: root } })
+    );
+    expect(message).toContain('d\\u{3164}');
+    expect(message).toContain('has more than one index module');
+    expect(message).not.toContain(String.fromCodePoint(0x3164));
+  });
+});
+
+// the one routed name that still reaches `Did you mean`: a blank letter is no
+// sequence and no reordering, so the route is kept and the suggestion escapes it
+describe.skipIf(process.platform === 'win32')('a suggestion offering a routed name', () => {
+  it('should escape what a file name held that the refusal lets through', async () => {
+    const root = tempDir('sigil-init-errors-');
+    const blank = String.fromCodePoint(0x3164);
+    writeFileSync(join(root, `build${blank}.js`), 'export default { run() {} };');
+
+    const message = await messageOf(() => parse({ argv: ['buil'], schema: { commands: root } }));
+    expect(message).toContain('Did you mean "build\\u{3164}"?');
+    expect(message).not.toContain(blank);
+  });
 });
 
 describe.skipIf(process.platform === 'win32')("a module's own message", () => {

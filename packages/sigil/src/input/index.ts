@@ -60,6 +60,8 @@ import type { Element } from '../element/index.js';
 import { scrollIntoView } from '../element/scroll.js';
 import { State, untrack } from '../signals/index.js';
 import { raise } from '../signals/raise.js';
+// a type, which erases: the router asks a cascade one question and never imports one
+import type { Cascade } from '../style/cascade.js';
 import {
   PASTE_END,
   PASTE_START,
@@ -1106,6 +1108,36 @@ const guarded = new WeakSet<object>();
  * rather than a tick later. Per stream for `guarded`'s reason.
  */
 const heard = new WeakSet<object>();
+
+/**
+ * The answer to `InputOptions.hiddenBySheet`, written once (SIG-661).
+ *
+ * Whether an `!important` rule of the cascade says `display: none` for an element: the
+ * one thing an inline `display` cannot beat. Every router built over a tree a renderer
+ * draws takes it -- `runApp()`, the prompts and the pager do -- because a router left
+ * without it reads an element a prop shows as shown, so under a sheet with an important
+ * `display: none` a box a prop had set to `flex` was a Tab stop nobody could see. The
+ * cascade is asked as it is now, for that property alone and with no style resolved.
+ *
+ * It is a function over a cascade rather than a method of one so that it can sit here:
+ * this module reads `Element`, which the style module does not, and the cascade is only
+ * a type here.
+ *
+ * @param cascade - The cascade the tree is drawn through, or a function giving it for a
+ *   caller whose router exists before its cascade does (`runApp()`), which answers
+ *   `false` until there is one.
+ * @returns The function to pass as `hiddenBySheet`.
+ */
+export function hiddenBySheet(
+  cascade: Cascade | (() => Cascade | undefined)
+): (element: Element) => boolean {
+  return (element) =>
+    (typeof cascade === 'function' ? cascade() : cascade)?.important(
+      element,
+      'display',
+      element.parent?.style
+    ) === 'none';
+}
 
 /**
  * Builds the input router.

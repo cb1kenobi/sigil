@@ -1193,10 +1193,18 @@ messages.
   reads the same as one holding `ESC`. Doubling every backslash would make a
   mistyped Windows path harder to read, and what reaches the terminal is inert
   either way. This is a display rule and not an encoding.
-- **What a suggestion offers is the schema's and is left alone.**
-  `Did you mean "build"?` quotes a command or option the app declared. Only the
-  token the user typed is escaped. The match itself is still made on the raw
-  token, so escaping cannot change which suggestion is offered.
+- **What a suggestion offers is escaped too, since SIG-662.** It used to be left
+  alone as the schema's own spelling, and that assumed a name comes from the
+  app's source. A routed command's name is a file name, and a file dropped into
+  an installed app's commands directory is not the app's: it could be offered
+  back as `Did you mean "build<ESC>]0;PWNED<BEL>"?`. `unexpectedArgument()`,
+  `unknownOption()` and `unknownCommand()` each escape the candidate where the
+  message is built, with the same `escapeControls()`. The match is still made on
+  the raw token and the raw candidate, so escaping cannot change which
+  suggestion is offered. An option's name cannot hold such a character, so the
+  option site is defense in depth; the command one is the reachable one, through
+  a declared key as much as a file. `assertRouteName()` refuses the same
+  characters in a route (see "A route's name is the file system's").
 - **The `json` error format was not entirely safe, though the ticket said it
   was.** `JSON.stringify` escapes C0 and leaves `DEL` and C1 as raw characters.
   Because the escaping happens where the message is built, the serialized form
@@ -1218,6 +1226,11 @@ through `main()`'s stderr:
 | `format.ts`, `parser/format.ts` | `Unknown output format "…"`, `… so "…" cannot be asked for` | the `--format` value                                                                                                        |
 | `config/jsonc.ts`               | `Failed to parse …: …`                                      | V8's message, quoting the config file                                                                                       |
 | `png/image.ts`                  | the encoder's shape errors                                  | was a private copy of the same function, and now uses the shared one; its hex is now upper case                             |
+
+A schema format's own name is refused when it holds a control **or format**
+character since SIG-662 (`\p{Cc}` and `\p{Cf}`, where it was `\p{Cc}` alone): it is
+printed in the `This command accepts:` list, and U+202E there draws the rest of
+the list reversed.
 
 `Unknown option` is escaped although no control character can reach it. That
 message is only thrown for a spelling that matched `\w[\w-]*`, so a dash-led
@@ -1289,9 +1302,10 @@ The sites judged not to need it, with the reason:
     anything. An options map cannot reach it, since the key is the format. The
     first version of this entry said the label could not hold one, from reading
     the pattern rather than trying the other way in, and a review proved it wrong.
-  - **`Did you mean`** still offers what the schema declared, unescaped, as the
-    entry above records; a route name from the file system can hold a control
-    character and reach that suggestion, which this ticket did not change.
+  - **`Did you mean`** offered what the schema declared, unescaped, when this
+    ticket landed, and a route name from the file system could hold a control
+    character and reach it. SIG-662 closed both halves: the suggestion is
+    escaped, and `assertRouteName()` refuses the character.
   - **A module's own message.** `Failed to load command module (…)` and
     `Failed to JSON parse …` wrap what was caught. The path in the wrapping text
     is escaped, and so is the path wherever the caught message repeats it
@@ -1299,7 +1313,9 @@ The sites judged not to need it, with the reason:
     a JSON import's `SyntaxError` does too with no `code` to tell it by. Only the
     path is replaced, so a module's own message keeps its SGR and its lines --
     keying on `code` was the first answer and a review found it wrong in three
-    ways. The manifest's V8 parse message in `routes.ts` is left alone, as above.
+    ways. The manifest's V8 parse message in `routes.ts` is escaped since SIG-662:
+    a manifest in an installed app's commands directory is not the app's own file,
+    and V8 quotes the text it failed on.
 
   Covered by `test/parser/init-errors-echo.test.ts`: a table of sites, each run
   once per class of character (a control character, which becomes `\xNN`, and a
@@ -1317,10 +1333,12 @@ into `Failed to parse …`, and both parsers quote the source in some of those
 messages, so both stores escape it with the published helper. Each package's
 `AGENTS.md` records which messages it measured.
 
-Two other parse errors have the same V8 shape and are left alone on purpose:
-`routes.ts` reading a route package's `package.json`, and the toolchain's
-`discover.ts` reading the app's manifest. Both are the app's own files, so
-they are bug reports in the app's code, like the schema messages above.
+One other parse error has the same V8 shape and is left alone on purpose: the
+toolchain's `discover.ts` reading the app's manifest, which is the app's own
+file and so a bug report in the app's code, like the schema messages above.
+`routes.ts` reading a route package's `package.json` was the second until
+SIG-662, because a route package can be one somebody dropped into an installed
+app; it is escaped now.
 
 `sigil add` follows the same rule (see `packages/cli/src/commands/add.ts`). A
 registry's `registry.json` is **not** the app's own file: it comes from a package
@@ -2029,8 +2047,25 @@ read it by the new name.
   directory, path, manifest name and the two names a collision echoes where the
   message is built, so the build's diagnostic, which reuses the text, is inert in
   its message. Its location prefix is the build's own and is escaped there, by
-  `diagnosticLocation()` (SIG-443). A control character is not itself grounds for
-  refusal -- that is a larger decision than this entry.
+  `diagnosticLocation()` (SIG-443). **A control or format character is grounds for
+  refusal, since SIG-662**: `assertRouteName()` refuses `\p{Cc}` and `\p{Cf}` (less the joiners) in a
+  name, last, so a name refused for its syntax is still said to be and a `!` file
+  still gets its advice. U+2028 and U+2029 were already refused as whitespace.
+  **U+200C and U+200D are let through**: Persian and several Indic scripts
+  cannot spell some words without them, and an attack needs the bidi controls and
+  the invisible spaces rather than a joiner. They are escaped wherever a name is
+  echoed, like U+3164. A `commands.json` alias is **not** held to it: a dropped
+  manifest is no more the app's own than a dropped file, but an alias is only ever
+  echoed escaped, so it has the one guard where a route name has two. Refusing it
+  would also be a change to what `commands.json` accepts, which this ticket did
+  not take; it is a follow-up. The refusal is what stops a hostile file dropped into an installed
+  app's commands directory from being a command at all, and it is the first of two
+  guards: a suggestion escapes what it offers whatever the name was (see "A value
+  an error echoes"). The rest of what `escapeControls()` names -- U+3164, U+034F,
+  the variation selectors, U+2800 -- is **not** refused, because it is no
+  sequence and no reordering, only a name that prints blank; it is echoed
+  escaped. That is also why the collision and two-index-module messages are
+  tested with U+3164: a control or format character never reaches them.
 - **Only a space is said to separate.** `parseName()` splits at `[, ]` and nowhere
   else, so a tab or a no-break space is refused with its own reason -- it cannot be
   typed reliably as part of one word -- and not with a claim about aliases it does
@@ -2652,9 +2687,8 @@ app that had somebody looking. Chris decided on 2026-11-24 that both are
   `The output was cut off: N of M bytes were written (EFBIG).`, so it takes
   `main()`'s ordinary path -- `beforeError` hooks, the error handler, exit 1, or
   a rethrow under `errorHandler: false`. The message goes to **stderr**, which is
-  a different descriptor from the file that is full; `2> log` on the same full
-  file is the case nothing here covers, since `errorHandler()` writes through the
-  stream.
+  a different descriptor from the file that is full -- and `2> log` on the same
+  full file is `errorHandler()`'s own writer, covered by the entry below.
 - **Only a regular file takes the descriptor path, and only the real stream.** A
   pipe or a terminal is the stream's, whose queue carries a partial write to
   completion and whose `error` event is the guard's. A stream whose `write` was
@@ -2674,9 +2708,33 @@ app that had somebody looking. Chris decided on 2026-11-24 that both are
   every app for a predicate: `output.mjs` imports `node:fs` and nothing else
   (`test/dist.test.ts` holds both halves, as of this entry about 1.1 kB), against
   `terminal.mjs` at about 18 kB over seven modules.
-- **What is not covered.** `app completion bash > file` is `completion.ts`'s own
-  `process.stdout.write()` of a document, and an update notice and a prompt have
-  theirs; none is one of the three the ticket named. The Windows `EOF` is
+- **A completion script and the process's own error message go through `writeTo()` too**
+  (SIG-663). `app completion bash > file` was `completion.ts`'s own
+  `process.stdout.write()` of a document and is `writeOut()` now, so a cut-off is
+  the same `The output was cut off` error and exit 1 as `--help`. `errorHandler()`
+  writes the message through `writeTo()` when the stream is the process's own
+  `stderr`, which is the same loop for a real `2> log`. A stream passed as
+  `opts.stderr` is `write()` as it always was, whatever it is: an `fs.WriteStream`
+  has a descriptor and a queue of its own, and `writeTo()` on it wrote round the
+  queue -- ahead of what it held, and at offset 0 for one opened with `start` --
+  which the review of this entry measured. A capture or a test's sink was never
+  affected. What cannot be done is _report_ a
+  cut-off message: stderr is the thing that failed, so the handler catches what
+  `writeTo()` throws, logs it for `DEBUG=sigil:error`, and **does not throw out of
+  the error path or recurse** -- a second handler pass over a message that cannot be
+  written would fail the same way. The exit code is the one the error asked for, so
+  a usage error is still `2` and a plain one still `1`: that code is the verdict
+  and the lost message does not change it. The one case where it matters is an
+  error that asked for `0` -- the way an error says it is a clean exit -- which
+  would be success reported over half a message, so a failed write to the process's
+  own stderr turns it into `1`; a supplied stream's failure is its owner's and
+  changes nothing. A reader that went away (`isStreamGone()`, on the error or its `cause`)
+  is not a cut-off and leaves the `0` alone, since nothing on a closed pipe was
+  lost that anyone could read. The spawned tests are in
+  `packages/cli/test/output.test.ts` against `fixtures/main-output/app.mjs`, with
+  the descriptor under `ulimit -f` as `2>` for the error and `>` for the script.
+- **What is not covered.** An update notice and a prompt have `write`s of their
+  own, and neither is one of the writers the tickets named. The Windows `EOF` is
   reasoned and not measured, and a write racing the close is untested -- both
   carried over from SIG-537. The spawned size-limit tests are POSIX only, since
   Windows has no `ulimit`; the in-process ones in `test/output.test.ts` and

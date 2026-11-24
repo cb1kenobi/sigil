@@ -59,7 +59,14 @@ interface Ran {
  * bytes in dash and 1024 in bash, and the document is 2,276 either way. With no
  * limit there is no shell at all, which is what lets the control run on Windows.
  */
-function runToFile(bin: string, args: string[], dest: string, limit?: number): Promise<Ran> {
+function runToFile(
+  bin: string,
+  args: string[],
+  dest: string,
+  limit?: number,
+  /** Which descriptor is the file: `2> log` is a file as much as `> out`. */
+  to: 'stdout' | 'stderr' = 'stdout'
+): Promise<Ran> {
   return new Promise((settle, fail) => {
     const fd = openSync(dest, 'w');
     const [command, argv] =
@@ -69,7 +76,7 @@ function runToFile(bin: string, args: string[], dest: string, limit?: number): P
     const child = spawn(command, argv, {
       cwd: root,
       env: { ...process.env, COLUMNS: '80', NODE_NO_WARNINGS: '1' },
-      stdio: ['ignore', fd, 'pipe'],
+      stdio: to === 'stderr' ? ['ignore', 'pipe', fd] : ['ignore', fd, 'pipe'],
     });
     let stderr = '';
     const timer = setTimeout(() => {
@@ -285,5 +292,58 @@ describe('an app built on main(), redirected to a file', () => {
         expect(ran.stderr).not.toMatch(STACK);
       }
     );
+  });
+});
+
+/**
+ * The two writers that still wrote once through the stream (SIG-663): a
+ * completion script, and the message `errorHandler()` prints.
+ */
+describe('an app built on main(), the writers SIG-542 left', () => {
+  const fixture = join(here, 'fixtures', 'main-output', 'app.mjs');
+
+  describe.skipIf(process.platform === 'win32')('under a size limit', () => {
+    it('should exit non-zero when `completion bash` was cut off', async () => {
+      const control = join(dir, 'completion-whole.sh');
+      expect((await runToFile(fixture, ['completion', 'bash'], control)).code).toBe(0);
+
+      const dest = join(dir, 'completion-cut.sh');
+      const ran = await runToFile(fixture, ['completion', 'bash'], dest, 1);
+
+      // the limit bit, so a zero below is the defect and not a limit that never applied
+      expect(statSync(dest).size).toBeLessThan(statSync(control).size);
+      expect(ran.code).toBe(1);
+      expect(ran.stderr).toContain('The output was cut off');
+      expect(ran.stderr).not.toMatch(STACK);
+    });
+
+    it('should not exit zero over an error message that was cut off, even for an error that asked for zero', async () => {
+      // `exitCode: 0` is how an error says it is a clean exit -- a help
+      // short-circuit -- and the message is the only thing it says. Cut off, that
+      // is success reported over a file that holds half of it
+      const dest = join(dir, 'fail-cut.txt');
+      const ran = await runToFile(fixture, ['fail', '0'], dest, 1, 'stderr');
+
+      expect(statSync(dest).size).toBeGreaterThan(0);
+      expect(statSync(dest).size).toBeLessThan(2900);
+      expect(ran.signal).toBeNull();
+      expect(ran.code).toBe(1);
+    });
+
+    it('should leave the exit code of an error whose message was cut off as the error’s own', async () => {
+      const dest = join(dir, 'fail-cut-2.txt');
+      const ran = await runToFile(fixture, ['fail', '2'], dest, 1, 'stderr');
+
+      expect(ran.signal).toBeNull();
+      expect(ran.code).toBe(2);
+    });
+
+    it('should write the whole message, and keep the code, when nothing limits the file', async () => {
+      const dest = join(dir, 'fail-whole.txt');
+      const ran = await runToFile(fixture, ['fail', '0'], dest, undefined, 'stderr');
+
+      expect(ran.code).toBe(0);
+      expect(statSync(dest).size).toBeGreaterThanOrEqual(2900);
+    });
   });
 });

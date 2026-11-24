@@ -482,7 +482,7 @@ A directory is a tree: a file is a command named after the file, a subdirectory
 is a command named after the directory with the routes inside it as its
 subcommands, and an `index` module is the directory's own command rather than
 one called `index`. A name is taken literally: a file, directory or package name
-that is empty, holds whitespace, a `,` or a `/`, or starts with `<`, `[`, `!` or
+that is empty, holds whitespace, a `,`, a `/` or a control or format character, or starts with `<`, `[`, `!` or
 `@`, is refused rather than read as a name string, and a `commands.json` is how
 a route is aliased or hidden. A scoped package, `@acme/deploy`, is the command
 `deploy`.
@@ -7589,10 +7589,10 @@ focus moved. A key and a paste ask as well, so nothing reaches a hidden element 
 window before a frame, and a box a handler has just shown with an inline `display` is
 shown to the very next key in the same read, so a handler that shows a box and focuses
 something inside it keeps that focus. The one thing an inline `display` cannot beat is an
-`!important` rule in a sheet; `runApp()` asks its cascade for it, and an app that draws
-its own frames passes `hiddenBySheet` to `createInput()` -- `(el) => cascade.important(el,
-'display', el.parent?.style) === 'none'` -- if it has such a rule. Without it a shown
-element is shown.
+`!important` rule in a sheet; `runApp()`, `page()` and the prompts ask their cascade for
+it, and an app that draws its own frames passes `hiddenBySheet(cascade)`, exported from
+`@ttylabs/sigil/input`, as the `hiddenBySheet` option of `createInput()` if it has such a
+rule. Without it a shown element is shown.
 
 A bracketed paste goes the other way round, which is the mouse's order: the
 focused element's `onPaste` and then each ancestor's are offered it first, the

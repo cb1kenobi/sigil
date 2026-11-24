@@ -82,14 +82,17 @@ import { UsageError } from './util/usage-error.js';
 export type { SerializedError } from './types.js';
 
 /**
- * C0, `DEL` and C1, named rather than enumerated.
+ * C0, `DEL` and C1, and the format characters, named rather than enumerated.
  *
  * Which is the spelling the escape pass settled on, for its reason: a class of
  * `\u0000`-escapes trips `no-control-regex` and carries a suppression a
  * formatter can detach from the line it was written over, where `\p{Cc}` names
- * the set and carries no control character escaped or otherwise.
+ * the set and carries no control character escaped or otherwise. `\p{Cf}` is
+ * the other half of what a source file may not hold (SIG-483): U+202E draws the
+ * rest of the `This command accepts:` list reversed, and U+200B is not drawn,
+ * so two names that print alike differ (SIG-662).
  */
-const CONTROL = /\p{Cc}/u;
+const CONTROL = /[\p{Cc}\p{Cf}]/u;
 
 /**
  * Whether a value is a record somebody wrote as an object literal.
@@ -440,13 +443,14 @@ export function outputFormats(schema: Schema | undefined): Map<string, OutputFor
     }
 
     // and a name reaches a terminal, in the `This command accepts:` list the
-    // refusal prints -- so a control character in one is a sequence waiting for
-    // something to print it, which is the rule this repository keeps for every
-    // byte it emits. `\p{Cc}` names the set rather than enumerating it, which is
-    // the spelling the escape pass already settled on
+    // refusal prints -- so a control or format character in one is a sequence
+    // waiting for something to print it, or a reordering of what is printed,
+    // which is the rule this repository keeps for every byte it emits. `CONTROL`
+    // names the set rather than enumerating it, which is the spelling the escape
+    // pass already settled on
     if (CONTROL.test(name)) {
       throw new TypeError(
-        `Expected the schema format named ${escapeControls(JSON.stringify(name))} to have no control character in its name`
+        `Expected the schema format named ${escapeControls(JSON.stringify(name))} to have no control or format character in its name`
       );
     }
 
