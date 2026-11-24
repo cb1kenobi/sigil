@@ -1176,10 +1176,11 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   // 9,446 B at 305 keys when SIG-328 set a ceiling of 18 KiB, 18,518 B at 480
   // once the components' `Expected ...` errors had been tagged with `__`, and
   // 8,610 B at 305 when SIG-658 took them back out, and 8,251 B at 300 when
-  // SIG-668 took five more -- see "src/i18n/keys.ts is
+  // SIG-668 took five more, and 8,197 B at 299 when SIG-677 took the one
+  // `new Error` of 92 that only a developer reaches -- see "src/i18n/keys.ts is
   // generated" in `src/i18n/AGENTS.md`. `the i18n-keys entry` below is what
   // says the figure is the key table and not something pulled in beside it
-  'i18n-keys': [18, 8_251],
+  'i18n-keys': [18, 8_197],
   // SIG-324: a `commands.json` is read with the config module's JSONC reader,
   // which brings `__` and the debug logger with it -- 2,604 B over two before
   'internal/routes': [32, 16_234],
