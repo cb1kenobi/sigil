@@ -566,14 +566,15 @@ If a handler registered here throws, that error replaces the original one and
 the handlers after it are not called.
 
 A few components run a function you gave them from a timer of their own, and
-those reach `onTimerError()` too when they are built over the same terminal --
-`terminal: ui.terminal`. They are the toast's `onClose` when its timeout ends, the
-clock's `now`, and the decrypt's `now`, `random` and `onDone`. A component built
-with no terminal is over the process's, which has no hook, and its throw is
-uncaught as it is in an app. That includes a toast raised as
-`showToast(app.view, { message, onClose })`, which takes no terminal unless you
-pass one: give it `terminal: ui.terminal` in the test. A throw that is heard stops
-that timer, so do not `await` the clock's or the decrypt's `done` afterwards.
+those reach `onTimerError()` too. They are the toast's `onClose` when its timeout
+ends, the clock's `now`, and the decrypt's `now`, `random` and `onDone`. Build one
+over the same terminal -- `terminal: ui.terminal` -- or, for a toast and a
+`decryptReveal()` call, raise it inside an app that `render()` or `runApp()` put
+on `ui.terminal`: `showToast(app.view, { message, onClose })` is heard with no
+`terminal` of its own, because the renderer remembers the terminal it was given. A
+component built with neither is over the process's, which has no hook, and its
+throw is uncaught as it is in an app. A throw that is heard stops that timer, so
+do not `await` the clock's or the decrypt's `done` afterwards.
 
 `onTimerError()` returns a function that takes the handler off again. A router
 built with its own `onError` gets the throw there instead, and the hook hears
