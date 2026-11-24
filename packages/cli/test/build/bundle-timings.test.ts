@@ -10,7 +10,9 @@
  * It is provoked here with a plugin that holds the build, and it arrives at
  * `close()` rather than at `write()`, which is why a first attempt at provoking
  * it saw nothing. A control asks rolldown the same with its default checks, so
- * the second test cannot pass for want of a warning that would never have come.
+ * the second test does not pass for want of a warning that would never have come
+ * -- in file order, and short of a stall inside its own link stage, which is why
+ * its `checks` are also asserted directly.
  * A file of its own for the reason `bundle-close.test.ts` gives: `vi.mock` is
  * module-wide.
  *
@@ -27,14 +29,15 @@
  *
  * SIG-648 held the build five seconds, then ten, and it still failed on a loaded
  * macOS runner after 16.5 s -- both holds, in a row. The hold was never the
- * variable that mattered: it needs a link stage under 49 ms, and
+ * variable that mattered: five seconds needs a link stage under 49 ms and ten under
+ * 99, and
  * `bundleApp()`'s graph is the toolchain's whole runtime, whose link stage is
  * several milliseconds to tens of them with nothing else running (the gap from
  * `buildEnd` to `renderStart`, which contains it, measured 5 to 27 ms warm, 74
  * ms cold). The control needs a warning to be *provoked*, not a real app to be
  * built, so it holds a graph of one module: the same gap measured about one
- * millisecond, cold, in twelve fresh processes. That is a margin of fifty rather
- * than of two. It is still not a guarantee -- the link stage is wall clock and a
+ * millisecond, cold, in twelve fresh processes. That is a margin of about fifty
+ * at five seconds, where the old graph's was two warm and under one cold. It is still not a guarantee -- the link stage is wall clock and a
  * starved process stalls inside it, 5 of 120 builds at five seconds with forty
  * of them racing on top of a load average of 124 -- which is why the control still
  * escalates (`HOLDS`) rather than choosing one number.
@@ -131,7 +134,7 @@ describe('the checks a build asks rolldown for', () => {
    * is where the warning is delivered. The unmocked `rolldown()`: what is being
    * asked is what rolldown does with these checks, not what `bundleApp()` does.
    */
-  async function held(checks: unknown): Promise<string[]> {
+  async function held(asked: unknown): Promise<string[]> {
     const { rolldown } = await vi.importActual<typeof import('rolldown')>('rolldown');
     const dir = tempDir('sigil-timings-held-');
     const input = join(dir, 'entry.js');
@@ -139,7 +142,7 @@ describe('the checks a build asks rolldown for', () => {
     writeFileSync(input, 'export const answer = 42;\n');
 
     const bundle = await rolldown({
-      checks: checks as Parameters<typeof rolldown>[0]['checks'],
+      checks: asked as Parameters<typeof rolldown>[0]['checks'],
       input,
       onLog(_level, log) {
         codes.push(String(log.code));
@@ -175,9 +178,12 @@ describe('the checks a build asks rolldown for', () => {
 
     expect(checks).toHaveLength(1);
     expect(checks[0]).toMatchObject({ bundlerTimings: false });
+    // a sanity check only: this build is far under rolldown's three-second floor
     expect(logged).not.toContain('PLUGIN_TIMINGS');
 
-    // the same hold that provoked the warning, with what the build asked for
+    // the hold that provoked the warning in the control, with what the build asked
+    // for; in file order, and a stall in this build's own link stage would pass it
+    // for want of a warning, which is why the assertion above is the one that holds
     expect(await held(checks[0])).not.toContain('PLUGIN_TIMINGS');
   }, 30_000);
 });

@@ -64,13 +64,15 @@ makes it testable with a fixture directory and no bundler at all.
   the one the control paid for was `bundleApp()`'s, which links the toolchain's
   whole runtime: the gap from `buildEnd` to `renderStart`, which contains it,
   measured 5 to 27 ms warm and 74 ms cold on a machine at load average 79. Ten
-  seconds needs under 99 ms, so a link stage that was already a fifth of that took
-  an ordinary stall to cross it. The control has no use for that graph: it needs
+  seconds needs under 99 ms, so a link stage that was already 5 to 27 ms took an
+  ordinary stall to cross it. The control has no use for that graph: it needs
   rolldown's defaults provoked, not an app built. So the held build is **one
   module**, run through the unmocked `rolldown()`, and `bundleApp()` is built for
   real with no hold only to learn what it passes as `checks`, which is then given
   to the same held build the control gave `{}`. The two differ in `checks` and
-  nothing else, which is the comparison; before, the sibling's silence could also
+  nothing else, which is the comparison -- and what it cannot see is a later
+  rolldown that gates the report on an option outside `checks` which `bundle.ts`
+  sets, which the old sibling's held `bundleApp()` would have; before, the sibling's silence could also
   be the larger graph's ratio refusing. The same gap on the one-module graph was
   about 1 ms in twelve fresh processes, cold. Measured on that machine with sixty
   busy processes over eighteen cores and thirty copies of the file racing (load
