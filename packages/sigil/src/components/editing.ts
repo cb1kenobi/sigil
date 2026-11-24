@@ -378,7 +378,9 @@ export interface EditLineOptions {
  * Whether a key moves or deletes by word, which is what a masked field refuses.
  *
  * Ctrl-W, Ctrl-K, Alt-B, Alt-F and Alt-D, and Backspace, Delete, Left and Right
- * held with Ctrl or Alt. Written once, beside the table it describes, so that
+ * held with Ctrl or Alt. Ctrl-K reveals no boundary itself, and is in the set
+ * because the decision names it with the word keys: a masked field's keys are the
+ * plain ones and Ctrl-U, and nothing else. Written once, beside the table it describes, so that
  * the keys a masked field claims and does nothing with cannot come apart from
  * the keys the table gives a word to.
  */

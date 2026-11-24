@@ -387,9 +387,12 @@ describe('editing', () => {
     const s = scene(TextField({ mask: '*', value }));
 
     // every key that names a word is still the field's, and changes nothing
-    await s.term.press(ctrl('w'), ctrl('k'), alt('d'), alt('b'), `${ESC}\u007f`);
+    await s.term.press(ctrl('w'), alt('b'), `${ESC}\u007f`);
     expect(value.get()).toBe('foo bar baz');
-    await s.term.press(KEYS.home, alt('f'), ctrl('w'), 'x');
+    // from the start, where Ctrl-K and Alt-D would each take something off
+    await s.term.press(KEYS.home, ctrl('k'), alt('d'));
+    expect(value.get()).toBe('foo bar baz');
+    await s.term.press(alt('f'), ctrl('w'), 'x');
     expect(value.get()).toBe('xfoo bar baz');
     await s.term.press(KEYS.backspace);
     expect(value.get()).toBe('foo bar baz');
