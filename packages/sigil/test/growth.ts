@@ -96,6 +96,26 @@ export const now: () => number =
 export const SPAN = 3;
 export const MOST_READS = 4096;
 
+/** How many times each side is read, taking turns, the best of which is kept. */
+const RUNS = 7;
+
+/**
+ * What one measurement is, whichever way it reads: how many reads of the small
+ * side fill the span and how many of the large side make the same work. One
+ * definition, so that {@link growthOf} and {@link growthOfAsync} cannot come to
+ * disagree about either (SIG-657).
+ */
+const largeReadsFor = (smallReads: number, factor: number): number =>
+  Math.max(1, Math.round(smallReads / factor));
+
+/** The ratio of the two best reads, or the error that says the clock read nothing. */
+function ratioOf(bestSmall: number, bestLarge: number, reads: number, label: string): number {
+  if (!(bestSmall > 0)) {
+    throw new Error(`${label}: the clock read nothing over ${reads} reads`);
+  }
+  return bestLarge / bestSmall;
+}
+
 /**
  * How much more `large` costs `read` than `small` does, where `large` is `factor`
  * times the size: linear is `factor` and quadratic its square. `label` names the
@@ -103,19 +123,22 @@ export const MOST_READS = 4096;
  * would pass for ever. `span` is how much of the clock the small side is read to
  * fill: the shapes whose small read is already a millisecond of it can ask for
  * less, and the work grows with it on both sides, seven times over.
+ *
+ * What is read is whatever the two sides are -- a text, a count, a prepared
+ * fixture -- and the function only hands it back.
  */
-export function growthOf(
-  read: (text: string) => unknown,
-  small: string,
-  large: string,
+export function growthOf<Input = string>(
+  read: (input: Input) => unknown,
+  small: Input,
+  large: Input,
   factor: number,
   label = '',
   span: number = SPAN
 ): number {
-  const time = (text: string, reads: number): number => {
+  const time = (input: Input, reads: number): number => {
     const start = now();
     for (let at = 0; at < reads; at++) {
-      read(text);
+      read(input);
     }
     return now() - start;
   };
@@ -126,15 +149,57 @@ export function growthOf(
   while (time(small, smallReads) < span && smallReads < MOST_READS) {
     smallReads *= 2;
   }
-  const largeReads = Math.max(1, Math.round(smallReads / factor));
+  const largeReads = largeReadsFor(smallReads, factor);
   let bestSmall = Infinity;
   let bestLarge = Infinity;
-  for (let run = 0; run < 7; run++) {
+  for (let run = 0; run < RUNS; run++) {
     bestSmall = Math.min(bestSmall, time(small, smallReads) / smallReads);
     bestLarge = Math.min(bestLarge, time(large, largeReads) / largeReads);
   }
-  if (!(bestSmall > 0)) {
-    throw new Error(`${label}: the clock read nothing over ${smallReads} reads`);
+  return ratioOf(bestSmall, bestLarge, smallReads, label);
+}
+
+/**
+ * {@link growthOf} for a read that is asynchronous, which a prompt opening is
+ * (SIG-657): `choice-window.test.ts` timed a `groupMultiselect()` call with
+ * `performance.now()`, a floor of two milliseconds on each side and a best of
+ * five -- the shape SIG-640 took out of the highlighter. Each read is awaited, so
+ * what is timed is the whole of it, the work after its first `await` as well as
+ * before, and a read that has to clean up after itself does so inside the read.
+ *
+ * It is the same measurement with the same clock, span and best of seven, taking
+ * turns. What differs is what a wait is: on the CPU clock a read that is parked
+ * on a timer or a stream costs nothing while it waits, which is the point of that
+ * clock, but on the wall clock -- Windows and the Linux CI runners -- every
+ * `setImmediate` a read yields to is time on **both** sides. A read should
+ * therefore yield as little as it can, and a ratio of two sizes that each wait
+ * the same is pulled towards one, which can hide growth and cannot invent it.
+ */
+export async function growthOfAsync<Input = string>(
+  read: (input: Input) => unknown,
+  small: Input,
+  large: Input,
+  factor: number,
+  label = '',
+  span: number = SPAN
+): Promise<number> {
+  const time = async (input: Input, reads: number): Promise<number> => {
+    const start = now();
+    for (let at = 0; at < reads; at++) {
+      await read(input);
+    }
+    return now() - start;
+  };
+  let smallReads = 1;
+  while ((await time(small, smallReads)) < span && smallReads < MOST_READS) {
+    smallReads *= 2;
   }
-  return bestLarge / bestSmall;
+  const largeReads = largeReadsFor(smallReads, factor);
+  let bestSmall = Infinity;
+  let bestLarge = Infinity;
+  for (let run = 0; run < RUNS; run++) {
+    bestSmall = Math.min(bestSmall, (await time(small, smallReads)) / smallReads);
+    bestLarge = Math.min(bestLarge, (await time(large, largeReads)) / largeReads);
+  }
+  return ratioOf(bestSmall, bestLarge, smallReads, label);
 }

@@ -193,7 +193,18 @@ describe('decodePng()', () => {
     });
 
     it('should stop inflating at the size IHDR implies, so a bomb costs nothing', () => {
-      // 64 MiB of zeros deflates to about 64 KiB; a 1x1 image needs 2 bytes
+      // 64 MiB of zeros deflates to about 64 KiB; a 1x1 image needs 2 bytes.
+      //
+      // The message is what says the inflate stopped: it is only ever "more than
+      // the 2 bytes a 1x1 image needs" when `maxOutputLength` cut it off, and
+      // inflating all 64 MiB reads "inflates to 67108864 bytes rather than 2".
+      // The bound below is a **hang guard** and not a measure (SIG-657): inflating
+      // the whole of this bomb is about ten milliseconds and stopping early is under one, so no
+      // deadline can tell the two apart and a ratio of two sizes cannot either, the
+      // compressed side growing with the bomb. 1000 ms is fifty times or more the cost
+      // of not stopping at all, which is to say it fails on an implementation that
+      // loops or waits and on nothing a loaded machine does to a sub-millisecond
+      // call
       const bomb = chunk('IDAT', deflateSync(new Uint8Array(64 * 1024 * 1024)));
       const started = performance.now();
       refuses(
