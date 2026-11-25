@@ -538,6 +538,28 @@ describe('table()', () => {
     expect(out).to.equal('B\n2');
   });
 
+  // the header went through `toDisplayLine()` alone, which dropped the ESC byte and
+  // kept `[1m`: it drew the parameters and the column was sized for them (SIG-709)
+  it('should draw a styled column header as its plain text and size the column for it', () => {
+    const { ansi } = setup();
+    const out = table([{ b: 2 }], {
+      ansi,
+      columns: [{ header: '\u001B[1mH\u001B[22m', key: 'b' }],
+    });
+
+    expect(out).to.equal('H\n2');
+  });
+
+  it('should keep the text of a header or a cell after a lone C1 character', () => {
+    const { ansi } = setup();
+    const out = table([{ b: `caf${String.fromCharCode(0x9f)} rest` }], {
+      ansi,
+      columns: [{ header: `na${String.fromCharCode(0x9f)}me`, key: 'b' }],
+    });
+
+    expect(out).to.equal('na\uFFFDme\ncaf\uFFFD rest');
+  });
+
   it('should right align a column', () => {
     const { ansi } = setup();
     const out = table(

@@ -29,7 +29,7 @@
  * in, and the column widths. `AGENTS.md` has the reasons under "A data table".
  */
 
-import { box, type Element, type ElementPropsWithout, toDisplayLine } from '../element/index.js';
+import { box, type Element, type ElementPropsWithout } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import type { DescribeOptions, KeyEvent, MouseEvent } from '../input/index.js';
 import { createEffect, onCleanup } from '../renderer/index.js';
@@ -46,7 +46,7 @@ import {
   listRowInset,
   ListView,
 } from './list-view.js';
-import { unicodeSupported } from './note.js';
+import { formatLine, unicodeSupported } from './note.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
 import type { SelectRowColumn } from './select-row.js';
 import {
@@ -423,7 +423,7 @@ export function DataTable<T, K = T>(props: DataTableProps<T, K>): Element {
       seen.add(id);
       return {
         column,
-        heading: toDisplayLine(column.header ?? ''),
+        heading: formatLine(String, column.header ?? ''),
         id,
         index,
         sortable: column.sortable ?? true,

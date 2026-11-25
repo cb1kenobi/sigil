@@ -1,5 +1,11 @@
 import { strip } from '../../src/ansi/index.js';
-import { type NoteOptions, note, noteView, unicodeSupported } from '../../src/components/note.js';
+import {
+  formatLine,
+  type NoteOptions,
+  note,
+  noteView,
+  unicodeSupported,
+} from '../../src/components/note.js';
 import { stringWidth } from '../../src/width/index.js';
 import { describe, expect, it } from 'vitest';
 
@@ -310,5 +316,38 @@ describe('unicodeSupported()', () => {
     expect(unicodeSupported({}, 'win32')).to.equal(false);
     expect(unicodeSupported({ WT_SESSION: '1' }, 'win32')).to.equal(true);
     expect(unicodeSupported({ TERM_PROGRAM: 'vscode' }, 'win32')).to.equal(true);
+  });
+});
+
+// SIG-710: `strip()` takes the text after a lone introducer, which is a terminal's
+// reading and is what every other caller of it wants; a string drawn in a cell is
+// a person's, and may be Latin-1 read as UTF-8
+describe('formatLine()', () => {
+  const C1 = (code: number): string => String.fromCharCode(code);
+
+  it('should keep the text after a lone C1 character and draw it as a replacement', () => {
+    expect(formatLine(String, `caf${C1(0x9f)} rest`)).toBe('caf\uFFFD rest');
+    expect(formatLine(String, `caf${C1(0x85)} rest`)).toBe('caf\uFFFD rest');
+    expect(formatLine(String, `caf${C1(0x9b)}`)).toBe('caf\uFFFD');
+    expect(formatLine(String, `a${C1(0x9d)}0;title`)).toBe('a\uFFFD0;title');
+  });
+
+  it('should keep the text after a bare ESC and draw it as a replacement', () => {
+    expect(formatLine(String, `caf${ESC}`)).toBe('caf\uFFFD');
+    expect(formatLine(String, `caf${ESC}\u4e2d rest`)).toBe('caf\uFFFD\u4e2d rest');
+    expect(formatLine(String, `${ESC}]0;title`)).toBe('\uFFFD]0;title');
+  });
+
+  it('should still draw a styled string as its plain text', () => {
+    expect(formatLine(String, `${ESC}[1mH${ESC}[22m`)).toBe('H');
+    expect(formatLine(String, `${ESC}]8;;https://example.com\u0007link${ESC}]8;;\u0007`)).toBe(
+      'link'
+    );
+    expect(formatLine(String, `${ESC}[31mcaf${C1(0x9f)} rest${ESC}[39m`)).toBe('caf\uFFFD rest');
+  });
+
+  it('should draw a plain string, a tab and a number as it always did', () => {
+    expect(formatLine(String, 'a\tb')).toBe('a b');
+    expect(formatLine((value: number) => value as unknown as string, 12)).toBe('12');
   });
 });

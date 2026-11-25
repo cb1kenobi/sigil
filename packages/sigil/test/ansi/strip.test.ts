@@ -1,4 +1,4 @@
-import { hasAnsi, hasIntroducer, strip } from '../../src/ansi/strip.js';
+import { hasAnsi, hasIntroducer, strip, stripWellFormed } from '../../src/ansi/strip.js';
 import { describe, expect, it } from 'vitest';
 
 const ESC = String.fromCharCode(0x1b);
@@ -133,5 +133,126 @@ describe('hasIntroducer()', () => {
     expect(hasAnsi(whole)).toBe(false);
     expect(strip(whole.slice(0, 3))).toBe('');
     expect(hasIntroducer(whole)).toBe(true);
+  });
+});
+
+// SIG-710: `strip()` reads a lone introducer as a sequence that never ends and takes
+// the text after it, which is the terminal's reading and is left alone. What a drawn
+// string needs is the other reading, and it is the same grammar read for what is whole
+describe('stripWellFormed()', () => {
+  const C1 = (code: number): string => String.fromCharCode(code);
+  const ST1 = C1(0x9c);
+  const MARK = '\uFFFD';
+
+  it('should remove every sequence strip() removes, where each is whole', () => {
+    const whole = [
+      `${ESC}[31mred${ESC}[39m`,
+      `${ESC}[1;2;3H${ESC}[?25l${ESC}[2J`,
+      `${C1(0x9b)}31mred${C1(0x9b)}39m`,
+      `${ESC}]8;;https://example.com${BEL}link${ESC}]8;;${BEL}`,
+      `${ESC}]0;title${ST}text`,
+      `${C1(0x9d)}0;title${ST1}text`,
+      `${ESC}Pdata${ST}text${ESC}_apc${ST}${ESC}^pm${ST}${ESC}Xsos${ST}`,
+      `${C1(0x90)}data${ST1}text`,
+      `a${ESC}cb${ESC}7c${ESC}(0d`,
+    ];
+    for (const str of whole) {
+      expect(stripWellFormed(str, MARK), JSON.stringify(str)).toBe(strip(str));
+    }
+    expect(stripWellFormed(`${ESC}[31mred${ESC}[39m`, MARK)).toBe('red');
+  });
+
+  it('should leave a string with no introducer in it as it is', () => {
+    const plain = 'caf\u00e9 \u65e5\u672c\u8a9e a\tb\nc';
+    expect(stripWellFormed(plain, MARK)).toBe(plain);
+  });
+
+  // a Latin-1 decoding of UTF-8 puts C1 characters inside ordinary words
+  it('should keep the text after a lone C1 character, and mark the character', () => {
+    for (let code = 0x80; code <= 0x9f; code++) {
+      if (code === 0x9c) {
+        // a lone ST ends nothing, and is as lone as the rest
+        expect(stripWellFormed(`a${ST1}\u4e2d rest`, MARK)).toBe(`a${MARK}\u4e2d rest`);
+        continue;
+      }
+      expect(stripWellFormed(`caf${C1(code)}\u4e2d rest`, MARK), code.toString(16)).toBe(
+        `caf${MARK}\u4e2d rest`
+      );
+    }
+    // and strip() itself is the terminal's reading, unchanged
+    expect(strip(`caf${C1(0x9f)} rest`)).toBe('caf');
+    expect(strip(`caf${C1(0x9d)} rest`)).toBe('caf');
+    expect(strip(`caf${C1(0x9b)}`)).toBe('caf');
+  });
+
+  it('should keep the text after a bare ESC, and mark it', () => {
+    expect(stripWellFormed(`caf${ESC}`, MARK)).toBe(`caf${MARK}`);
+    expect(stripWellFormed(`caf${ESC}\u4e2d rest`, MARK)).toBe(`caf${MARK}\u4e2d rest`);
+    // an intermediate with nothing to escape is a bare ESC and a space
+    expect(stripWellFormed(`a${ESC} \u4e2d`, MARK)).toBe(`a${MARK} \u4e2d`);
+    // and an ESC that another sequence follows is bare, and the sequence is not
+    expect(stripWellFormed(`a${ESC}${ESC}[31mb`, MARK)).toBe(`a${MARK}b`);
+    expect(strip(`caf${ESC}`)).toBe('caf');
+  });
+
+  it('should keep a CSI that has no final byte, as an introducer and its text', () => {
+    expect(stripWellFormed(`a${ESC}[31`, MARK)).toBe(`a${MARK}[31`);
+    expect(stripWellFormed(`a${C1(0x9b)}31`, MARK)).toBe(`a${MARK}31`);
+    expect(stripWellFormed(`a${ESC}[\u4e2d`, MARK)).toBe(`a${MARK}[\u4e2d`);
+    expect(stripWellFormed(`a${ESC}[`, MARK)).toBe(`a${MARK}[`);
+  });
+
+  // decided: an OSC cut off at the end of the string is not removed. The text of a
+  // sequence that was meant is only its payload, and one that was not meant keeps
+  // its words; neither is a cell's to carry out
+  it('should keep a string sequence that is never terminated', () => {
+    expect(stripWellFormed(`a${ESC}]0;title`, MARK)).toBe(`a${MARK}]0;title`);
+    expect(stripWellFormed(`a${ESC}]8;;https://example.com${BEL}link${ESC}]8;;`, MARK)).toBe(
+      `alink${MARK}]8;;`
+    );
+    expect(stripWellFormed(`a${C1(0x9d)}0;title`, MARK)).toBe(`a${MARK}0;title`);
+    // cancelled rather than terminated, so it is not whole either
+    expect(stripWellFormed(`a${ESC}]0;t${CAN}rest`, MARK)).toBe(`a${MARK}]0;t${CAN}rest`);
+    expect(stripWellFormed(`a${ESC}]0;t${SUB}rest`, MARK)).toBe(`a${MARK}]0;t${SUB}rest`);
+    // and what is inside one that was never whole is read again
+    expect(stripWellFormed(`${C1(0x9d)} caf${C1(0x9f)}\u4e2d`, MARK)).toBe(
+      `${MARK} caf${MARK}\u4e2d`
+    );
+  });
+
+  // the grammar is a terminal's: a C1 CSI is whole with a final byte after it, and a
+  // letter is one, so `\u009B` and `m` are the sequence `ESC [ m` said in one byte
+  it('should take a C1 introducer and the letter after it as a whole sequence', () => {
+    expect(stripWellFormed(`na${C1(0x9b)}me`, MARK)).toBe('nae');
+    expect(stripWellFormed(`na${C1(0x9b)}\u4e2dme`, MARK)).toBe(`na${MARK}\u4e2dme`);
+  });
+
+  // `ESC [` is not the only introducer that a sequence of its own can follow
+  it('should mark an ESC that opens a sequence and is followed by nothing', () => {
+    for (const opener of [']', 'P', 'X', '^', '_', '[']) {
+      expect(stripWellFormed(`a${ESC}${opener}`, MARK), opener).toBe(`a${MARK}${opener}`);
+      expect(stripWellFormed(`a${ESC}${opener}${ESC}[31mb`, MARK), opener).toBe(
+        `a${MARK}${opener}b`
+      );
+    }
+    // with an intermediate in front it is a different sequence, and a whole one
+    expect(stripWellFormed(`a${ESC} Pb`, MARK)).toBe('ab');
+  });
+
+  // the first version recursed into what followed each introducer, one frame each
+  it('should read a long run of lone introducers in a loop, not a recursion', () => {
+    // and in linear time: each was matched to the end of the string and rescanned,
+    // which is ten seconds for a hundred thousand and a test that cannot finish
+    const run = C1(0x9d).repeat(100_000);
+    expect(stripWellFormed(`a${run}b`, MARK)).toBe(`a${MARK.repeat(100_000)}b`);
+    const words = `word${C1(0x9f)}`.repeat(20_000);
+    expect(stripWellFormed(words, MARK)).toBe(`word${MARK}`.repeat(20_000));
+    const mojibake = Buffer.from('\u201d'.repeat(5_000), 'utf8').toString('latin1');
+    expect(stripWellFormed(mojibake, MARK)).not.toMatch(/[\u0080-\u009f]/u);
+  });
+
+  it('should mark with whatever it is given, and not read it as a pattern', () => {
+    expect(stripWellFormed(`a${C1(0x85)}b`, '$&')).toBe('a$&b');
+    expect(stripWellFormed(`a${C1(0x85)}b`, '')).toBe('ab');
   });
 });

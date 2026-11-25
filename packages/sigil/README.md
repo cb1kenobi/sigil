@@ -2569,6 +2569,7 @@ import {
   strip,
   hasAnsi,
   hasIntroducer,
+  stripWellFormed,
   supportsColor,
 } from '@ttylabs/sigil/ansi';
 
@@ -2580,6 +2581,7 @@ ansi.blue(`a ${ansi.red('b')} c`); // nesting restores the outer style
 strip(ansi.bold.red('error')); // 'error'
 hasAnsi('x'); // false
 hasIntroducer('a\tb'); // false: strip() leaves it, and every slice of it, alone
+stripWellFormed('caf\x9f rest', '?'); // 'caf? rest': strip() would answer 'caf'
 
 ansi.level; // 0-3, detected from the terminal
 const forced = createAnsi({ level: 3 });
@@ -2590,7 +2592,12 @@ CI variables, and whether the stream is a TTY. `strip()` removes SGR, OSC, DCS,
 and CSI sequences, not just colors. `hasIntroducer()` asks whether a string
 holds an `ESC` or a C1 character, which every sequence starts with: unlike
 `hasAnsi()`, a `false` holds for every slice of the string too, which is what
-code measuring a string piece by piece needs.
+code measuring a string piece by piece needs. `stripWellFormed(str, mark)` is
+`strip()` for text a person wrote: it removes only a sequence that is whole -- a CSI with its
+final byte, an OSC, DCS, SOS, PM or APC with its terminator, an `ESC` and the byte it
+escapes -- and replaces a lone `ESC` or C1 character, or a sequence cut off before its end, with
+`mark`, keeping the text after it. `strip()` reads a lone introducer the way a terminal does,
+as the start of a sequence that never ends, and takes the rest of the string with it.
 
 `hexChannels(digits)` is the hex reader `ansi.hex()` is built on, without the
 `#` and without the throw: three or six hex digits in either case become

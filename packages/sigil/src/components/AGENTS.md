@@ -8025,7 +8025,8 @@ and not the stack overflow that one fixed: no spread was involved.
   style is dropped, not kept and not refused, the way a tooltip (SIG-652) and the live
   line chart's crosshair readout already treat the same string. A result with no escape
   sequence in it (by `strip()`'s definition, which includes a bare C1 introducer such as
-  U+0090 and an `ESC` followed by one byte) is untouched, a tab included, which is why this is not `labelLine()`: that one
+  U+0090 and an `ESC` followed by one byte -- and by `stripWellFormed()`'s since SIG-710,
+  below, which keeps the text after a lone one) is untouched, a tab included, which is why this is not `labelLine()`: that one
   collapses whitespace runs and trims, right for a label and a change to a `format()`
   result. `strip()` takes every escape sequence, so an OSC 8 hyperlink goes too. One
   definition for the chart and the page indicator, which differ only in what `format()`
@@ -8435,12 +8436,50 @@ have.
   into a styled cell or refuse it, and a cell that should be coloured is a
   `TableCellView` (SIG-212); the README and the `format`/`label` JSDoc say so. `tableCell()`
   takes arbitrary values, and `String()` of a number, a `Date`, a `bigint` or a boolean
-  has no escape, so what those draw is unchanged (a test pins it). `strip()` is what is applied, so a lone C1
-  character or a bare `ESC` in a cell is an introducer and takes the text after it
-  (`'caf\u009F rest'` draws `caf`) where `toDisplayLine()` alone dropped just the character;
-  the chart and the page indicator already work this way and nothing pins it here. A column **header**
-  still goes through `toDisplayLine()` alone, in `tableCells()` and the data table, and
-  so draws a styled one's parameters, as does the treemap's `empty` message -- in none of the three tickets, and left. A chart's four `format`
+  has no escape, so what those draw is unchanged (a test pins it). **A column header and a treemap's `empty` message are the same rule
+  (SIG-709).** The three strings SIG-705 and SIG-706 left on `toDisplayLine()` alone drew
+  a styled one's parameters, and a column was sized for them: a `table()` header
+  of `'\x1b[1mH\x1b[22m'` drew `[1mH[22m` in a column eight wide. Each goes through
+  `formatLine()` where the string is made -- `tableCells()` for the header, which the
+  data table's heading and so its sorted heading's `truncate()` both read (`spec.heading`
+  is made once, in the one place), and the treemap's `empty` per line, after the split on
+  `'\n'`. That is the sweep finished: every caller-written string these components
+  measure and draw now goes through `formatLine()` or `labelLine()`. **A lone C1
+  character or a bare `ESC` keeps the text after it, and is drawn as `\uFFFD`
+  (SIG-710).** `formatLine()` used `strip()`, which reads either as an introducer and
+  takes the rest of the string, so `'caf\u009F rest'` drew `caf` -- and text decoded as
+  Latin-1 when it was UTF-8 is full of them. Chris decided it in `formatLine()` only:
+  `strip()` is unchanged, so the tooltip, the wrapper and every other caller still read
+  a terminal's way. `formatLine()` calls `stripWellFormed()`, published on
+  `@ttylabs/sigil/ansi` because `note.ts` is ejected with its components and may import
+  only what the package exports. It reads **the same grammar** `strip()` does, as
+  `grammar(true)` in `src/ansi/strip.ts` -- the one pattern with the three places a
+  sequence may be left open closed -- so whole means a CSI with its final byte, an OSC, DCS,
+  SOS, PM or APC with a `BEL`, `ESC \` or U+009C, and `ESC`, intermediates and the byte it
+  escapes; everything else `strip()` would have matched is an introducer, drawn as the
+  `\uFFFD` that `printable()` uses, and what follows it is read again. A C1 character
+  `strip()` has no shape for (U+0080 to U+008F, U+0091 to U+0097, U+0099, U+009A,
+  U+009C) is replaced the same way, where `toDisplayLine()` dropped it. **An unterminated
+  OSC is not removed** -- `ESC ] 0 ; title` at the end of a string draws `\uFFFD]0;title`
+  -- and neither is one a `CAN` or `SUB` cancelled: a cell cannot carry a sequence out, so
+  what it can do is keep a string that was never meant as one. What this does not
+  rescue is a C1 introducer or `ESC` that is followed by a byte the grammar takes as
+  its final: `'na\u009Bme'` is `CSI m` and draws `nae`, and `ESC` and a letter is a
+  two-byte sequence, and so is a C1 introducer that something later ends -- Latin-1 text
+  with a pair of curly quotes in it (U+009D, then a later U+009C) still loses the words
+  between them, and `'m\u00c4\u009b sto'` loses ` s`. Those are whole sequences and what
+  `strip()` has always done; the guard is for the introducer with nothing to introduce,
+  and treating every 8-bit C1 character as text is the wider rule, left to Chris
+  (SIG-710 follow-up). It scans in a loop and not a recursion, which review found
+  overflowing the stack at about 2,000 lone U+009D, and in one pass over an unended
+  string sequence, because resuming at each introducer inside it ran each to the end of
+  the string: 100,000 lone U+009D took 10.8 s that way and 3 ms now. A control character that is not
+  C1 or `ESC` (a bell, a `NUL`) is still dropped by `toDisplayLine()` after, not marked.
+  Pinned in `test/ansi/strip.test.ts` and `test/components/note.test.ts`, each case
+  sabotaged: `formatLine()` back on `strip()` fails four, treating an unterminated
+  sequence as whole fails nine, and each of the three SIG-709 sites back on
+  `toDisplayLine()` fails its own regression.
+  A chart's four `format`
   JSDoc comments now say a style in the result is dropped (SIG-707), as the page
   indicator's does. A readout of
   only a control character other than
