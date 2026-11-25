@@ -30,9 +30,10 @@ function grammar(complete: boolean): string {
     `(?:\\u001B\\[|\\u009B)[0-?]*[ -/]*${complete ? '[@-~]' : '(?:[@-~]|$)'}`,
 
     // everything else -- ESC, optional intermediates, one final byte. A complete
-    // one has its final, and it is not `[`: `ESC [` is a CSI introducer that no
-    // parameter or final followed, so it is not a two-byte sequence of its own.
-    complete ? '\\u001B[ -/]*[0-Z\\\\-~]' : '\\u001B[ -/]*[0-~]?',
+    // one has its final, and with no intermediate it is not an introducer: `ESC [`,
+    // `ESC ]`, `ESC P`, `ESC X`, `ESC ^` and `ESC _` open a sequence of another
+    // shape, so one that nothing followed is not a two-byte sequence of its own.
+    complete ? '\\u001B(?:[ -/]+[0-~]|[0-OQ-WYZ\\\\`-~])' : '\\u001B[ -/]*[0-~]?',
   ].join('|');
 }
 
@@ -118,7 +119,7 @@ export function strip(str: string): string {
  * C1 introducer starts waiting for the rest of a sequence: `caf\u009F rest` is a
  * DCS that never ends, so `strip()` answers `caf`. For a string a person wrote,
  * and above all one decoded as Latin-1 when it was UTF-8, where the C1 range is
- * ordinary letters' second bytes, that eats the text. This reads the same
+ * the second byte of ordinary punctuation, that eats the text. This reads the same
  * grammar the other way, as the complete shapes `grammar(true)` names, so
  * what it removes is exactly the sequences `strip()` would remove **that have an
  * end**:
@@ -142,9 +143,13 @@ export function strip(str: string): string {
  * stay as text, which is the same answer as `caf\u009D rest` needs and is the
  * safe one -- a string that was meant to be an OSC loses its effect, which a
  * drawn cell had no way to carry out anyway, where one that was never meant to be
- * keeps its words. One caveat from the grammar rather than from this: `ESC`
- * followed by a letter is the two-byte sequence `strip()` has always taken, so
- * `ESC x` is removed as a unit.
+ * keeps its words. Two caveats from the grammar rather than from this, both the
+ * terminal's own reading: `ESC` followed by a letter is the two-byte sequence
+ * `strip()` has always taken, so `ESC x` is removed as a unit, and a C1 introducer
+ * is whole as soon as something ends it -- `U+009B`, a space and an `s` are one
+ * CSI, and a U+009D that a later U+009C closes is one OSC, so Latin-1 text with
+ * a pair of curly quotes in it can still lose the words between them. What this
+ * guards is the introducer that nothing ends, not every C1 character.
  *
  * @param str - The string.
  * @param replacement - What stands for an introducer that began nothing, such as
@@ -158,9 +163,23 @@ export function stripWellFormed(str: string, replacement: string): string {
   const whole = new RegExp(`^(?:${grammar(true)})$`);
   // a C1 character the grammar has no shape for is matched last, so it is the
   // alternative only where nothing above it took the character
-  return str.replace(new RegExp(`${sequences}|[\\u0080-\\u009F]`, 'g'), (found) =>
-    whole.test(found) ? '' : replacement + stripWellFormed(found.slice(1), replacement)
-  );
+  const any = new RegExp(`${sequences}|[\\u0080-\\u009F]`, 'g');
+  let out = '';
+  let from = 0;
+  for (let found = any.exec(str); found !== null; found = any.exec(str)) {
+    out += str.slice(from, found.index);
+    if (whole.test(found[0])) {
+      from = any.lastIndex;
+    } else {
+      // one introducer and then text, and the text is read again from the next
+      // character, in a loop rather than a recursion: a string of ten thousand
+      // lone introducers is one call and not ten thousand frames
+      out += replacement;
+      from = found.index + 1;
+      any.lastIndex = from;
+    }
+  }
+  return out + str.slice(from);
 }
 
 /**

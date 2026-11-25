@@ -227,6 +227,26 @@ describe('stripWellFormed()', () => {
     expect(stripWellFormed(`na${C1(0x9b)}\u4e2dme`, MARK)).toBe(`na${MARK}\u4e2dme`);
   });
 
+  // `ESC [` is not the only introducer that a sequence of its own can follow
+  it('should mark an ESC that opens a sequence and is followed by nothing', () => {
+    for (const opener of [']', 'P', 'X', '^', '_', '[']) {
+      expect(stripWellFormed(`a${ESC}${opener}`, MARK), opener).toBe(`a${MARK}${opener}`);
+      expect(stripWellFormed(`a${ESC}${opener}${ESC}[31mb`, MARK), opener).toBe(
+        `a${MARK}${opener}b`
+      );
+    }
+    // with an intermediate in front it is a different sequence, and a whole one
+    expect(stripWellFormed(`a${ESC} Pb`, MARK)).toBe('ab');
+  });
+
+  // the first version recursed into what followed each introducer, one frame each
+  it('should read a long run of lone introducers in a loop, not a recursion', () => {
+    const run = C1(0x9d).repeat(20_000);
+    expect(stripWellFormed(`a${run}b`, MARK)).toBe(`a${MARK.repeat(20_000)}b`);
+    const mojibake = Buffer.from('\u201d'.repeat(5_000), 'utf8').toString('latin1');
+    expect(stripWellFormed(mojibake, MARK)).not.toMatch(/[\u0080-\u009f]/u);
+  });
+
   it('should mark with whatever it is given, and not read it as a pattern', () => {
     expect(stripWellFormed(`a${C1(0x85)}b`, '$&')).toBe('a$&b');
     expect(stripWellFormed(`a${C1(0x85)}b`, '')).toBe('ab');

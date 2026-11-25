@@ -8465,8 +8465,13 @@ have.
   what it can do is keep a string that was never meant as one. What this does not
   rescue is a C1 introducer or `ESC` that is followed by a byte the grammar takes as
   its final: `'na\u009Bme'` is `CSI m` and draws `nae`, and `ESC` and a letter is a
-  two-byte sequence. Those are whole sequences and what `strip()` has always done; the
-  guard is for the introducer with nothing to introduce. A control character that is not
+  two-byte sequence, and so is a C1 introducer that something later ends -- Latin-1 text
+  with a pair of curly quotes in it (U+009D, then a later U+009C) still loses the words
+  between them, and `'m\u00c4\u009b sto'` loses ` s`. Those are whole sequences and what
+  `strip()` has always done; the guard is for the introducer with nothing to introduce,
+  and treating every 8-bit C1 character as text is the wider rule, left to Chris
+  (SIG-710 follow-up). It scans in a loop and not a recursion, which review found
+  overflowing the stack at about 2,000 lone U+009D. A control character that is not
   C1 or `ESC` (a bell, a `NUL`) is still dropped by `toDisplayLine()` after, not marked.
   Pinned in `test/ansi/strip.test.ts` and `test/components/note.test.ts`, each case
   sabotaged: `formatLine()` back on `strip()` fails four, treating an unterminated
