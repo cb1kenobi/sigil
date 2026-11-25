@@ -756,11 +756,7 @@ export class Element implements LayoutNode {
         errors.push(error);
       }
     }
-    if (errors.length > 0) {
-      throw errors.length === 1
-        ? errors[0]
-        : new AggregateError(errors, 'More than one tree callback threw');
-    }
+    raise(errors, 'More than one tree callback threw');
     return this;
   }
 

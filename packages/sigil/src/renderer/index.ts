@@ -65,6 +65,7 @@ import type { InputRouter } from '../input/index.js';
 import { measureSubtree } from '../layout/index.js';
 import { handOver, reportBoth } from '../signals/effect.js';
 import { createEffects, type Effects, untrack } from '../signals/index.js';
+import { raise } from '../signals/raise.js';
 import {
   type AnimationFrame,
   Animator,
@@ -1001,13 +1002,8 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
   }
 
   /** Raises what `onError` threw: itself if it threw once, an aggregate if more. */
-  function raise(raised: readonly unknown[]): void {
-    if (raised.length === 1) {
-      throw raised[0];
-    }
-    if (raised.length > 1) {
-      throw new AggregateError(raised, 'Errors thrown by onError');
-    }
+  function raiseThrown(raised: readonly unknown[]): void {
+    raise(raised, 'Errors thrown by onError');
   }
 
   /**
@@ -1044,7 +1040,7 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     // teardown threw is said first, in the order it was thrown, then the failure
     const errors = release();
     if (!onTimer) {
-      raise(report([...errors, ...thrownBy(error, fromTold)]));
+      raiseThrown(report([...errors, ...thrownBy(error, fromTold)]));
       return;
     }
     for (const each of errors) {
@@ -1556,7 +1552,7 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
         // fails and `fail()` gives the screen back, and then the callback's own
         // throw, or the next one's, goes to an `onError` that throws
         if (!onTimer) {
-          raise(thrownBy(error, fromTold));
+          raiseThrown(thrownBy(error, fromTold));
           return;
         }
         reportOnTimer(error, fromTold);
@@ -1767,7 +1763,7 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     detect,
     // what the teardown threw is reported after `backend.done()` has given the
     // region back, and what `onError` throws for it is raised from here
-    dispose: () => raise(report(teardown(true))),
+    dispose: () => raiseThrown(report(teardown(true))),
 
     excludeFromStats(element: Element): () => void {
       excluded.add(element);
