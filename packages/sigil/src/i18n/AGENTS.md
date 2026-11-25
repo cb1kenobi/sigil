@@ -500,6 +500,63 @@ and the check, and `src/i18n/keys.ts` is generated.
   entry is **8,251 B at 300 keys** as of SIG-668, against 8,610 B at 305 as of
   SIG-658; the ceiling stays at 18 KiB.
 
+  **The 87 `new Error` sites were read one by one, and one of them was a
+  developer's (SIG-677).** Redone, it was **92 tagged
+  messages in `new Error(...)`, on 90 lines and 82 distinct source texts** -- a ternary
+  carries two on one line, and `util/transform.ts` says `Invalid number` and the
+  rest once for a string and once for a value a config file already typed. Each was asked who can
+  reach it, which is SIG-668's question and not whether it begins `Expected `.
+  **User-reachable, and kept:** every PNG decode refusal (a file somebody
+  supplies); every config refusal -- `jsonc.ts`, the stores, `merge.ts`,
+  `schema.ts`, and the `is not a list` / `is not an object` / `cannot hold the
+  value` / `Refusing to write` ones in `config.ts`, which are about a layer's
+  file or a path somebody typed into `config set`; the trash's, which are
+  about the file system and the platform; the parser's value errors and
+  `checkValue()`'s, which are a value from argv, the environment or a file;
+  `completion/installer.ts`'s read failure; `diff.ts`'s three, which are a
+  person's line selection. **Developer-only, and untagged: one** -- `The default
+  "{0}" for {1} is not one of its choices` in `parser/parse.ts`, which
+  `checkChoices()` raises only for a `default` the app declared, where its own
+  doc says nobody typed it and the exit is 1 for that reason. It is a plain
+  `Error` as `src/parser/AGENTS.md` records, and plain text now. The borderline
+  calls were `config.ts`'s `a dotted path does not reach into a list` and `is not
+  a list`, which a developer's `config.set()` can reach and so can `config set` on
+  an app's command line, and they stay tagged for the reason `Expected a list of
+  values` does: when it is in doubt, a translated message is a bug report in a
+  language the maintainer can still ask about, and an untranslated one in a
+  user's terminal is not recoverable. That is the answer to the ticket's first
+  half, and it is **not a rule**: no constructor is true of the 91 that stay, so
+  there is still no check on `new Error(...)`, and a tag put on a developer's
+  `Error` is a thing review has to see.
+
+  **The helper half is a rule, and it is read off the tree (SIG-677).** Three
+  shapes carry a message to a `TypeError` or a `RangeError` without writing the
+  tag inside the constructor's call, and the ticket named them: `controlFlag()`
+  and `finite()` throw a parameter they are handed, and `hiddenTypeMessage()`
+  builds the string. `should tag no message a helper throws as a TypeError or
+  RangeError` finds both kinds from the source rather than from a list -- a
+  function that passes one of its **parameters** straight to the constructor is a
+  thrower, and a tag in **that argument** at any call to a function of that name
+  is a finding; a function a constructor calls to get its message is a builder,
+  and a tag anywhere in its body is one. Two things in it are decisions. The
+  argument is matched by its **position**, not by "any argument", because the
+  first version of this found `describeControls()`: it throws its last parameter,
+  and takes a callback whose result is tagged key descriptions (`press`,
+  `toggle`) that are no error, so nine false findings in five components. And a
+  callee is matched **by name across the tree** rather than by following the
+  import, which can only over-reach -- two unrelated functions sharing a name
+  fail loudly, where resolving imports is a place a tag slips past. What it does
+  not see is a message wrapped on the way in (`` `${what}: ${message}` ``), a
+  helper that hands its parameter to another helper, a destructured parameter, a
+  method or member callee, or a message built into a variable first
+  (`format.ts`'s `lossyAs()` is one, untagged); no tagged one exists today, and
+  the test says so. Where the same developer mistake is raised from a shared
+  site it stays translated: `default: 'eight'` on an `int` throws the tagged
+  `Invalid integer` from `transformValue()`, which argv reaches too. It was sabotaged by tagging
+  `slider.ts`'s `finite(props.min, ...)` message, which fails it naming the call.
+  The entry is **8,197 B at 299 keys** as of SIG-677, against 8,251 B at 300 as of
+  SIG-668; the ceiling stays at 18 KiB.
+
 - **`[options]`, `[command]` and `<command>` are translated and `<entry>` is
   not.** The asymmetry is right: those three are _metasyntax_ a user never
   types, where an argument or option name is the API they do type. So a usage

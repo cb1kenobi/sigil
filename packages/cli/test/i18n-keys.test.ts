@@ -4,8 +4,9 @@ import { MODULE_RE, parseModule } from '../src/build/parse-module.ts';
 import { walk } from '../src/build/walk.ts';
 import { SIGIL_KEYS, SIGIL_PLURAL_KEYS } from '@ttylabs/sigil/i18n-keys';
 import { readdirSync, readFileSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { dirname, isAbsolute, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { Node } from 'oxc-parser';
 import { describe, expect, it } from 'vitest';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -33,6 +34,172 @@ function specifierFrom(file: string): string {
   const rel = relative(dirname(file), tag).replaceAll('\\', '/').replace(/\.ts$/, '.js');
 
   return rel.startsWith('.') ? rel : `./${rel}`;
+}
+
+/** A module as a finding names it: under `src/` when it is a real one. */
+function named(file: string): string {
+  return isAbsolute(file) ? relative(root, file) : file;
+}
+
+/** Whether a node is `new TypeError(...)` or `new RangeError(...)`. */
+function isProgrammingError(node: Node): node is Node & { type: 'NewExpression' } {
+  return (
+    node.type === 'NewExpression' &&
+    node.callee.type === 'Identifier' &&
+    (node.callee.name === 'TypeError' || node.callee.name === 'RangeError')
+  );
+}
+
+/** Every function in a module with a name, by that name: a declaration or a bound arrow. */
+function namedFunctions(parsed: ReturnType<typeof parseModule>): Map<string, Node> {
+  const found = new Map<string, Node>();
+
+  walk(parsed.program, (node) => {
+    if (node.type === 'FunctionDeclaration' && node.id) {
+      found.set(node.id.name, node);
+    } else if (
+      node.type === 'VariableDeclarator' &&
+      node.id.type === 'Identifier' &&
+      (node.init?.type === 'ArrowFunctionExpression' || node.init?.type === 'FunctionExpression')
+    ) {
+      found.set(node.id.name, node.init);
+    }
+
+    return true;
+  });
+
+  return found;
+}
+
+/** The name each parameter binds, by position, where a parameter is a plain name. */
+function parameterNames(fn: Node): (string | undefined)[] {
+  return (fn as { params: Node[] }).params.map((param) => {
+    const plain = param.type === 'AssignmentPattern' ? param.left : param;
+
+    return plain.type === 'Identifier' ? plain.name : undefined;
+  });
+}
+
+/** Every `__` tag written anywhere inside a node, as the source text of the tag. */
+function tagsIn(node: Node, source: string, tags: ReturnType<typeof importBindings>): string[] {
+  const found: string[] = [];
+
+  walk(node, (inner) => {
+    if (inner.type === 'TaggedTemplateExpression' && bindingName(inner.tag, tags) !== undefined) {
+      found.push(source.slice(inner.start, inner.end));
+    }
+
+    return true;
+  });
+
+  return found;
+}
+
+/**
+ * Every `__` tag that reaches a `TypeError` or a `RangeError` by a helper.
+ *
+ * The constructor rule above sees a tag written inside the call. Two shapes put
+ * the message somewhere else, and both are read off the tree rather than listed:
+ *
+ * - A function that **throws what it is handed** -- a parameter passed straight
+ *   to `new TypeError(message)`, as `controlFlag()` and `finite()` do. A call to a
+ *   function of that name with a tag in **that argument** is a tagged message;
+ *   in another it is not, since `describeControls()` throws its last parameter
+ *   and takes a callback that tags key descriptions.
+ * - A function that **builds the message** -- `new TypeError(name(...))`, as
+ *   `hiddenTypeMessage()` does. A tag anywhere in that function is one.
+ *
+ * Both match a callee by its name across the whole tree and not by the module it
+ * was imported from. That is a rule that can only over-reach: two unrelated
+ * functions sharing a name fail it loudly, where following imports would be the
+ * place a tag slips past. A message built into a variable first, or returned from
+ * a method, is still not seen.
+ *
+ * @param modules - Every module, with the specifier it reaches the tag by.
+ */
+function taggedThroughHelpers(
+  modules: { file: string; source: string; from?: string }[]
+): string[] {
+  const parsedModules = modules.map(({ file, source, from }) => {
+    const parsed = parseModule(file, source);
+
+    return {
+      file,
+      source,
+      parsed,
+      tags: importBindings(parsed, from ?? '@ttylabs/sigil/i18n', '__'),
+      functions: namedFunctions(parsed),
+    };
+  });
+
+  const throwers = new Map<string, Set<number>>();
+  const builders = new Set<string>();
+
+  for (const { parsed, functions } of parsedModules) {
+    for (const [name, fn] of functions) {
+      const params = parameterNames(fn);
+
+      walk(fn, (node) => {
+        if (isProgrammingError(node)) {
+          const [message] = node.arguments;
+
+          const at = message?.type === 'Identifier' ? params.indexOf(message.name) : -1;
+
+          if (at !== -1) {
+            throwers.set(name, (throwers.get(name) ?? new Set()).add(at));
+          }
+        }
+
+        return true;
+      });
+    }
+
+    walk(parsed.program, (node) => {
+      if (isProgrammingError(node)) {
+        const [message] = node.arguments;
+
+        if (message?.type === 'CallExpression' && message.callee.type === 'Identifier') {
+          builders.add(message.callee.name);
+        }
+      }
+
+      return true;
+    });
+  }
+
+  const found: string[] = [];
+
+  for (const { file, source, parsed, tags, functions } of parsedModules) {
+    walk(parsed.program, (node) => {
+      if (node.type === 'CallExpression' && node.callee.type === 'Identifier') {
+        const callee = node.callee.name;
+
+        // only the argument that is thrown: `describeControls()` takes a callback
+        // that tags the key descriptions it returns, which are no error
+        for (const at of throwers.get(callee) ?? []) {
+          for (const argument of node.arguments.slice(at, at + 1)) {
+            found.push(
+              ...tagsIn(argument, source, tags).map((text) => `${named(file)}: ${callee}(${text})`)
+            );
+          }
+        }
+      }
+
+      return true;
+    });
+
+    for (const name of builders) {
+      const fn = functions.get(name);
+
+      if (fn) {
+        found.push(
+          ...tagsIn(fn, source, tags).map((text) => `${named(file)}: ${name}() builds ${text}`)
+        );
+      }
+    }
+  }
+
+  return found;
 }
 
 /** The keys the framework's source declares, read the way the generator reads them. */
@@ -162,11 +329,14 @@ describe('the committed key set', () => {
   // its reader is the developer and SIG-53's decision applies. A user's mistake
   // is a `UsageError` or an `Error` (a `PromptError`, a config layer's refusal),
   // which this leaves alone: 87 tagged `new Error(...)` sites were read for it and
-  // are not all one kind, so no rule over them is made here
-  // what it reads is a tag lexically inside the constructor's call: a tagged message
-  // handed to a helper that throws, or built into a variable first, is not seen, and
-  // a file that never writes the two characters is skipped unread. No such site
-  // exists today; the `Expected ` test above is the other net
+  // are not all one kind, so no rule over them is made here (SIG-677 read all 92 and
+  // found one that is only ever a developer's, which lost its tag)
+  //
+  // what it reads is a tag lexically inside the constructor's call. A tag handed to
+  // a helper that throws, or built by a helper, is the next test; one built into a
+  // variable first is still not seen, and a file that never writes the two
+  // characters is skipped unread. No such site exists today; the `Expected ` test
+  // above is the other net
   it('should tag no TypeError or RangeError', () => {
     const tagged: string[] = [];
 
@@ -183,6 +353,59 @@ describe('the committed key set', () => {
     }
 
     expect(tagged).toEqual([]);
+  });
+
+  // SIG-677: `controlFlag()` and `finite()` throw the message they are handed and
+  // `hiddenTypeMessage()` builds one, so a tag written at their call sites or in
+  // their body reaches a `TypeError` without being inside the constructor's call.
+  // None does today
+  it('should tag no message a helper throws as a TypeError or RangeError', () => {
+    const everything = [...modules(root)].map((file) => ({
+      file,
+      source: readFileSync(file, 'utf8'),
+      from: specifierFrom(file),
+    }));
+
+    expect(taggedThroughHelpers(everything)).toEqual([]);
+  });
+
+  it('should see a tag handed to a helper that throws it, and one a helper builds', () => {
+    const call = "import { __ } from '@ttylabs/sigil/i18n';\n";
+    const helper = 'function flag(v: unknown, message: string) { throw new TypeError(message); }\n';
+    const build = 'function say(x: string) { return __`Bad ${x}`; }\n';
+
+    expect(
+      taggedThroughHelpers([
+        { file: 'a.ts', source: `${call}${helper}flag(1, __\`Bad\`);\n` },
+        { file: 'b.ts', source: `${call}${build}throw new RangeError(say('x'));\n` },
+      ])
+    ).toEqual(['a.ts: flag(__`Bad`)', 'b.ts: say() builds __`Bad ${x}`']);
+    // the helper in one module and the call in another, and a helper bound to an
+    // arrow with a default on the parameter: the shapes of the real ones that the
+    // fixtures above are not
+    expect(
+      taggedThroughHelpers([
+        {
+          file: 'e.ts',
+          source: `export const arrow = (v: unknown, message = 'x') => { throw new RangeError(message); };\n`,
+        },
+        { file: 'f.ts', source: `${call}arrow(1, __\`Bad\`);\n` },
+      ])
+    ).toEqual(['f.ts: arrow(__`Bad`)']);
+    // a tag handed to a function that does not throw it, or to a parameter of one
+    // that is not the one thrown, is no finding
+    expect(
+      taggedThroughHelpers([
+        {
+          file: 'c.ts',
+          source: `${call}function show(m: string) { return m; }\nshow(__\`Ok\`);\n`,
+        },
+        {
+          file: 'd.ts',
+          source: `${call}function two(a: unknown, m: string) { throw new TypeError(m); }\ntwo(__\`Ok\`, 'plain');\n`,
+        },
+      ])
+    ).toEqual([]);
   });
 
   it('should see a tag inside a TypeError, so that the test above can fail', () => {

@@ -581,8 +581,10 @@ function checkChoices(
   if (isDeclaredDefault(state, dest)) {
     const [outside] = outsideChoices(it.choices, value);
     if (outside) {
+      // untagged (SIG-677): a declaration the app wrote wrongly, which nobody at
+      // the terminal can answer, so the maintainer reads it in English
       throw new Error(
-        __`The default "${escapeControls(outside.value)}" for ${escapeControls(label)} is not one of its choices`
+        `The default "${escapeControls(outside.value)}" for ${escapeControls(label)} is not one of its choices`
       );
     }
     return;
