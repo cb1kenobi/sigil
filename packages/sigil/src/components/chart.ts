@@ -30,7 +30,6 @@ import {
   raw,
   renderToString,
   text as textNode,
-  toDisplayLine,
   toDisplayText,
 } from '../element/index.js';
 import { __ } from '../i18n/index.js';
@@ -42,7 +41,7 @@ import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { maxOf, minOf, stringWidth } from '../width/index.js';
 import { terminalWidth, truncate } from '../wrap/index.js';
 import { colorLevelOf } from './color-level.js';
-import { labelLine, unicodeSupported } from './note.js';
+import { formatLine, labelLine, unicodeSupported } from './note.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
 import { progressPercent, renderBar } from './progress.js';
 import { attachTooltip, type TooltipHandle, type TooltipOptions } from './tooltip.js';
@@ -773,22 +772,6 @@ function barRole(datum: BarDatum, role: string | undefined): string | undefined 
 }
 
 /**
- * What a chart's `format()` wrote, as it will be drawn: a tab is a space and a
- * line break is a space, since a value is one row's cell. Measured raw it was
- * the other way about -- a tab is no columns wide and is drawn as one, so
- * `v + '\t%'` drew `5 %` in the room `5%` had (SIG-686).
- *
- * @param format - The caller's `format()`, or the default.
- * @param value - The number.
- * @returns What is drawn for it.
- */
-function written(format: (value: number) => string, value: number): string {
-  // `String()` because a `format` from JavaScript may answer with the number
-  // itself, which a chart has always drawn and `toDisplayLine()` would throw on
-  return toDisplayLine(String(format(value)));
-}
-
-/**
  * Builds the rows of a horizontal bar chart.
  *
  * Shows the bars that fit `height`, the latest or the first as `keep` says, and
@@ -813,7 +796,7 @@ function horizontalBars(bars: Bars, opts: BarChartOptions): Row[] {
       0
     )
   );
-  const values = data.map((d) => (isPlottable(d.value) ? written(format, d.value) : '-'));
+  const values = data.map((d) => (isPlottable(d.value) ? formatLine(format, d.value) : '-'));
   const showValues = opts.showValues !== false;
   const valueWidth = showValues
     ? maxOf(
@@ -871,7 +854,7 @@ function naturalColumn(
   );
   return showValues
     ? maxOf(
-        data.map((d) => stringWidth(isPlottable(d.value) ? written(format, d.value) : '-')),
+        data.map((d) => stringWidth(isPlottable(d.value) ? formatLine(format, d.value) : '-')),
         labels
       )
     : labels;
@@ -980,7 +963,7 @@ function verticalBars(bars: Bars, opts: BarChartOptions): Row[] {
   // the scale is over the bars shown, as a sparkline's is over its samples
   const [low, high] = barBounds(data, opts);
   const labels = data.map((d) => labelLine(d.label));
-  const values = data.map((d) => (isPlottable(d.value) ? written(format, d.value) : '-'));
+  const values = data.map((d) => (isPlottable(d.value) ? formatLine(format, d.value) : '-'));
   const showValues = opts.showValues !== false;
   const height = count(opts.height, DEFAULT_HEIGHT);
   const gap = ' '.repeat(gaps);
@@ -1330,7 +1313,7 @@ function lineDrawing(list: readonly PlotSeries[], layout: LineLayout): Drawing {
     const [low, high] = bounds(shown.flat(), layout);
     const ticks = tickRows(height).map((row) => ({
       row,
-      text: written(format, height <= 1 ? high : high - (row / (height - 1)) * (high - low)),
+      text: formatLine(format, height <= 1 ? high : high - (row / (height - 1)) * (high - low)),
     }));
     const widest = axis
       ? maxOf(

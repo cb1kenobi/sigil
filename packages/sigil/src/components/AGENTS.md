@@ -7955,16 +7955,29 @@ and not the stack overflow that one fixed: no spread was involved.
   what `format()` wrote was drawn as a space and measured as nothing, so
   `v => v + '\t%'` made a value column one cell narrower than the `5 %` in it and a
   line chart's gutter one cell narrower than its `10 %`. Every value goes through
-  `written()`, which is `toDisplayLine()` of `format(value)`: the element layer's one
-  definition, and its single-line form because a value is a cell of one row and
-  a line break in it would push every row after it down by one, which is what
+  `formatLine()` (SIG-698 renamed it from `written()` and moved it to `note.ts`, beside
+  `labelLine()`), which is `toDisplayLine()` of `strip()` of `format(value)`: the element
+  layer's one definition, and its single-line form because a value is a cell of one row
+  and a line break in it would push every row after it down by one, which is what
   `toDisplayLine()` was written for. It reads `String()` of what `format()` answered, so a
   `format` from JavaScript that returns the number itself still draws it, as it always
-  did. It is applied where the string is made, in
+  did. **A `format()` that returns a styled string is drawn as its plain text
+  (SIG-698).** The `strip()` is the new half: the tree drops the `ESC` byte and keeps
+  `[31m`, so a coloured `v + '%'` drew the escape parameters as text and the bar was
+  sized against the longer word -- two bars of 17 and 24 cells became 11 and 16. The
+  style is dropped, not kept and not refused, the way a tooltip (SIG-652) and the live
+  line chart's crosshair readout already treat the same string. A result with no escape
+  sequence in it (by `strip()`'s definition, which includes a bare C1 introducer such as
+  U+0090 and an `ESC` followed by one byte) is untouched, a tab included, which is why this is not `labelLine()`: that one
+  collapses whitespace runs and trims, right for a label and a change to a `format()`
+  result. `strip()` takes every escape sequence, so an OSC 8 hyperlink goes too. One
+  definition for the chart and the page indicator, which differ only in what `format()`
+  is given; it is in `note.ts` because an ejected component imports its siblings by a
+  subpath and `note` already has one. It is applied where the string is made, in
   `horizontalBars()`, `naturalColumn()`, `verticalBars()` and the line chart's
   ticks, so everything after -- `pad()`, `truncate()`, the widths -- reads a string
   that is what is drawn. `segmentNode()`'s width and `viewOf()`'s are measured through
-  `toDisplayText()` as well, which changes nothing for what `written()` made and is
+  `toDisplayText()` as well, which changes nothing for what `formatLine()` made and is
   the two places a segment's text could still be something else. Left alone, since
   the SIG-665 entry above lists it: the live line chart's crosshair readout, which
   is `format()` output too and already goes through `toDisplayText()` in `follow()`.
@@ -8337,7 +8350,7 @@ have.
   alone with that file; SIG-686 swept it, in the SIG-664 section above. A numeric page
   indicator's `format()` was the third, and SIG-685 left it as content rather than a
   glyph: `pageIndicator(1, 3, { style: 'numeric', format: () => 'a\tb' })` drew `a`.
-  SIG-694 puts the output through `toDisplayLine()` in `slotsFor()`, where the run is
+  SIG-694 puts the output through `formatLine()` in `slotsFor()`, where the run is
   made, so `apply()` and `pageIndicatorView()` size what is drawn -- the single-line
   form because the indicator is one row, as for a chart's `format()`. The sweep for the
   rest of the callers' `format()` and label callbacks found nothing else raw: the data
@@ -8346,9 +8359,12 @@ have.
   is a fixed-width cell it never measures, a list `label` is drawn and never measured,
   a `short` is an answer, and the clock's `format`, the log's `timestamp`, the panel's
   label, an outline's enumerator and a chart's crosshair `text` already go through
-  `labelLine()`, `refuseControl()` or `toDisplayText()`. A `format` that returns an
-  SGR-styled string draws its escapes as text, here and in a chart's, which is
-  unchanged by this and would be a `strip()` in both if it were ever wanted. A readout of
+  `labelLine()`, `refuseControl()` or `toDisplayText()` -- for tabs; for SGR the same gap
+  remains in `tableCell()` (so the data table's `format()`) and a treemap's `label`
+  (SIG-698's review, left for their own tickets). A `format` that returns an
+  SGR-styled string drew its escapes as text, here and in a chart's, until SIG-698 put
+  `strip()` into the one `formatLine()` both call (see SIG-686 above): the style is
+  dropped. A readout of
   only a control character other than
   a tab or a newline (a bell, a bare `ESC`) is empty by the same rule: the tree draws
   nothing for it, so it is no readout, though a standalone `attachTooltip()` strips

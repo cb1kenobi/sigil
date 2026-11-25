@@ -1,4 +1,5 @@
 export {
+  formatLine,
   labelLine,
   note,
   type NoteBorder,

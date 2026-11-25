@@ -10,20 +10,14 @@
  * lying about what it is.
  */
 
-import {
-  box,
-  type Element,
-  renderToString,
-  text as textNode,
-  toDisplayLine,
-} from '../element/index.js';
+import { box, type Element, renderToString, text as textNode } from '../element/index.js';
 import { createEffect } from '../renderer/index.js';
 import { State, untrack } from '../signals/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { stringWidth } from '../width/index.js';
 import { colorLevelOf } from './color-level.js';
 import { refuseControl } from './control-character.js';
-import { unicodeSupported } from './note.js';
+import { formatLine, unicodeSupported } from './note.js';
 
 /** How the position is written: one dot per page, `2/5`, or both. */
 export type PageIndicatorStyle = 'both' | 'dots' | 'numeric';
@@ -44,7 +38,8 @@ export interface PageIndicatorOptions extends StyledOptions {
   /**
    * How the numeric form is written, given the page **counting from one** and
    * how many there are. Defaults to `2/5`, which is not prose and so is not in
-   * the catalog; this is where `Page 2 of 5` in another language goes.
+   * the catalog; this is where `Page 2 of 5` in another language goes. A style in
+   * what it returns is dropped: the indicator is coloured by its role, not by a string.
    */
   format?: (page: number, pages: number) => string;
   /**
@@ -374,33 +369,9 @@ function slotsFor(page: number, pages: number, opts: PageIndicatorOptions): Slot
     before: dots && at > 0 ? `${row(at)} ` : '',
     dot: dots ? (opts.active ?? active) : '',
     numeric: numeric
-      ? `${dots ? ' ' : ''}${written(opts.format ?? ((n, of) => `${n}/${of}`), at + 1, total)}`
+      ? `${dots ? ' ' : ''}${formatLine(opts.format ?? ((n, of) => `${n}/${of}`), at + 1, total)}`
       : '',
   };
-}
-
-/**
- * What a `format()` wrote, as it will be drawn: a tab is a space and a line break
- * is a space, since the number is one run of one row. Measured raw a tab is no
- * columns wide and is drawn as one, so `'a\tb'` drew `a b` in the room `ab` had
- * and the row lost its last column (SIG-694). Done where the string is made, so
- * `apply()` and `pageIndicatorView()` both size what is drawn, and in its
- * single-line form for the reason `table()` and a chart's `format()` use it: a
- * line break would add a row to an indicator that is one.
- *
- * @param format - The caller's `format()`, or the default.
- * @param page - The page, counting from one.
- * @param pages - How many there are.
- * @returns What is drawn for it.
- */
-function written(
-  format: (page: number, pages: number) => string,
-  page: number,
-  pages: number
-): string {
-  // `String()` because a `format` from JavaScript may answer with the number
-  // itself, which an indicator has always drawn and `toDisplayLine()` would throw on
-  return toDisplayLine(String(format(page, pages)));
 }
 
 /** The runs of an indicator as text nodes, in the order they are drawn. */

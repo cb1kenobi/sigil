@@ -7275,6 +7275,10 @@ there for a component you write yourself too:
 - `labelLine(value)`, from `@ttylabs/sigil/components/note`, is a label as the
   grid draws it: escape sequences gone and every run of whitespace one space. A
   note's title, a badge, a rule's label, a tab and a chart's labels all read it.
+- `formatLine(format, ...args)`, from `@ttylabs/sigil/components/note`, is what a
+  caller's `format()` wrote, as it is drawn: its escape sequences gone, a tab and a
+  line break one space each, and anything else as it was written. A chart's
+  `format(value)` and a page indicator's `format(page, pages)` both read it.
 - `borderLabel()`, `borderLabelText()` and `fitBorder()`, from
   `@ttylabs/sigil/components/border-label`, set a label into a border: a note's
   title and a panel's title, annotation and footer. `fitBorder(width, start, end,

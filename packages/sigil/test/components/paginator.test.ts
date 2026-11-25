@@ -342,6 +342,19 @@ describe('pageIndicator()', () => {
       expect(indicator(1, 3, { format: () => 'a\nb', style: 'numeric' })).to.equal('a b');
     });
 
+    it('should draw a format that returns a styled string as its plain text, not its escape parameters (SIG-698)', () => {
+      const format = (n: number, of: number): string => `\u001b[31m${n}/${of}\u001b[39m`;
+
+      expect(indicator(1, 3, { format, style: 'numeric' })).to.equal('2/3');
+      expect(indicator(1, 3, { format, style: 'both' })).to.equal('○ ● ○ 2/3');
+      expect(pageIndicatorView(1, 3, { format, style: 'numeric' }).width).to.equal(3);
+    });
+
+    it('should leave a format with no escape in it as it was written (SIG-698)', () => {
+      expect(indicator(1, 3, { format: () => 'a\tb', style: 'numeric' })).to.equal('a b');
+      expect(indicator(1, 3, { format: () => '[31m', style: 'numeric' })).to.equal('[31m');
+    });
+
     it('should say 1/1 for a result set with nothing in it', () => {
       expect(indicator(0, 0, { style: 'numeric' })).to.equal('1/1');
     });
