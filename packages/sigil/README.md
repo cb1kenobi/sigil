@@ -539,7 +539,9 @@ Each key is a route's name, and each directory has its own file, so
 `commands/db/commands.json` describes `db migrate`. It is a **description of the
 walk, not a list of what exists**: the directory is still read, so a command with
 no entry still works and simply lists without a description, and an entry naming
-no command is ignored (and `sigil check` says so). Once a module is loaded, its
+no command is ignored (and `sigil check` says so). An alias is a plain name: one
+starting `!` or `@`, or holding a control or format character, is refused naming
+the file, from source and from `sigil build` alike. Once a module is loaded, its
 own `desc` is what stands. `sigil build` reads the same file and bakes it into
 the executable, so an alias routes the same before and after a build;
 `commands.jsonc` is read too. It replaces the schema's `routeInfo`, which is a

@@ -1935,7 +1935,7 @@ name alone, and a `name` or `alias` written in a module could never route
   `.json` is not one of the six route extensions.
 - **What is wrong with the file throws, naming it.** Not JSONC (`parseJsonc()`'s
   `Failed to parse <file>`), not an object of objects, a property of the wrong
-  type, an alias starting `!` or `@`, or two entries both `default: true` -- the
+  type, an alias starting `!` or `@` or holding a control or format character, or two entries both `default: true` -- the
   last whether or not both name a route, so it is said naming the file rather
   than by the registry naming neither. It throws when the level is walked, as an
   invalid placeholder declaration throws when it is built, and the build fails
@@ -2054,11 +2054,29 @@ read it by the new name.
   **U+200C and U+200D are let through**: Persian and several Indic scripts
   cannot spell some words without them, and an attack needs the bidi controls and
   the invisible spaces rather than a joiner. They are escaped wherever a name is
-  echoed, like U+3164. A `commands.json` alias is **not** held to it: a dropped
-  manifest is no more the app's own than a dropped file, but an alias is only ever
-  echoed escaped, so it has the one guard where a route name has two. Refusing it
-  would also be a change to what `commands.json` accepts, which this ticket did
-  not take; it is a follow-up. The refusal is what stops a hostile file dropped into an installed
+  echoed, like U+3164. **A `commands.json` alias is held to the same control and
+  format rule since SIG-673**, by the same function -- and to that rule alone, not
+  to the rest of `routeNameProblem()`: an alias may still hold whitespace, a `,`, a
+  `/` or a leading `<` or `[`, which a route's name may not, because the ticket
+  was about what reaches a terminal and U+2028 and the rest are escaped where an
+  alias is echoed. Whether an alias should be held to the whole of a name's rules
+  is open. The reason it is held to this one: a dropped manifest is no more the
+  app's own than a dropped file, and an alias is a spelling argv can match, so it
+  had the one guard (the escaped suggestion) where a route name has two. `readRouteManifest()`'s
+  alias loop, beside the `!` and `@` check, refuses it with `hasUnsafeCharacter()`
+  and the one reason string `routeNameProblem()` uses, so the runtime and `sigil
+  build` and `sigil check` -- which all read the file through `readRouteManifest()`
+  -- cannot disagree, the two joiners included. It **throws and refuses the whole
+  file**, as an alias starting `!` or `@` already does, rather than skipping the
+  alias with a warning: a skipped alias is a spelling that silently stops routing
+  on a machine the file was dropped onto, which is the stale-entry shape that
+  entry's own warning exists for, and a refusal names the file. That is a change to
+  what `commands.json` accepts, and the only app it moves is one whose alias held
+  such a character. The forged-alias fixtures in
+  `packages/cli/test/diagnostic-escape.test.ts` could not stay as they were --
+  they forged a diagnostic line with a newline in an alias, which is now refused --
+  so the aliases there carry U+3164 and assert the echo is escaped, and a sibling
+  asserts the newline alias is refused in one line. The refusal is what stops a hostile file dropped into an installed
   app's commands directory from being a command at all, and it is the first of two
   guards: a suggestion escapes what it offers whatever the name was (see "A value
   an error echoes"). The rest of what `escapeControls()` names -- U+3164, U+034F,

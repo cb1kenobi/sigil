@@ -523,7 +523,9 @@ what they mean on a placeholder declared by hand:
   wins once it has. A package's `package.json` description beats it.
 - `hidden` hides the command; the module cannot un-hide it.
 - `alias` routes — `mycli ls` runs `list` from source and after `sigil build` —
-  and stays out of help, as the `alias` property does.
+  and stays out of help, as the `alias` property does. An alias is a plain name:
+  one starting `!` or `@`, or holding a control or format character (U+200C and
+  U+200D excepted, as they are in a route's name), throws naming the file.
 - `default: true` runs the command when argv names none of its siblings, and it
   still routes and lists under its own name. Two entries both `default` throw.
 
@@ -535,8 +537,8 @@ The walk still decides what exists. A route with no entry is a command listed by
 name alone, and an entry naming no route is ignored — as is a property that is
 none of the four — so `sigil check` and `sigil build` warn about both. The file
 may be called `commands.jsonc` instead, and either name is read as JSONC; a
-directory holding both throws. So does a file that does not parse or a property
-of the wrong type, naming the file, from source and from `sigil build` alike.
+directory holding both throws. So does a file that does not parse, a property
+of the wrong type or an alias that is not a plain name, naming the file, from source and from `sigil build` alike.
 Neither name is a route, since `.json` is not a route extension.
 
 `routeInfo` on the schema was the older way to describe a walked tree, and it has

@@ -904,6 +904,41 @@ describe('resolving a tree whose names are the file system’s', () => {
     }
   );
 
+  it('should refuse a control or format character in a commands.json alias as the runtime does (SIG-673)', async () => {
+    // JSON can say it without a file system being able to, so this runs everywhere
+    const dir = tree({
+      'build.mjs': mod,
+      'commands.json': JSON.stringify({
+        build: { alias: [`a${String.fromCharCode(0x1b)}${String.fromCodePoint(0x202e)}b`] },
+      }),
+    });
+    const message =
+      /Invalid alias "a\\x1B\\u\{202E\}b" for "build" in .*commands\.json: it contains a control or format/;
+
+    expect(() => resolveCommandTree(dir)).toThrow(message);
+    await expect(
+      main({ argv: [], schema: { commands: dir }, settings: { errorHandler: false } })
+    ).rejects.toThrow(message);
+  });
+
+  it('should let a commands.json alias hold a joiner or a blank character, as the runtime does (SIG-673)', async () => {
+    for (const code of [0x200c, 0x200d, 0x3164]) {
+      const alias = `a${String.fromCodePoint(code)}b`;
+      const dir = tree({
+        'build.mjs': mod,
+        'commands.json': JSON.stringify({ build: { alias: [alias] } }),
+      });
+
+      expect(at(resolveCommandTree(dir).commands, 'build').alias, `${code}`).toEqual([alias]);
+      const result = (await main({
+        argv: [alias],
+        schema: { commands: dir },
+        settings: { errorHandler: false },
+      })) as ParseState;
+      expect(result.cmd?.name, `${code}`).toBe('build');
+    }
+  });
+
   it('should refuse `my cmd.mjs` beside `my.mjs`, which used to be one command', () => {
     const dir = tree({ 'my cmd.mjs': mod, 'my.mjs': mod });
     expect(() => resolveCommandTree(dir)).toThrow(/Cannot route the file "my cmd\.mjs"/);
