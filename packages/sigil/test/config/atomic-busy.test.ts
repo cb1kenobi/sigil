@@ -153,9 +153,20 @@ describe.each(walks)('a busy rename in %s', (_name, write) => {
     });
 
     expect(attempts).to.equal(RETRIES + 1);
-    expect(waited).to.have.length(RETRIES);
+    expect(waited).to.deep.equal([10, 20, 40, 80, 160, 320, 370]);
     expect(waited.reduce((a, b) => a + b, 0)).to.equal(BOUND);
     expect(readFileSync(target, 'utf8')).to.equal('old');
+    expect(readdirSync(root)).to.deep.equal(['config.jsonc']);
+  });
+
+  it('should stop at once on a code that is not busy after a busy one', async () => {
+    asWindows();
+    script = ['EBUSY', 'ENOSPC'];
+
+    await expect(write('new')).rejects.toMatchObject({ code: 'ENOSPC' });
+
+    expect(attempts).to.equal(2);
+    expect(waited).to.deep.equal([10]);
     expect(readdirSync(root)).to.deep.equal(['config.jsonc']);
   });
 

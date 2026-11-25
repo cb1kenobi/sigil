@@ -1885,7 +1885,13 @@ failed to close.
   another process holds open without `FILE_SHARE_DELETE` -- an antivirus
   scanner, an indexer, some editors -- fails there with `EPERM`, `EBUSY` or
   `EACCES`, and the hold is usually over in milliseconds. `graceful-fs`, which
-  npm writes through, retries the same three for the same reason. So
+  npm writes through, retries the same three codes on `win32` (read from its
+  `polyfills.js`, 4.2.11) -- **but only when `stat()` then says the destination
+  is absent, for up to 60 s**, which is the window where a rename's own target
+  momentarily is not there. That is the precedent for the code set and not for
+  the scenario above: where the destination exists and is held, it gives up at
+  once. Ours retries whether or not the destination exists, because a held
+  existing file is the case the ticket names. So
   `renameInto()` and `renameIntoSync()` in `atomic.ts` retry them on `win32`
   with a fixed backoff of 10, 20, 40, 80, 160, 320 and 370 ms -- seven retries,
   summing to the 1,000 ms bound -- and every other errno and every other
@@ -1910,10 +1916,11 @@ failed to close.
     `SharedArrayBuffer` -- no spin and no dependency, and the idiom
     `renderer/app.ts` already uses in its own synchronous exit path. `saveSync()`
     is what an exit handler calls, and it has nowhere to yield to.
-  - **`EACCES` is retried although it can be permanent.** A read-only destination
-    answers it too, and the code cannot say which, so that save costs the whole
-    second before it fails with the same error it always did. The alternative is
-    not retrying the code a held file also gives on some Windows configurations.
+  - **All three can be permanent, and are retried anyway.** A read-only or
+    ACL-denied destination answers with one of them too -- `EPERM` most likely,
+    from libuv's mapping of `ERROR_ACCESS_DENIED`, which was recalled rather
+    than checked -- and the code cannot say which, so that save costs the whole
+    second before it fails with the same error it always did.
   - **The platform is read per call**, as `which()` and `paths.ts` read it, so
     the Windows half is testable on the machine it is written on.
 

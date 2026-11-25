@@ -511,11 +511,12 @@ function keepOf(path: string): Keep {
  *
  * `rename()` over a destination another process holds open without
  * `FILE_SHARE_DELETE` -- an antivirus scanner, an indexer, an editor -- fails
- * with one of these three, and the hold is usually gone in milliseconds, which
- * is why `graceful-fs`, which npm writes through, retries the same set. **Not
- * reproduced** on Windows before it was added, which is Chris's decision on
- * SIG-415 and is recorded in `src/config/AGENTS.md`: the code is the known
- * behaviour and the precedent, and the tests stage it with a mocked `rename`.
+ * with one of these three, and the hold is usually gone in milliseconds.
+ * `graceful-fs`, which npm writes through, retries the same set -- but only
+ * while the destination is *absent*, so it is the precedent for the codes and
+ * not for this scenario. **Not reproduced** on Windows before it was added,
+ * which is Chris's decision on SIG-415 and is recorded in
+ * `src/config/AGENTS.md`; the tests stage it with a mocked `rename`.
  */
 const BUSY_CODES: ReadonlySet<unknown> = new Set(['EACCES', 'EBUSY', 'EPERM']);
 
@@ -525,8 +526,9 @@ const BUSY_CODES: ReadonlySet<unknown> = new Set(['EACCES', 'EBUSY', 'EPERM']);
  * Its length is the number of retries and its sum, 1,000, is the bound: after
  * the last wait the next failure is the answer. Short first because the usual
  * hold is a scanner's and is over almost at once. A destination that really is
- * read-only answers `EACCES` too and costs the whole second before it says so,
- * which is the price of not being able to tell the two apart from the code.
+ * read-only or denied answers one of the three too -- most likely `EPERM` -- and
+ * costs the whole second before it says so, which is the price of not being
+ * able to tell the two apart from the code.
  */
 const BUSY_BACKOFF_MS: readonly number[] = [10, 20, 40, 80, 160, 320, 370];
 
