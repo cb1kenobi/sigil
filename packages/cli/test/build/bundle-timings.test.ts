@@ -28,8 +28,9 @@
  * what is spied on. Together they leave
  * one thing unproved, which is that rolldown still turns a warning off when told
  * to, and that is rolldown's own documented contract rather than this build's.
- * The key being renamed or removed is what would have broken it, and the second
- * assertion is that.
+ * The key being removed is what would have broken it, and the second assertion is
+ * that; a rename that keeps the old name in rolldown's schema as a deprecated
+ * alias is not seen.
  *
  * A file of its own for the reason `bundle-close.test.ts` gives: `vi.mock` is
  * module-wide.
@@ -117,14 +118,15 @@ describe('the checks a build asks rolldown for', () => {
     await build();
 
     expect(checks).toHaveLength(1);
-    expect(checks[0]).toEqual({ bundlerTimings: false });
+    expect(checks[0]).toStrictEqual({ bundlerTimings: false });
     // rolldown reads `checks` through a schema and says so about a key it does not
     // know, which is what makes the assertion above mean something
     expect(said).toEqual([]);
   }, 30_000);
 
   it('should hand rolldown a name for the check that rolldown still knows', async () => {
-    // the control: the validator says something when a name is wrong, so the
+    // the control (rolldown skips its validator when ROLLUP_TEST is set, which
+    // fails this loudly): the validator says something when a name is wrong, so the
     // silence above is rolldown's answer and not a spy that hears nothing
     expect((await validated({ bundlerTimer: false })).join('\n')).toContain('checks.bundlerTimer');
 
