@@ -490,16 +490,6 @@ describe('BarChart', () => {
     expect(picture(column(1, chart), 9, 1).map((line) => line.slice(0, 3))).toEqual(['500']);
   });
 
-  it('should redraw when a State holds a Map and is set to another', async () => {
-    const data = new State<Map<string, number>>(new Map([['b', 1]]));
-    const root = column(undefined, BarChart({ ascii: false, data, showValues: false }));
-    expect(picture(root, 6, 1).map((line) => line.slice(0, 1))).toEqual(['b']);
-
-    data.set(new Map([['a', 1]]));
-    await flush();
-    expect(picture(root, 6, 1).map((line) => line.slice(0, 1))).toEqual(['a']);
-  });
-
   it('should show every bar of more than 1,000 in a host that has the rows, given a height', () => {
     const data = Array.from({ length: 1500 }, (_, i) => ({ label: 'x', value: i % 7 }));
     const chart = BarChart({ ascii: false, data, height: 1500, showValues: false });

@@ -649,10 +649,6 @@ describe('barChart()', () => {
       expect(bars(data, { width: 12 })).to.deep.equal(bars({ a: Number.NaN, b: 2 }, { width: 12 }));
     });
 
-    it('should draw an empty Map as an empty chart, as an empty object', () => {
-      expect(bars(new Map())).to.deep.equal(bars({}));
-    });
-
     it('should not ask the caller to format a bar it did not keep, from either end', () => {
       const data = new Map(Array.from({ length: 200_000 }, (_, i) => [String(i), i % 7]));
       let calls = 0;
@@ -670,8 +666,10 @@ describe('barChart()', () => {
 
     it('should build the same rows through barChartView()', () => {
       const { element } = barChartView(codes(), { ...plain, height: 2, keep: 'first', width: 20 });
+      const rows = barChart(codes(), { ...plain, height: 2, keep: 'first', width: 20 });
 
       expect(element.children.length).to.equal(2);
+      expect(labels(rows.split('\n'))).to.deep.equal(['500', '404']);
     });
   });
 

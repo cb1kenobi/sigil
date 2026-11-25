@@ -3713,7 +3713,9 @@ first, so steps named `'2'` and `'1'` run `'1'` first however they were written.
 `Map` of steps runs in the order the `Map` holds them -- `new Map([['2', ...], ['1', ...]])`
 asks `'2'` first -- and resolves with the same object of answers keyed by step name,
 since an answer is read by its name. A `Map` cannot say which key answers what, so
-`T` is `Record<string, unknown>` unless named: `group<{ port: number }>(new Map(...))`.
+`T` is `Record<string, unknown>` unless named, and then each step is checked against
+the shape's values but the `Map` cannot say that every key has a step:
+`group<{ port: number }>(new Map([['port', () => 3000]]))`.
 A step is any function that returns a value or a promise, handed a copy of
 the answers so far. Cancelling is still a `PromptError` rejection --
 `isCancel(err)` is true for Ctrl-C and false for a prompt with nobody to ask --

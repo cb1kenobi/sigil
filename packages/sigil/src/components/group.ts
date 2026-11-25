@@ -86,9 +86,14 @@ export type GroupSteps<T> = {
  *
  * A `Map` cannot say which key resolves with what, so a step is typed over every
  * answer at once: it resolves with one of `T`'s values, and is handed the answers so
- * far as optional. Name the shape -- `group<{ port: number; name: string }>(steps)` --
- * and each answer is typed as it is for an object; leave it off and the answers are
- * `Record<string, unknown>`.
+ * far as optional. Name the shape -- `group<{ port: number; name: string }>(steps)`
+ * -- and every step is checked against the shape's values, so each earlier answer
+ * is typed. Leave it off and the answers are `Record<string, unknown>`. What a
+ * `Map` cannot check, and an object can, is which step answers which key, or that
+ * every key of the shape has a step: the result is typed as the shape either way.
+ * A step of a `Map` literal whose returns differ -- one sync, one async, or two
+ * types -- needs the `Map`'s own type written, as any `Map` constructor does:
+ * `new Map<string, GroupMapStep<Shape>>([...])`.
  */
 export type GroupMapStep<T> = (
   answers: Partial<T>,
@@ -142,11 +147,11 @@ export interface GroupOptions<T> {
  */
 export async function group<T>(steps: GroupSteps<T>, opts?: GroupOptions<T>): Promise<T>;
 export async function group<T = Record<string, unknown>>(
-  steps: ReadonlyMap<keyof T & string, GroupMapStep<T>>,
+  steps: ReadonlyMap<string, GroupMapStep<T>>,
   opts?: GroupOptions<T>
 ): Promise<T>;
 export async function group<T>(
-  given: GroupSteps<T> | ReadonlyMap<keyof T & string, unknown>,
+  given: GroupSteps<T> | ReadonlyMap<string, unknown>,
   opts: GroupOptions<T> = {}
 ): Promise<T> {
   let steps: Record<string, unknown>;

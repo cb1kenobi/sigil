@@ -7950,10 +7950,17 @@ and not the stack overflow that one fixed: no spread was involved.
   answers are read by name, `onCancel`'s partial is an object already, and one
   return type is one thing to type. The cost is that a `Map` cannot say which key
   resolves with what, so its `T` is `Record<string, unknown>` unless named
-  (`group<Shape>(new Map<keyof Shape, GroupMapStep<Shape>>(...))`), where an object's
-  is inferred; a step of a `Map` literal that mixes sync and async returns needs the
+  (`group<Shape>(new Map<string, GroupMapStep<Shape>>(...))`), where an object's
+  is inferred, and where a named one is checked per value only -- a missing key or a step
+  answering the wrong key is not a type error, as it is for an object; a step of a `Map` literal that mixes sync and async returns needs the
   `Map`'s type written, which is how a `Map` constructor infers. A name that is not a
   string is refused with a `TypeError`, as a step that is not a function already was.
+  **It is an overload declared after the object's, and the order is load bearing both
+  ways:** the website's signature generator keeps the first declaration of a name, so
+  the object form is what the page shows, while the cost is that TypeScript reports a
+  failed object-form call against the last overload. A single signature over the
+  union was tried and infers `T` as the `Map` itself, so it is not an option. `instanceof
+  Map` is the test, which a `Map` from another realm fails.
   **Table columns inferred from a row and a log's fields still read `Object.keys()`
   and stay that way:** a table has explicit `columns` for a row whose order
   matters, and a log field's order matters little.

@@ -243,7 +243,7 @@ describe('group()', () => {
       }
       const named = () =>
         group<Shape>(
-          new Map<keyof Shape, GroupMapStep<Shape>>([
+          new Map<string, GroupMapStep<Shape>>([
             ['count', () => 3],
             [
               'label',
@@ -255,6 +255,10 @@ describe('group()', () => {
           ])
         );
       expectTypeOf(named).returns.resolves.toEqualTypeOf<Shape>();
+
+      // the shape named over a Map literal, as the README writes it
+      const literal = () => group<{ port: number }>(new Map([['port', () => 3000]]));
+      expectTypeOf(literal).returns.resolves.toEqualTypeOf<{ port: number }>();
     });
   });
 

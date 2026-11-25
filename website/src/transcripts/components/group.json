@@ -10,7 +10,7 @@
       }
     ],
     "shared": [],
-    "signature": "function group<T = Record<string, unknown>>(steps: ReadonlyMap<keyof T & string, GroupMapStep<T>>, opts?: GroupOptions<T>): Promise<T>"
+    "signature": "function group<T>(steps: GroupSteps<T>, opts?: GroupOptions<T>): Promise<T>"
   },
   "keys": [
     {
