@@ -8455,8 +8455,8 @@ is to keep in step with the first.
 - **Asked where the glyph is configured, and again where a view is built from one
   that never went through that.** `createSpinner()` through `spinnerFrames()`, which
   `tasks()` shares, and `spinnerView()`; `createProgress()` and
-  `createMultiProgress()`, and `progressView()` and `renderBar()`, which are exported
-  and take the characters directly; `pageIndicator()` and `pageIndicatorView()` and
+  `createMultiProgress()`, and `progressView()`, `multiProgressView()` and
+  `renderBar()`, which are exported and take the characters directly; `pageIndicator()` and `pageIndicatorView()` and
   `paginatorView()`, and not `slotsFor()`, which a live indicator runs from an effect
   on every page turn. Every one is a `TypeError` from the call that was given the
   glyph, before anything is mounted or drawn -- `progressView()` asks as it is built
@@ -8478,6 +8478,14 @@ is to keep in step with the first.
   `\p{Cc}` set, and the reason is that measuring a collapsed line break is not wrong:
   the marker is measured after the collapse. `tree()` and `selectTree()` take the same
   `enumerator` through `outlineMarkers()`, so they refuse the same way.
+- **A mask is a glyph too, and was found in review rather than in the ticket's list.**
+  `TextField`'s `mask` and the `text()` prompt's are drawn once per column of the
+  answer, so a tab in one made the answer invisible rather than masked; both refuse it
+  where they are configured (a `TypeError` and a `PromptError`). `password()` is
+  `text({ mask: '\u2022' })` and takes it from there. A dot that is never drawn is
+  refused all the same -- `style: 'numeric'` with a tab `active` throws -- because
+  the rule is about what was configured and not about what this call happened to
+  draw.
 - **Left alone, each for a reason.** A typewriter's `cursor` is appended to the text
   being typed and never measured, so a tab in it draws as the space it is and no
   column is miscounted. `PROMPT_SYMBOLS` is frozen and cannot be configured. The

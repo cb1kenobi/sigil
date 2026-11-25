@@ -1,19 +1,25 @@
 import { holdsControl, refuseControl } from '../../src/components/control-character.js';
-import { createMultiProgress } from '../../src/components/multi-progress.js';
+import { createMultiProgress, multiProgressView } from '../../src/components/multi-progress.js';
 import { outline } from '../../src/components/outline.js';
 import { pageIndicator, paginatorState, paginatorView } from '../../src/components/paginator.js';
 import {
   createProgress,
+  type ProgressState,
   progressState,
   progressView,
   renderBar,
 } from '../../src/components/progress.js';
+import { PromptError, text } from '../../src/components/prompt.js';
 import {
   createSpinner,
   spinnerFrames,
   spinnerView,
   spinnerState,
 } from '../../src/components/spinner.js';
+import { TextField } from '../../src/components/text-field.js';
+import { tree } from '../../src/components/tree.js';
+import { State } from '../../src/signals/index.js';
+import { screenSetup } from './helpers.js';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -148,5 +154,47 @@ describe('an outline marker', () => {
   it('should still read a line break as a space and drop an escape sequence', () => {
     expect(outline(['a'], { ...opts, enumerator: () => 'x\ny' })).toBe('x y a');
     expect(outline(['a'], { ...opts, enumerator: () => `${ESC}[31m#${ESC}[0m` })).toBe('# a');
+  });
+});
+
+describe('a group of bars handed its glyphs directly', () => {
+  it('should refuse a tab when the view is built, not from the effect that builds a row', () => {
+    expect(() =>
+      multiProgressView(new State<readonly ProgressState[]>([]), new State(0), {
+        barWidth: () => 10,
+        empty: TAB,
+        filled: '#',
+        live: true,
+        step: 10,
+      })
+    ).toThrow(/empty character/);
+  });
+});
+
+describe("a tree enumerator, which is the outline's", () => {
+  it('should refuse a tab a function returns', () => {
+    expect(() => tree([{ text: 'a' }], { enumerator: () => TAB })).toThrow(
+      /an outline marker for item 1 at depth 0/
+    );
+  });
+});
+
+describe('a mask', () => {
+  it('should be refused by a text field when it holds a control character', () => {
+    expect(() => TextField({ mask: TAB, value: 'abc' })).toThrow(
+      /text field mask to hold no control character/
+    );
+  });
+
+  it('should be refused by the text prompt, which draws one per column of the answer', async () => {
+    const error = await text({ mask: BELL, message: 'Password' }).catch(
+      (caught: unknown) => caught
+    );
+
+    expect(error).toBeInstanceOf(PromptError);
+    expect((error as PromptError).message).toMatch(
+      /"Password" cannot be asked: Expected `mask` to hold no control character/
+    );
+    expect((error as PromptError).message).not.toContain(BELL);
   });
 });

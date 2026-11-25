@@ -5296,7 +5296,7 @@ Markers are right-aligned within their list, and are `.sigil-muted`; the item is
 `-nested` for the rest, so a theme restyles them like anything else. Escape
 sequences are dropped from items and markers -- colour is the theme's, as in
 `note()`. A marker function that returns anything else a terminal would act on --
-a tab, a bell -- throws a `TypeError`; a line break is read as a space.
+a tab, a bell -- throws a `TypeError`; a `\n` or `\r` is read as a space.
 
 `outline()` returns a string and the caller does the writing, which puts it on the
 result side of `--quiet`. `outlineView()` is the element tree behind it. The live

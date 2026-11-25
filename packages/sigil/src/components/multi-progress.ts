@@ -98,12 +98,16 @@ export interface MultiProgress {
  * @param labelWidth - How wide the widest label is, so the bars start in a column.
  * @param opts - How each bar is drawn.
  * @returns The tree.
+ * @throws If `filled` or `empty` holds a control character.
  */
 export function multiProgressView(
   rows: State<readonly ProgressState[]>,
   labelWidth: State<number>,
   opts: ProgressViewOptions
 ): Element {
+  // asked here rather than left to the first row, which is built from an effect
+  refuseControl('a progress bar filled character', opts.filled);
+  refuseControl('a progress bar empty character', opts.empty);
   const columns = { label: () => labelWidth.get() };
 
   return For({

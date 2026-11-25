@@ -81,7 +81,8 @@ export interface OutlineOptions extends StyledOptions {
    *
    * A function is handed `{ index, depth, count, item }` and returns the marker
    * as text. Escape sequences are dropped from it, and a line break is read as a
-   * space. Any other control character, a tab included, is refused with a `TypeError`.
+   * space (`\n` and `\r`, and the blanks around them). Any other control character, a
+   * tab included, is refused with a `TypeError`.
    */
   enumerator?: OutlineEnumerator | readonly OutlineEnumerator[];
   /** The environment to read the terminal from. Defaults to `process.env`. */
