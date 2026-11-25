@@ -622,7 +622,8 @@ commit message in a text area. What it settled:
   fails on. The footer assertions, which a toast at the bottom right could
   cover, all still pass with a toast left up. The two `not.toMatch` ones in the dialog's
   footer test read a row the toast covers from column 71 on; the dialog's own
-  keys end before that, but they were not shown to be absent beyond it.
+  keys end before that, but they were not shown to be absent beyond it. The git client's 76 tests, which
+  `pnpm vitest run examples/git-client` counted at the time, all passed.
   `should still show what an action said when the refresh after it outlasts the
   four seconds a toast has by default` is the regression test: `slow(ms)` on the
   mounted client delays every git, it asserts the press really took longer than
