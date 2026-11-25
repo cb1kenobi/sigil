@@ -417,6 +417,53 @@ describe('BarChart', () => {
     expect(picture(column(4, chart), 7, 4)).toEqual(['███', '███ ███', ' 4   2', ' a   b']);
   });
 
+  // SIG-664: the bars were a column and a gap each whatever the layout gave, so
+  // 200,000 of them drew 400,000 columns before the layout clipped them
+  it('should show the latest bars that fit the width the layout gave it', () => {
+    const data = Array.from({ length: 200_000 }, (_, i) => ({
+      label: String(i % 10),
+      value: (i % 10) + 1,
+    }));
+    const chart = BarChart({ ascii: false, data, direction: 'vertical', showValues: false });
+
+    // five columns and four gaps, and the end of the list
+    expect(picture(column(3, chart), 9, 3)).toEqual(['▂ ▃ ▅ ▆ █', '█ █ █ █ █', '5 6 7 8 9']);
+  });
+
+  it('should ask for a bounded width before the layout has said, whatever the terminal', () => {
+    vi.stubEnv('COLUMNS', '999999');
+    try {
+      const data = Array.from({ length: 200_000 }, (_, i) => ({ label: 'x', value: i % 7 }));
+      const chart = BarChart({ ascii: false, data, direction: 'vertical', showValues: false });
+      const body = chart.children[1] as Element;
+
+      // 500 bars and 499 gaps, in the first drawing, which is made at the size
+      // asked for because no layout has been done
+      expect(body.children.length).toBe(9);
+      for (const row of body.children) {
+        expect(row.children.length).toBeLessThanOrEqual(999);
+      }
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('should ask for its natural width when that fits the terminal, so a row of them is not squeezed', () => {
+    // not the terminal's: a chart rendered wider than the process's own terminal
+    // is not squeezed, and one that stays put when it widens is not left behind
+    vi.stubEnv('COLUMNS', '80');
+    try {
+      const data = Array.from({ length: 36 }, (_, i) => ({ label: `m${i % 10}x`, value: i + 1 }));
+      const chart = BarChart({ ascii: false, data, direction: 'vertical', showValues: false });
+      const lines = picture(row(chart), 200, 9);
+
+      // 36 columns of three and 35 gaps, where capping the ask at 100 had them at one
+      expect(lines.at(-1)?.length).toBe(36 * 3 + 35);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('should draw a bar in the role it names over the chart’s', () => {
     const chart = BarChart({
       ascii: false,

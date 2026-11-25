@@ -7709,6 +7709,81 @@ questions were settled as below. The sabotage runs are in
   positions, which a drawing does not keep. SIG-464 did the last, below, by having
   the drawing say where its crosshair stands.
 
+### A vertical bar chart is as wide as its width, and shows its latest bars (SIG-664)
+
+`barChart()`, `barChartView()` and `BarChart` with `direction: 'vertical'` took
+`width` in the options type and ignored it: a column and a gap per bar, so about
+two cells a bar, and nothing bounded it. Measured on a vertical chart of single-letter
+labels at `width: 40`, the first row was 195 columns at 100 bars, 1,987 at 1,000 and
+19,991 at 10,000 (865 MB of heap), and 100,000 ran a default Node out of heap at 4 GB,
+since a drawing is `height` rows of a segment per bar. It was the other half of SIG-417's ticket
+and not the stack overflow that one fixed: no spread was involved.
+
+- **`width` is the widest the chart may be, and it defaults to the terminal's own
+  width.** It was documented as the horizontal chart's alone. The default is the
+  half that moves a pre-existing picture: a printed vertical chart wider than the
+  terminal used to come out as wide as its bars, and is now fitted to it. Left
+  unbounded the large-n case would still have been unbounded for a caller who
+  passed no width, which is most of them. It is `terminalWidth()` with its
+  `max` raised to `MOST_COLUMNS`, which is `terminalRoom()`, and not the function's default: that
+  caps at 100 because it is the width to wrap prose at, and review found 36 month
+  bars over a 200-column terminal narrowed to a column each, every label an
+  ellipsis, for room that was there. A horizontal chart and `lineChart()` keep the
+  capped default, as they always had.
+- **Bars give way in a fixed order: the column, then the bars.** `fitBars()` is
+  the one definition and both forms call it. The bars share the width out first,
+  each keeping its column and its `gap`, and a label or a value wider than the
+  column is cut to it with an ellipsis as it always was. Only when a column of one
+  apiece does not fit are bars dropped, and the **latest** are the ones kept --
+  `Sparkline` and the live `LineChart` already cut to the latest samples, `SparklineOptions.width`
+  says why ("the end of it is the part that is news"), and there is no
+  downsampling helper in this module to follow: `step: 'fit'` spreads every sample
+  and draws all of them. Bars are labelled categories and not a series, so
+  "latest" is the end of the list as it was written, which is a choice and not a
+  fact about the data; an app that wants the biggest bars sorts and slices them
+  itself.
+- **A `barWidth` that was written down is kept, and it is the count that gives
+  way.** It is cut only to the chart's own width, so one bar is never wider than the
+  chart. The live chart's own sharing-out passes the column it worked out as a
+  `barWidth` to the same drawing, so both forms agree.
+- **The scale is over the bars shown**, as a sparkline's is over its samples: the
+  alternative was reading all 200,000 values to scale a chart that draws twenty,
+  and a bar that is not on the screen deciding how tall the ones that are come out.
+  `min` and `max` still say otherwise.
+- **Nothing is built per bar that is not drawn.** `barsOf()` is a handle on the
+  data -- its length and its last `n` -- so a list is sliced and a record's
+  entries are made for the bars shown rather than all of them
+  (`Object.entries` was an object and an array per bar). A drawing's cost is
+  `width * height` whatever the number of bars; `should cost the same to draw
+  128,000 bars as 16,000` reads that as growth over a span, bound 4 where linear is
+  8, and `should build no more elements than the width has room for` counts
+  them. `data-sized.test.ts` draws 200,000 in a spawned node, which is where the
+  heap ran out. Before the change the fitting tests failed, the 128,000-bar
+  growth read took 50 s, and the 200,000-bar cases ended the worker with an out of
+  memory exit.
+- **The live chart's first drawing is made at the size it asks for, so what it
+  asks for is bounded too.** Before the layout reports a size `liveChart()`
+  draws at the ask, and a vertical chart's natural ask was a column and a gap per
+  bar -- 400,000 columns for 200,000 bars, drawn once and thrown away. The ask is
+  now `fitBars()` at `MOST_COLUMNS`, 1,000: the bars' natural width where that
+  fits, and 1,000 where it does not or where bars would be dropped, for the layout
+  to share out. An explicit `width` is the caller's and is not capped. It is a
+  constant and not the terminal, which is what the first version of this fix read
+  and what review took apart: the ask is read only when the data or the host's
+  size changes, so a chart asked at `COLUMNS=80` stayed at 71 columns of ellipses
+  when the terminal widened to 200, and one rendered wider than the process's own
+  terminal with no TTY (a snapshot, a screenshot, CI) was squeezed the same way;
+  `COLUMNS=9999` made the thrown-away first drawing 1.1 s and 499 MB. The printed
+  default is the terminal's width, clamped to `MOST_COLUMNS` for the same
+  hostile `COLUMNS` -- nothing prints a vertical chart wider than that by default
+  and a caller who wants one passes `width`.
+- **The four spreads SIG-417's review listed are `maxOf()`.** `chart.ts`'s axis
+  label width and its readout bubble's, `large-text.ts`'s glyph width and `diff.ts`'s
+  longest common tail were each `Math.max(...x.map())` over a line's worth, so
+  none could throw in practice and all four are the shape the "A largest or a
+  smallest over data" entry says not to write. The answer is the same by that
+  entry's own argument, and no test could tell the difference, so none was written.
+
 ### A line chart's area and crosshair (SIG-464)
 
 `fill` on `lineChart()`, `LineChart` and a series, and `crosshair` on `LineChart`.

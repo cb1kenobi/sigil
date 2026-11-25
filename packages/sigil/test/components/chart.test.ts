@@ -16,6 +16,7 @@ import {
   sparklineView,
 } from '../../src/components/chart.js';
 import { stringWidth } from '../../src/width/index.js';
+import { growthOf } from '../growth.js';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -271,6 +272,176 @@ describe('barChart()', () => {
       );
 
       expect(rows).to.deep.equal(['#', '# #', 'a b']);
+    });
+  });
+
+  // SIG-664: a vertical chart ignored `width`, so it was a column and a gap for
+  // every bar -- about two cells a bar -- and 200,000 bars were 400,000 columns of
+  // 8 rows of segments, which ran a main thread out of heap
+  describe('vertical, fitted to its width', () => {
+    const digits = (n: number, from = 0): { label: string; value: number }[] =>
+      Array.from({ length: n }, (_, i) => ({ label: String(from + i), value: from + i + 1 }));
+
+    it('should narrow the columns to fit the width, cutting what no longer fits', () => {
+      const data = [1, 2, 3, 4].map((value) => ({ label: 'abcdef', value }));
+      const rows = bars(data, { direction: 'vertical', height: 1, showValues: false, width: 15 });
+
+      // four bars and three gaps are 12 cells at three apiece, and the natural six
+      // would have been 27
+      expect(rows).to.deep.equal(['▂▂▂ ▄▄▄ ▆▆▆ ███', 'ab… ab… ab… ab…']);
+    });
+
+    it('should show the latest bars that fit, and no more, once each is a column', () => {
+      const rows = bars(digits(10), {
+        direction: 'vertical',
+        height: 1,
+        showValues: false,
+        width: 9,
+      });
+
+      // five columns and four gaps, and what is shown is the end of the list
+      expect(rows).to.deep.equal(['▅ ▆ ▆ ▇ █', '5 6 7 8 9']);
+    });
+
+    it('should fit as many bars as the width has columns for, whatever the gap', () => {
+      const rows = bars(digits(10), {
+        direction: 'vertical',
+        gap: 0,
+        height: 1,
+        showValues: false,
+        width: 4,
+      });
+
+      expect(rows).to.deep.equal(['▆▆▇█', '6789']);
+    });
+
+    it('should keep a barWidth it was given, and drop bars to fit it', () => {
+      const rows = bars(digits(5), {
+        barWidth: 3,
+        direction: 'vertical',
+        height: 1,
+        showValues: false,
+        width: 11,
+      });
+
+      // three bars of three and two gaps are 11
+      expect(rows).to.deep.equal(['▅▅▅ ▆▆▆ ███', ' 2   3   4']);
+    });
+
+    it('should cut a barWidth wider than the chart to the chart', () => {
+      const rows = bars([{ label: 'a', value: 1 }], {
+        barWidth: 9,
+        direction: 'vertical',
+        height: 1,
+        showValues: false,
+        width: 4,
+      });
+
+      expect(rows).to.deep.equal(['████', ' a']);
+    });
+
+    it('should scale over the bars it shows, as a sparkline does over its samples', () => {
+      const rows = bars(
+        [100, 1, 2].map((value, i) => ({ label: String(i), value })),
+        { direction: 'vertical', height: 1, min: 0, showValues: false, width: 3 }
+      );
+
+      // the 100 is not shown, so the 2 is the tallest and there is no room for the
+      // scale to be what an absent bar made it
+      expect(rows).to.deep.equal(['▄ █', '1 2']);
+    });
+
+    it('should not widen a chart that already fits', () => {
+      const rows = bars(digits(2), {
+        direction: 'vertical',
+        height: 1,
+        showValues: false,
+        width: 80,
+      });
+
+      expect(rows.map((row) => stringWidth(row))).to.deep.equal([3, 3]);
+    });
+
+    it('should take the latest keys of an object too', () => {
+      const data = Object.fromEntries(digits(10).map((d) => [d.label, d.value]));
+      const rows = bars(data, { direction: 'vertical', height: 1, showValues: false, width: 5 });
+
+      expect(rows.at(-1)).to.equal('7 8 9');
+    });
+
+    it('should default to the terminal as a horizontal chart does', () => {
+      const rows = barChart(
+        digits(40).map((d) => ({ ...d, label: d.label.slice(-1) })),
+        {
+          ...plain,
+          direction: 'vertical',
+          env: { COLUMNS: '10' },
+          height: 1,
+          showValues: false,
+        }
+      ).split('\n');
+
+      // ten columns with a gap between each is the latest five
+      expect(rows.at(-1)).to.equal('5 6 7 8 9');
+    });
+
+    it('should not hold a chart to the 100 columns prose wraps at when the terminal has more', () => {
+      const data = Array.from({ length: 36 }, (_, i) => ({ label: `m${i % 10}x`, value: i + 1 }));
+      const rows = barChart(data, {
+        ...plain,
+        direction: 'vertical',
+        env: { COLUMNS: '200' },
+        height: 1,
+        showValues: false,
+      }).split('\n');
+
+      // 36 columns of three and 35 gaps are 143, which fits 200 and not 100
+      expect(rows.at(-1)).to.not.contain('…');
+      expect(stringWidth(rows.at(-1) as string)).to.equal(36 * 3 + 35);
+    });
+
+    it('should read a barWidth that is not a width as none, as it always did', () => {
+      const data = ['Jan', 'Feb', 'Mar'].map((label, i) => ({ label, value: i + 1 }));
+
+      for (const barWidth of [0, -2, Number.NaN]) {
+        expect(
+          bars(data, { barWidth, direction: 'vertical', height: 1, showValues: false }).at(-1)
+        ).to.equal('Jan Feb Mar');
+      }
+    });
+
+    // counted rather than timed, and then compared at two sizes: the elements a
+    // chart builds are the thing that ran out of heap, and they are the same at
+    // 200,000 bars as at sixty
+    it('should build no more elements than the width has room for, at any number of bars', () => {
+      const data = Array.from({ length: 200_000 }, (_, i) => ({ label: 'x', value: i % 7 }));
+      const { element, width } = barChartView(data, {
+        ...plain,
+        direction: 'vertical',
+        height: 3,
+        showValues: false,
+        width: 40,
+      });
+
+      expect(width).to.be.at.most(40);
+      // three rows and the labels, each of the twenty bars and nineteen gaps
+      expect(element.children.length).to.equal(4);
+      for (const row of element.children) {
+        expect(row.children.length).to.be.at.most(39);
+      }
+    });
+
+    it('should cost the same to draw 128,000 bars as 16,000, which is what fitting is', () => {
+      const make = (length: number) =>
+        Array.from({ length }, (_, i) => ({ label: 'x', value: i % 7 }));
+      const draw = (data: ReturnType<typeof make>): unknown =>
+        barChartView(data, { ...plain, direction: 'vertical', width: 40 });
+
+      // linear in the number of bars is 8, which is what drawing every one was; a
+      // chart that draws what fits reads the same at both, and 4 is half of linear
+      expect(growthOf(draw, make(16_000), make(128_000), 8, 'vertical barChart', 1)).to.be.lessThan(
+        4
+      );
     });
   });
 

@@ -3,7 +3,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 /**
  * A bar chart and a table as long as somebody's data, built where an app builds
- * them: on a main thread.
+ * them: on a main thread. (The vertical chart is the one that ran out of heap and
+ * not of stack, and is here for the size rather than for the spread.)
  *
  * Both spread their rows into one call -- `Math.min(0, ...values)` for the bar
  * chart's scale, `Math.max(heading, ...cells)` for a column's width, and
@@ -32,6 +33,18 @@ const CASES = {
     });
     const row = (i) => element.children[i].children.map((child) => child.text).join('').trimEnd();
     return { first: row(0), rows: element.children.length, second: row(1), width };
+  `,
+  // SIG-664: this ran a main thread out of heap, at 200,000 bars of a vertical
+  // chart, whatever `width` said -- it drew a column and a gap for every one
+  verticalBarChart: `
+    const { barChartView } = await import(dist + 'components/chart.mjs');
+    const data = Array.from({ length: LONG }, (_, i) => ({ label: String(i % 10), value: i % 10 }));
+    const { element, width } = barChartView(data, {
+      ascii: true, colorLevel: 0, direction: 'vertical', env: {}, height: 2, platform: 'linux',
+      showValues: false, width: 9,
+    });
+    const row = (i) => element.children[i].children.map((child) => child.text).join('');
+    return { labels: row(2), rows: element.children.length, width };
   `,
   tableView: `
     const { tableView } = await import(dist + 'components/table.mjs');
@@ -81,6 +94,12 @@ describe("a chart and a table as long as somebody's data, on a main thread", () 
     // would have drawn nothing for any of them
     expect(outcomes.barChart).toEqual({
       value: { first: 'x', rows: LONG, second: 'x ###########', width: 13 },
+    });
+  });
+
+  it('should draw a vertical bar chart of many bars as the latest that fit the width', () => {
+    expect(outcomes.verticalBarChart).toEqual({
+      value: { labels: '5 6 7 8 9', rows: 3, width: 9 },
     });
   });
 

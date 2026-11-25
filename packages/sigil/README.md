@@ -5410,7 +5410,10 @@ not a view built again every tick.
   in eighths of a cell. `vertical` is columns with the values and the labels under
   them. Bars grow from zero, or from the lowest value where some are negative; a
   value above the bottom is always at least an eighth of a cell, so a small number
-  is not drawn as none.
+  is not drawn as none. A vertical chart is never wider than `width` (the
+  terminal's, by default): the columns narrow to fit, cutting a label or a value to
+  the column, and past a column each it shows the **latest** bars, with the scale
+  over the bars shown.
 - **`lineChart(values, { width, height, min, max, axis, format, xLabels, legend, step, fill })`**
   is braille, two dots across and four down a cell, from the same `Dots` grid the
   canvas draws with. `values` is a list of numbers, or several series as
@@ -5546,7 +5549,8 @@ picture.
 
 - **`BarChart({ data, direction, ... })`** gives horizontal bars the width the
   labels and the values leave; vertical bars share the width out between them
-  and take the rows the values and the labels leave.
+  and take the rows the values and the labels leave, and the latest bars that
+  fit are the ones drawn.
 - **`Gauge({ value, label, detail, thresholds, ... })`** gives the bar the width
   its label and its figure leave, and pads the percentage to four columns so the
   bar does not move a cell as the reading gains a digit. `label` and `detail`

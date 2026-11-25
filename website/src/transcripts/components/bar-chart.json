@@ -10,7 +10,7 @@
         "type": "boolean"
       },
       {
-        "description": "The width of a vertical bar, and so of its column. Defaults to the widest label or value, so that neither is cut.",
+        "description": "The width of a vertical bar, and so of its column. Defaults to the widest label or value, so that neither is cut -- unless the bars would then be wider than `width`, when it is narrowed until they are not.",
         "default": "the widest label or value",
         "name": "barWidth",
         "optional": true,
@@ -94,8 +94,8 @@
         "type": "boolean"
       },
       {
-        "description": "The widest a horizontal chart may be. Defaults to `terminalWidth()`.",
-        "default": "`terminalWidth()`",
+        "description": "The widest the chart may be. Defaults to `terminalWidth()` for a horizontal chart, and to the terminal's own width for a vertical one. A vertical chart that has more bars than this has columns for shows the latest of them, as a sparkline shows its latest samples: bars are narrowed to fit first, down to a column each, and only then dropped from the left.",
+        "default": "`terminalWidth()` for a horizontal chart",
         "name": "width",
         "optional": true,
         "type": "number"
