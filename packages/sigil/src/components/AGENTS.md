@@ -1863,8 +1863,9 @@ decided once, for all of them. The runs and the sabotage passes are in
   That is also why a throwing `onError` cannot escape one of these timers
   (SIG-683): the frame is the renderer's and falls back to the default report, so
   no component carries a catch of its own -- see "No component has a timer of its
-  own that calls `frame()`" in `src/renderer/AGENTS.md`. **The one component whose
-  `onError` ran with nothing to catch it was the prompt**, from `report()` once the
+  own that calls `frame()`" in `src/renderer/AGENTS.md`, which also records the
+  task list's resize listener, the one place a component called it with no caller. **The other one, whose
+  `onError` ran with nothing to catch it, was the prompt**, from `report()` once the
   prompt is answered: it is the tail of a key's promise chain, so what the caller's
   `onError` threw was handed to `.catch(report)` again -- measured, the answer
   resolved and an unhandled rejection followed, with `onError` heard three times

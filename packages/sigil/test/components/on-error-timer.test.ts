@@ -1,6 +1,7 @@
 import { createDecrypt } from '../../src/components/decrypt.js';
 import { text } from '../../src/components/index.js';
 import { createSpinner } from '../../src/components/spinner.js';
+import { tasks } from '../../src/components/tasks.js';
 import { createTypewriter } from '../../src/components/typewriter.js';
 import { setup, tick } from './helpers.js';
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest';
@@ -11,11 +12,12 @@ import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } fr
  * SIG-674 made a frame that fails on the renderer's own timer fall back to the
  * default report, since nothing on that stack can catch what `onError` throws.
  * The ticket asked whether a component calling `mounted.frame()` from an interval
- * of its own had the same hole. It has none to find among the spinner, the
- * typewriter, the decrypt effect or the task list: their intervals write a signal
- * and the frame that signal asks for is the renderer's, so it already is that
- * timer. The sites the ticket named are calls a caller makes. What had a hole is
- * the prompt, whose `onError` runs from the tail of a promise chain.
+ * of its own had the same hole. None has: the spinner's, the typewriter's, the
+ * decrypt effect's and the task list's intervals write a signal, and the frame
+ * that signal asks for is the renderer's, so it already is that timer. The sites
+ * the ticket named are calls a caller makes. What had a hole is the prompt, whose
+ * `onError` runs from the tail of a promise chain, and the task list's resize
+ * listener, which painted a frame from the terminal's dispatch.
  */
 
 let stderr: MockInstance<typeof process.stderr.write> | undefined;
@@ -96,6 +98,43 @@ describe('a frame that fails on a component timer, whose onError throws', () => 
   }
 });
 
+describe('a resize that repaints the task list, whose onError throws', () => {
+  it('should write the default report rather than raise it into the terminal (SIG-683)', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const heard: unknown[] = [];
+    // everything goes through until the screen narrows, and then the reflow does not
+    const ui = setup({ columns: 40 });
+    const write = ui.stdout.write.bind(ui.stdout);
+    let broken = false;
+    ui.stdout.write = (chunk: string): boolean => {
+      if (broken) {
+        throw new Error('pipe broke');
+      }
+      return write(chunk);
+    };
+    const gate = Promise.withResolvers<void>();
+    const running = tasks(
+      [{ task: () => gate.promise, title: 'a title long enough to wrap when the screen narrows' }],
+      { onError: throwing(heard), terminal: ui.terminal }
+    );
+    await vi.advanceTimersByTimeAsync(200);
+    ui.stdout.columns = 12;
+    broken = true;
+
+    // `resize` is dispatched by the terminal's listener with nobody to catch it
+    expect(() => ui.stdout.emit('resize')).not.toThrow();
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(written()).toContain('Error in frame: pipe broke\n');
+    expect(written()).toContain('Error in frame error handler: onError broke\n');
+    expect(heard.length).toBeGreaterThan(0);
+    broken = false;
+    gate.resolve();
+    await running.catch(() => undefined);
+  });
+});
+
 describe('a prompt that was answered, whose onError throws', () => {
   it('should write the default report rather than reject a promise nobody holds (SIG-683)', async () => {
     const heard: unknown[] = [];
@@ -124,9 +163,6 @@ describe('a prompt that was answered, whose onError throws', () => {
       await tick();
       ui.stdin.send('a');
       await tick();
-      // the typed key's own frame is painted on the renderer's timer, so it is let
-      // go by before the one that fails is the answer's
-      await new Promise((resolve) => setTimeout(resolve, 100));
       breakNext = true;
       ui.stdin.send('\r');
 
@@ -135,7 +171,7 @@ describe('a prompt that was answered, whose onError throws', () => {
       await tick(3);
 
       expect(rejections).toEqual([]);
-      expect(heard.map(String)).toContain('Error: pipe broke');
+      expect(heard.map(String)).toEqual(['Error: pipe broke']);
       expect(written()).toContain('Error in prompt: pipe broke\n');
       expect(written()).toContain('Error in prompt error handler: onError broke\n');
       expect(process.exitCode).toBe(1);
