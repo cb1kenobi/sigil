@@ -380,9 +380,11 @@ describe('the router', () => {
     expect(term.stdin.listenerCount('error')).toBe(0);
   });
 
-  it('should run every onEnd handler when one throws, and rethrow that error as itself', () => {
-    const { emit, terminal } = harness();
-    const input = createInput({ terminal });
+  // `stop()` has a caller, so what the handlers threw is raised to it; the stream's
+  // own listener has none, which is `reportEnded()`'s (SIG-697)
+  it('should run every onEnd handler when one throws, and rethrow that error as itself from stop()', async () => {
+    const term = createTestTerminal();
+    const input = createInput({ terminal: term.terminal });
     const seen: string[] = [];
     const boom = new Error('only');
     input.onEnd(() => {
@@ -390,20 +392,21 @@ describe('the router', () => {
     });
     input.onEnd(() => seen.push('second'));
 
+    term.stdin.destroy(new Error('destroyed'));
     let thrown: unknown;
     try {
-      emit('end');
+      input.stop();
     } catch (error) {
       thrown = error;
     }
     expect(thrown).toBe(boom);
     expect(seen).toEqual(['second']);
-    input.stop();
+    await tick();
   });
 
-  it('should run every onEnd handler when several throw, and rethrow them all as an AggregateError', () => {
-    const { emit, terminal } = harness();
-    const input = createInput({ terminal });
+  it('should run every onEnd handler when several throw, and rethrow them all as an AggregateError from stop()', async () => {
+    const term = createTestTerminal();
+    const input = createInput({ terminal: term.terminal });
     const seen: string[] = [];
     const first = new Error('first');
     const third = new Error('third');
@@ -415,9 +418,10 @@ describe('the router', () => {
       throw third;
     });
 
+    term.stdin.destroy(new Error('destroyed'));
     let thrown: unknown;
     try {
-      emit('end');
+      input.stop();
     } catch (error) {
       thrown = error;
     }
@@ -425,7 +429,7 @@ describe('the router', () => {
     expect(thrown).toBeInstanceOf(AggregateError);
     expect((thrown as AggregateError).errors).toEqual([first, third]);
     expect(seen).toEqual(['second']);
-    input.stop();
+    await tick();
   });
 
   it('should stop reporting it once the handler is removed', () => {
@@ -924,6 +928,136 @@ describe('an onError that throws, with nobody to catch it (SIG-693)', () => {
 
     expect(written()).toBe('Error in input: handler broke\n');
     input.stop();
+  });
+});
+
+describe('an onEnd handler that throws, with nobody to catch it (SIG-697)', () => {
+  // `ended()` ran from the stream's `'end'` and `'error'` listeners and raised what
+  // the handlers threw, which from an event emitter is an uncaught exception: a
+  // CLI that crashed on its own stdin closing. `stop()` calls the same handlers
+  // and does have a caller, so it still raises -- pinned above
+
+  let stderr: MockInstance<typeof process.stderr.write> | undefined;
+  let exitCode: typeof process.exitCode;
+
+  beforeEach(() => {
+    exitCode = process.exitCode;
+    process.exitCode = undefined;
+    stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    stderr?.mockRestore();
+    process.exitCode = exitCode;
+  });
+
+  /** What the default report has written so far. */
+  const written = (): string => (stderr?.mock.calls ?? []).map((call) => String(call[0])).join('');
+
+  it("should write the default report rather than raise it from the stream's 'end'", () => {
+    const { emit, terminal } = harness();
+    const input = createInput({ terminal });
+    const seen: string[] = [];
+    input.onEnd(() => {
+      throw new Error('end broke');
+    });
+    input.onEnd(() => seen.push('second'));
+
+    expect(() => emit('end')).not.toThrow();
+
+    expect(seen).toEqual(['second']);
+    expect(written()).toBe('Error in input: end broke\n');
+    expect(process.exitCode).toBe(1);
+    input.stop();
+  });
+
+  it("should write the default report rather than raise it from the stream's 'error'", () => {
+    const { emit, terminal } = harness();
+    const input = createInput({ terminal });
+    const heard: unknown[] = [];
+    const gone = new Error('gone');
+    input.onEnd((error) => {
+      heard.push(error);
+      throw new Error('error broke');
+    });
+
+    expect(() => emit('error', gone)).not.toThrow();
+
+    expect(heard).toEqual([gone]);
+    expect(written()).toBe('Error in input: error broke\n');
+    expect(process.exitCode).toBe(1);
+    input.stop();
+  });
+
+  it('should write a line for each of several handlers that threw, and not an aggregate', () => {
+    const { emit, terminal } = harness();
+    const input = createInput({ terminal });
+    input.onEnd(() => {
+      throw new Error('first');
+    });
+    input.onEnd(() => {
+      throw new Error('second');
+    });
+
+    expect(() => emit('end')).not.toThrow();
+
+    expect(written()).toBe('Error in input: first\nError in input: second\n');
+    input.stop();
+  });
+
+  it('should hand each to onError, and write nothing of its own', () => {
+    const { emit, terminal } = harness();
+    const errors: unknown[] = [];
+    const input = createInput({ onError: (error) => errors.push(error), terminal });
+    input.onEnd(() => {
+      throw new Error('first');
+    });
+    input.onEnd(() => {
+      throw new Error('second');
+    });
+
+    expect(() => emit('end')).not.toThrow();
+
+    expect(errors.map(String)).toEqual(['Error: first', 'Error: second']);
+    expect(written()).toBe('');
+    input.stop();
+  });
+
+  it('should write the default report when onError throws too', () => {
+    const { emit, terminal } = harness();
+    const input = createInput({
+      onError: () => {
+        throw new Error('onError broke');
+      },
+      terminal,
+    });
+    input.onEnd(() => {
+      throw new Error('end broke');
+    });
+
+    expect(() => emit('end')).not.toThrow();
+
+    expect(written()).toBe(
+      'Error in input: end broke\nError in input error handler: onError broke\n'
+    );
+    expect(process.exitCode).toBe(1);
+    input.stop();
+  });
+
+  it('should still raise from stop(), which has a caller, and write nothing', async () => {
+    const term = createTestTerminal();
+    const input = createInput({ terminal: term.terminal });
+    const boom = new Error('end broke');
+    input.onEnd(() => {
+      throw boom;
+    });
+
+    term.stdin.destroy(new Error('destroyed'));
+    expect(() => input.stop()).toThrow(boom);
+    await tick();
+
+    expect(written()).toBe('');
+    expect(process.exitCode).toBeUndefined();
   });
 });
 

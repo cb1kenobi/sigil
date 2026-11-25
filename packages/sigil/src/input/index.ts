@@ -1422,10 +1422,10 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       // the timer keeping the process alive while the router is running, and a
       // key part way through a sequence is a user mid action rather than a probe
       // nobody is awaiting. While it *is* running, which is the clause this
-      // used to leave off: `ended()` deliberately leaves both pending states
+      // used to leave off: `endAll()` deliberately leaves both pending states
       // where they are, so between the stream ending and a `stop()` that never
       // came this can hold the loop for up to one deadline. Bounded, once, and
-      // the price of the commit `ended()` keeps -- where unref'ing would drop
+      // the price of the commit `endAll()` keeps -- where unref'ing would drop
       // that commit in exactly the process that was about to exit anyway
       seqTimer = setTimeout(
         timed(() => {
@@ -2884,16 +2884,23 @@ export function createInput(opts: InputOptions = {}): InputRouter {
   const enders = new Set<(error?: unknown) => void>();
 
   /**
-   * Tells everything waiting on a key that none is coming.
+   * Tells everything waiting on a key that none is coming, and answers with what
+   * the handlers threw.
    *
    * Over a copy and a membership check, which is the rule every handler set
    * here follows: a handler added while this is running does not receive this
    * event, and one removed during it is not called. The first needs the copy and
    * the second needs the check, and either alone gives only its own half.
    *
+   * It returns what was thrown rather than raising it, because there are two
+   * callers and they are not alike (SIG-697): `stop()` is called by somebody, who
+   * is owed the throw, and the stream's `'end'` and `'error'` listeners are
+   * called by nobody, which `reportEnded()` is for.
+   *
    * @param error - What the stream failed with, if it did.
+   * @returns What each handler threw, in the order the handlers ran.
    */
-  const ended = (error?: unknown): void => {
+  const endAll = (error?: unknown): unknown[] => {
     // a probe first, because the stream ending is the strongest possible answer
     // to "will a reply arrive": no. Waiting out the deadline after that is a
     // frame held up for nothing
@@ -2904,12 +2911,10 @@ export function createInput(opts: InputOptions = {}): InputRouter {
     satisfied.clear();
 
     // every handler runs whatever an earlier one threw, and what they threw goes
-    // on once they have -- one error as itself, several as an `AggregateError`,
-    // which is `raise()`'s rule in the signal graph and the owner tree's: one
-    // owner's broken handler must not leave another owner waiting forever for a
-    // key, and `stop()` calls this as its last step, from inside somebody's
-    // teardown, where a throw that cut the loop short would cut that teardown
-    // short with it
+    // on once they have: one owner's broken handler must not leave another owner
+    // waiting forever for a key, and `stop()` calls this as its last step, from
+    // inside somebody's teardown, where a throw that cut the loop short would cut
+    // that teardown short with it
     const thrown: unknown[] = [];
     // eslint-disable-next-line unicorn/no-useless-spread
     for (const handler of [...enders]) {
@@ -2922,10 +2927,39 @@ export function createInput(opts: InputOptions = {}): InputRouter {
         thrown.push(caught);
       }
     }
-    raise(thrown, 'Errors in onEnd() handlers');
+    return thrown;
   };
 
-  const onStreamEnd = (): void => ended();
+  /**
+   * Reports what `onEnd()` handlers threw when the stream's own listener ran them.
+   *
+   * Nothing called that listener, so a throw has nowhere to go but out of an event
+   * emitter, where it is an uncaught exception that crashes the CLI over a screen
+   * the router never got to give back. The rule is the one `failed()` follows for
+   * every other entry -- no caller, no raise -- and each error is its own call, as
+   * `failed()` makes it, so an `onError` that ends the app hears them one at a time
+   * and the default report writes a line for each rather than one for an aggregate
+   * whose message says only that several threw. Without an `onError` there is
+   * still nobody to raise to, which is where this parts from `failed()`: a bare
+   * router's handler is the rethrow, so `handOver()` writes the one line and sets
+   * the exit code (SIG-697).
+   *
+   * @param thrown - What the handlers threw.
+   */
+  const reportEnded = (thrown: readonly unknown[]): void => {
+    for (const error of thrown) {
+      handOver(
+        opts.onError ??
+          ((rethrown) => {
+            throw rethrown;
+          }),
+        error,
+        'Error in input'
+      );
+    }
+  };
+
+  const onStreamEnd = (): void => reportEnded(endAll());
   /**
    * The error the stream already carried when this router attached, if any.
    *
@@ -2961,7 +2995,7 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       return;
     }
     errorDelivered = true;
-    ended(args[0]);
+    reportEnded(endAll(args[0]));
   };
 
   const resizers = new Set<(size: { height: number; width: number }) => void>();
@@ -3403,7 +3437,7 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       // this was listening and only the event was due later, so the failure is
       // this router's to report, as it would have been a tick sooner
       if (failedWith !== undefined) {
-        ended(failedWith);
+        raise(endAll(failedWith), 'Errors in onEnd() handlers');
       }
     },
   };
