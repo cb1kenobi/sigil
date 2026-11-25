@@ -2092,6 +2092,38 @@ read it by the new name.
   sequence and no reordering, only a name that prints blank; it is echoed
   escaped. That is also why the collision and two-index-module messages are
   tested with U+3164: a control or format character never reaches them.
+- **A hand-declared `alias` is held to the same rules, with the advice beside
+  them (SIG-688).** SIG-679 held a `commands.json` alias to every rule of a route's
+  name and left the `alias` property of a declaration on its own `!`/`@` check, so
+  `alias: ['a b']` and `alias: ['']` registered by hand and were refused in a file --
+  one spelling, two answers, depending on where it was written. Decided yes by
+  Chris on 2026-11-25, **plus advice**: `init-command.ts`'s alias loop, the
+  placeholder `routeDeclaration()` builds (which goes through `initCommand()`, so
+  a `commands.json` alias is asked twice and refused at `readRouteManifest()`
+  first), a module a placeholder loads, `readRouteManifest()`'s loop and `sigil
+  build`'s `placeholderRouting()` all ask **`invalidAlias()`** in `routes.ts`,
+  which is `nameProblem()` -- `routeNameProblem()`'s rules, now returning which
+  rule as well as the sentence -- plus `ALIAS_ADVICE`, one sentence per rule. The
+  advice is chosen by the rule broken and sits beside it, so a new rule cannot be
+  added without saying what to do about it and no path words it differently. A
+  message is `Invalid alias "X" <where>: it <reason>. <advice>` where `<where>` is
+  `in the "list" command` or `for "list" in <file>`. The advice computes no
+  replacement, for the reason a route's does: a leading `!` says to write it
+  without the `!` and to set `hidden` to true to hide the command; a leading `@`
+  to write it without the `@`; whitespace and `,` that an alias is one name and each
+  spelling is an entry of its own; `/` that an alias has none; `<` and `[` that an
+  alias is not an argument, which is declared in `args`; empty to remove it; a
+  control or format character to write it without. It is **a breaking change** for
+  an app declaring such an alias, which now throws where the schema is built --
+  `sigil build` and `sigil check` agree, reporting it as an error at the literal
+  with the runtime's words, since a build that baked one is an app that cannot
+  start. What this replaced: the old `!`/`@` message ("is name-string syntax and the
+  alias property takes plain names, so hide the command with ...") and its
+  computed `write "ls"`. A name string's own aliases (`'build, b'`) are not an
+  alias property and are untouched, as is an alias that is a sibling's name.
+  Pinned by `regressions.test.ts` ("alias property"), `routing.test.ts`,
+  `init-errors-echo.test.ts`, and `discover.test.ts` and `check.test.ts` in
+  `packages/cli`.
 - **Only a space is said to separate.** `parseName()` splits at `[, ]` and nowhere
   else, so a tab or a no-break space is refused with its own reason -- it cannot be
   typed reliably as part of one word -- and not with a claim about aliases it does

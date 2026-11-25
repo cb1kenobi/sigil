@@ -568,11 +568,12 @@ export function readRouteManifest(dir: string, entries: Dirent[]): RouteManifest
     // which would refuse some of it too but naming no file, and after a build on every
     // start of the built app rather than in the build, the one place it can be fixed
     for (const each of (aliases ?? []) as string[]) {
-      const problem = routeNameProblem(each);
-      if (problem !== undefined) {
-        throw new Error(
-          `Invalid alias "${escapeControls(each)}" for "${escapeControls(name)}" in ${escapeControls(file)}: it ${problem}`
-        );
+      const message = invalidAlias(
+        each,
+        `for "${escapeControls(name)}" in ${escapeControls(file)}`
+      );
+      if (message !== undefined) {
+        throw new Error(message);
       }
     }
 
@@ -656,6 +657,12 @@ function hasUnsafeCharacter(spelling: string): boolean {
 const UNSAFE_REASON =
   'contains a control or format character, which a terminal would act on or draw as something else';
 
+/** What is wrong with a name: the sentence that says so, and which rule it was. */
+interface NameProblem {
+  kind: 'alias' | 'argument' | 'empty' | 'hide' | 'separator' | 'slash' | 'unsafe';
+  reason: string;
+}
+
 /**
  * Why a name cannot be a route's, or `undefined` when it can.
  *
@@ -677,37 +684,72 @@ const UNSAFE_REASON =
  * @returns The reason, which finishes the sentence "the name ..." or "it ...".
  */
 function routeNameProblem(name: string): string | undefined {
+  return nameProblem(name)?.reason;
+}
+
+/**
+ * The rule itself: what is wrong with a name, and which kind of wrong it is.
+ *
+ * One definition of the rules, read two ways -- {@link routeNameProblem} for the
+ * reason alone, which a route's name is refused with, and {@link invalidAlias}
+ * for the reason and the advice that goes with its kind, so the advice sits
+ * beside the rule it is advice about and cannot be left behind when a rule is
+ * added.
+ *
+ * @param name - The name, scope already removed.
+ * @returns The problem, or `undefined` when the name is one.
+ */
+function nameProblem(name: string): NameProblem | undefined {
   if (!name) {
-    return 'is empty';
+    return { kind: 'empty', reason: 'is empty' };
   }
 
   // a space is what `parseName()` splits at, and the only whitespace that is. A tab or a
   // no-break space is refused too -- not because it separates anything, but because
   // nobody can type it as part of one word, and a name that cannot be typed is not one
   if (name.includes(' ')) {
-    return 'contains whitespace, which a command name string reads as a separator between aliases';
+    return {
+      kind: 'separator',
+      reason:
+        'contains whitespace, which a command name string reads as a separator between aliases',
+    };
   }
 
   if (/\s/.test(name)) {
-    return 'contains whitespace, which cannot be typed reliably as part of one word';
+    return {
+      kind: 'separator',
+      reason: 'contains whitespace, which cannot be typed reliably as part of one word',
+    };
   }
 
   if (name.includes(',')) {
-    return 'contains a ",", which a command name string reads as a separator between aliases';
+    return {
+      kind: 'separator',
+      reason: 'contains a ",", which a command name string reads as a separator between aliases',
+    };
   }
 
   if (name.includes('/')) {
-    return 'contains a "/", which no command name has';
+    return { kind: 'slash', reason: 'contains a "/", which no command name has' };
   }
 
   switch (name[0]) {
     case '<':
     case '[':
-      return `starts with "${name[0]}", which a command name string reads as an argument`;
+      return {
+        kind: 'argument',
+        reason: `starts with "${name[0]}", which a command name string reads as an argument`,
+      };
     case '!':
-      return 'starts with "!", which a command name string reads as hiding the command';
+      return {
+        kind: 'hide',
+        reason: 'starts with "!", which a command name string reads as hiding the command',
+      };
     case '@':
-      return 'starts with "@", which a command name string reads as an alias';
+      return {
+        kind: 'alias',
+        reason: 'starts with "@", which a command name string reads as an alias',
+      };
   }
 
   // last, so a name that is refused for its syntax is still said to be, and a
@@ -717,7 +759,7 @@ function routeNameProblem(name: string): string | undefined {
   // you mean`, which is where a hostile file name used to reach a terminal
   // (SIG-662). U+2028 and U+2029 are whitespace to `\s` and were refused above
   if (hasUnsafeCharacter(name)) {
-    return UNSAFE_REASON;
+    return { kind: 'unsafe', reason: UNSAFE_REASON };
   }
 
   return undefined;
@@ -793,6 +835,44 @@ function advice(name: string): string {
   }
 
   return 'rename it; to alias or hide a route, describe it in a commands.json beside it';
+}
+
+/** What to do about an alias refused for each rule, which says nothing a reader could not type. */
+const ALIAS_ADVICE: Record<NameProblem['kind'], string> = {
+  alias: 'An alias is a plain name, so write it without the "@".',
+  argument: 'An alias is a plain name and not an argument, which is declared in "args".',
+  empty: 'An alias is a name typed on the command line, so remove it.',
+  hide: 'An alias is a plain name, so write it without the "!" -- to hide the command, set "hidden" to true.',
+  separator:
+    'An alias is one name typed on the command line, so list each spelling as an entry of its own.',
+  slash: 'An alias is one name typed on the command line, which has no "/" in it.',
+  unsafe: 'An alias is a name typed on the command line, so write it without the character.',
+};
+
+/**
+ * The message for an alias that is not one, or `undefined` when it is.
+ *
+ * An alias is a name typed on the command line as much as a route's is, so it is
+ * held to every rule a route's name is, by the same function and not a copy: the
+ * `alias` property of a declaration, the placeholder a `commands.json` entry
+ * becomes, and a `commands.json` entry itself all ask this (SIG-679, SIG-688).
+ * The advice is chosen by the rule the alias broke and lives beside it, so a new
+ * rule has nowhere to be added without its advice and no path of its own to say
+ * a different thing. It computes no replacement, for the reason {@link advice}
+ * does.
+ *
+ * @param alias - The alias, as declared.
+ * @param where - Where it was declared, finishing "Invalid alias ...": `in the "list" command`.
+ *   Escaped by the caller.
+ * @returns The message, or `undefined` when the alias is a valid one.
+ */
+export function invalidAlias(alias: string, where: string): string | undefined {
+  const problem = nameProblem(alias);
+  if (problem === undefined) {
+    return undefined;
+  }
+
+  return `Invalid alias "${escapeControls(alias)}" ${where}: it ${problem.reason}. ${ALIAS_ADVICE[problem.kind]}`;
 }
 
 /**

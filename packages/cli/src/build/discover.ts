@@ -70,6 +70,7 @@ import {
   descReturnMessage,
   descTypeMessage,
   hiddenTypeMessage,
+  invalidAlias,
   type PackageRoute,
   packageRouteName,
   parseName,
@@ -1262,6 +1263,15 @@ function placeholderRouting(
         severity: refusal ? 'error' : 'warning',
       });
     } else if (list.values.length) {
+      // the runtime refuses an alias a route's name could not be, when the command is
+      // built at every start, so a build that baked one is an app that cannot run
+      // (SIG-688). Asked of the same function, in the runtime's own words
+      const refused = list.values
+        .map((each) => invalidAlias(each, `in the "${escapeControls(nameString)}" command`))
+        .filter((message): message is string => message !== undefined);
+      for (const message of refused) {
+        diagnostics.push({ ...locate(parsed, (read ?? alias).start), message, severity: 'error' });
+      }
       routing.alias = list.values;
     }
   }

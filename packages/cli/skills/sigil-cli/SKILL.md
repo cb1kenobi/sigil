@@ -121,10 +121,12 @@ These are the runtime's routing rules (its skill explains them); this is what
 - **Error:** a route whose file or directory name has whitespace, a `,`, a
   `/` or a control or format character, or starts with `<`, `[`, `!` or `@`. A route is named exactly as its
   file. Rename it, and alias or hide it in a `commands.json` instead.
-- **Error:** a `commands.json` alias that is empty, has whitespace, a `,` or a
-  `/`, starts with `<`, `[`, `!` or `@`, or holds a control or format character.
-  An alias is held to the same rules as a route's name, and the file is refused
-  whole.
+- **Error:** an alias that is empty, has whitespace, a `,` or a `/`, starts
+  with `<`, `[`, `!` or `@`, or holds a control or format character -- in a
+  `commands.json`, or in the `alias` property of a command written in the
+  schema. An alias is held to the same rules as a route's name, the error says
+  what to write instead (`hidden` rather than a leading `!`), and a
+  `commands.json` is refused whole.
 - **Error:** two routes claiming one name, such as `deploy.ts` beside a
   `deploy/` directory.
 - **Warning:** `name`, `alias` or `default: true` inside a routed command

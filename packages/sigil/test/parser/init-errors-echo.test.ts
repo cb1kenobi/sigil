@@ -138,9 +138,11 @@ const sites: Record<string, Site> = {
     frame: (e) => `Invalid alias "@a${e}" in the "x" command`,
     throws: (raw) => initCommand({ alias: [`@a${raw}`], name: 'x' }),
   },
-  'the fix a command alias is offered': {
-    frame: (e) => `so write "a${e}"`,
-    throws: (raw) => initCommand({ alias: [`@a${raw}`], name: 'x' }),
+  // an alias holding a control or format character is refused as a route's name is (SIG-688),
+  // so the message that quotes it is the one a hostile alias reaches
+  'a command alias that holds a control or format character': {
+    frame: (e) => `Invalid alias "a${e}" in the "x" command: it contains a control or format`,
+    throws: (raw) => initCommand({ alias: [`a${raw}`], name: 'x' }),
   },
   'a command name beside inline arguments': {
     frame: (e) => `with inline arguments "x${e} <a>"`,
@@ -264,14 +266,6 @@ const sites: Record<string, Site> = {
         name: 'root',
       }),
   },
-  'an alias that is a sibling name': {
-    frame: (e) => `The "a${e}" command's alias "b${e}" is the name of a sibling command`,
-    throws: (raw) =>
-      initCommand({
-        commands: { [`a${raw}`]: { alias: [`b${raw}`], run() {} }, [`b${raw}`]: { run() {} } },
-        name: 'root',
-      }),
-  },
   'a command module path it cannot use': {
     frame: (e) => ['Unsupported command module "', `p${e}"`],
     throws: (raw) => parse({ argv: [], schema: { commands: `/nowhere/p${raw}` } }),
@@ -326,6 +320,27 @@ describe('an error raised while a schema is built', () => {
       }
     });
   }
+});
+
+describe('an alias that is a sibling name', () => {
+  // U+3164 prints blank and is no sequence, so it is the hostile value an alias may still
+  // hold; a control or format character is refused as an alias before a sibling is asked
+  it('should escape a blank character in the alias and the sibling it names', async () => {
+    const blank = String.fromCodePoint(0x3164);
+    const message = await messageOf(() =>
+      initCommand({
+        commands: {
+          [`a${blank}`]: { alias: [`b${blank}`], run() {} },
+          [`b${blank}`]: { run() {} },
+        },
+        name: 'root',
+      })
+    );
+
+    expect(message).toContain(
+      'The "a\\u{3164}" command\'s alias "b\\u{3164}" is the name of a sibling command'
+    );
+  });
 });
 
 describe('an error raised on the way to a command', () => {

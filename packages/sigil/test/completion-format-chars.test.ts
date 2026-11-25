@@ -131,7 +131,10 @@ describe('a format character in a completion script', () => {
   it.each(SHELLS)('should not reach the %s script from an alias', async (shell) => {
     const out = await script(
       {
-        commands: { go: { alias: [`zz${BIDI}q`, 'okay'], run(): void {} } },
+        // the `alias` property refuses a format character (SIG-688), so the only way one
+        // reaches a completion script is an alias written in a name string, which is
+        // not validated
+        commands: { [`go, zz${BIDI}q, okay`]: { run(): void {} } },
         name: 'mycli',
       },
       shell
