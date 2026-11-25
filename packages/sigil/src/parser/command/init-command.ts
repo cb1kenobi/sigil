@@ -70,7 +70,9 @@ type CommandsLike = Command | InternalCommand | Schema;
  * @param carried - Aliases the `alias` property holds that are not the property's
  * own, which are not asked again: the ones a placeholder's name string gave, which
  * `loadCommand()` carries across because the module never saw the string. A name
- * string is not the `alias` property and is not held to its rule (SIG-688).
+ * string is not the `alias` property and is not held to its rule (SIG-688). A
+ * replacement a hook builds from a loaded command is given the loaded command's
+ * own aliases the same way, since a spread of it carries them in `alias`.
  * @returns A new internal command.
  */
 export async function initCommand(
@@ -84,6 +86,10 @@ export async function initCommand(
   }
 
   const decl = it as Command;
+
+  // what a command that failed to initialize had already accepted, which is not asked again
+  // when it is rebuilt from its own declaration
+  const prior = Internal in it ? (it as InternalCommand)[Internal].aliases : undefined;
 
   if (!decl.name || typeof decl.name !== 'string') {
     throw new TypeError('Expected command name to be a non-empty string');
@@ -165,9 +171,10 @@ export async function initCommand(
         // registered `!ls`: a name a shell's history expansion eats before argv sees
         // it, printed in help. Whitespace or a `,` would have been one spelling nobody
         // can type as one word, and an empty one a spelling nobody can type at all
-        const message = carried?.has(alias)
-          ? undefined
-          : invalidAlias(alias, `in the "${escapeControls(decl.name)}" command`);
+        const message =
+          carried?.has(alias) || prior?.has(alias)
+            ? undefined
+            : invalidAlias(alias, `in the "${escapeControls(decl.name)}" command`);
         if (message !== undefined) {
           throw new Error(message);
         }

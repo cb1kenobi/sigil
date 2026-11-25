@@ -184,7 +184,10 @@ async function announceLoaded(
   const replaced = await initCommand(
     replacement.name === undefined ? { ...(replacement as Command), name: cmd.name } : replacement,
     undefined,
-    parent[Internal].baseDir
+    parent[Internal].baseDir,
+    // a spread of the loaded command carries its aliases in `alias`, name-string ones
+    // among them, and they were accepted when it loaded (SIG-688)
+    cmd[Internal].aliases
   );
 
   // a replacement may bring aliases of its own, and it stands in the slot the

@@ -2122,7 +2122,7 @@ read it by the new name.
   computed `write "ls"`. A name string's own aliases (`'build, b'`) are not an
   alias property and are untouched -- including when a lazy command's placeholder
   carries them across to the module, which passes them to `initCommand()` as
-  `carried` so they are not asked again (a review found a `'build, b/c'`
+  `carried` so they are not asked again -- and a `subcommandLoaded` replacement spread from the loaded command, or a command rebuilt after a failed init, is handed what the command already held the same way; the cost is that a module repeating a carried spelling is not asked about it (a review found a `'build, b/c'`
   placeholder throwing at dispatch for an alias its author never put in the
   property) -- as is an alias that is a sibling's name. Limits, said once: a
   module's own `alias` is read only when the module loads, so an invalid one

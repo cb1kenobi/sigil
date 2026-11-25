@@ -964,6 +964,17 @@ describe('regressions', () => {
       expect(contexts[0][Internal].aliases.has('b/c')).to.equal(true);
     });
 
+    it('should not ask a spread replacement of a loaded command for the aliases it already held (SIG-688)', async () => {
+      // `{ ...cmd }` carries the merged alias list in `alias` and drops the internal state
+      const schema = {
+        commands: { 'build, b/c': { path: path.join(__dirname, 'fixtures/aliases/build.js') } },
+        hooks: { subcommandLoaded: ({ cmd }: { cmd: object }) => ({ ...cmd, desc: 'wrapped' }) },
+      } as unknown as Schema;
+
+      const { contexts } = await parse({ argv: ['build'], schema });
+      expect(contexts[0].name).to.equal('build');
+    });
+
     it('should still accept an alias property with a "!" or "@" inside it, or a joiner', async () => {
       const alias = `a${String.fromCodePoint(0x200d)}b`;
       const { contexts } = await parse({
