@@ -38,18 +38,7 @@ const WINDOWS = process.platform === 'win32';
 // the freedesktop trash writes Unix ids and modes, and Windows has neither
 const FREEDESKTOP = !WINDOWS;
 
-/**
- * Runs one call of `trash()` on a real platform trash, and says where the time
- * went when it is slow (SIG-704).
- *
- * A call on Windows that is not slow prints nothing. One that passes `SLOW_CALL`
- * prints, every five seconds until it settles, how busy the whole machine was
- * over that span and how much memory it had free, and once what was running --
- * so that a call that stalls says whether the runner was starved or something
- * else was holding it, which a bare `Test timed out in 60000ms` cannot. Each
- * Windows call is one PowerShell start and may be a compile, and the figures in
- * `src/trash/AGENTS.md` are what is normal.
- */
+/** How long a real-trash call may take before `watched()` starts saying so. */
 const SLOW_CALL = 10_000;
 
 function busyTimes(): { busy: number; total: number } {
@@ -57,7 +46,7 @@ function busyTimes(): { busy: number; total: number } {
   let total = 0;
   for (const { times } of cpus()) {
     const idle = times.idle;
-    const used = times.user + times.nice + times.sys + times.irq;
+    const used = times.user + times.nice + times.sys;
     busy += used;
     total += used + idle;
   }
@@ -70,11 +59,13 @@ function whatIsRunning(): Promise<string> {
     execFile(
       'tasklist',
       ['/fo', 'csv', '/nh'],
-      { encoding: 'utf8', windowsHide: true },
+      { encoding: 'utf8', timeout: 10_000, windowsHide: true },
       (_err, out) => {
         const counts = new Map<string, number>();
+        let all = 0;
         for (const line of (out ?? '').split('\n')) {
           const name = line.split('","')[0]?.replace('"', '').toLowerCase();
+          all += name ? 1 : 0;
           if (
             name &&
             /powershell|csc|vbcscompiler|msmpeng|mpcmdrun|node|dotnet|msiexec|tiworker/.test(name)
@@ -82,12 +73,28 @@ function whatIsRunning(): Promise<string> {
             counts.set(name, (counts.get(name) ?? 0) + 1);
           }
         }
-        done(JSON.stringify(Object.fromEntries(counts)));
+        done(`${all} processes, ${JSON.stringify(Object.fromEntries(counts))}`);
       }
     );
   });
 }
 
+/**
+ * Runs one call of `trash()` on a real platform trash, and says where the time
+ * went when it is slow (SIG-704).
+ *
+ * A call on Windows that is not slow prints nothing. One that passes `SLOW_CALL`
+ * prints, every five seconds until it settles, how busy the whole machine was
+ * over the last five seconds and how much memory it had free, and once what was running --
+ * so that a call that stalls says whether the runner was starved or something
+ * else was holding it, which a bare `Test timed out in 60000ms` cannot. Each
+ * Windows call is one PowerShell start and may be a compile, and the figures in
+ * `src/trash/AGENTS.md` are what is normal.
+ *
+ * The heartbeat is not stopped by a test timing out, on purpose: the call it
+ * watches is still running then, and what it goes on printing is how long the
+ * stall lasted. It is `unref()`'d so that it never holds a worker open.
+ */
 async function watched<T>(label: string, call: () => Promise<T>): Promise<T> {
   if (!WINDOWS) {
     return call();
@@ -97,22 +104,24 @@ async function watched<T>(label: string, call: () => Promise<T>): Promise<T> {
   let listed = false;
   const beat = setInterval(() => {
     const elapsed = performance.now() - started;
-    if (elapsed < SLOW_CALL) {
-      return;
-    }
     const now = busyTimes();
     const busy = Math.round(
       (100 * (now.busy - before.busy)) / Math.max(1, now.total - before.total)
     );
     before = now;
+    // a timer may fire a millisecond early, so the tick at ten seconds is not skipped
+    if (elapsed < SLOW_CALL - 100) {
+      return;
+    }
     console.log(
       `${label}: ${Math.round(elapsed / 1000)} s so far, machine ${busy}% busy, ${Math.round(freemem() / 1e6)} MB free`
     );
     if (!listed) {
       listed = true;
-      void whatIsRunning().then((running) => console.log(`${label}: running ${running}`));
+      void whatIsRunning().then((running) => console.log(`${label}: ${running}`));
     }
   }, 5000);
+  beat.unref();
   try {
     return await call();
   } finally {
@@ -524,7 +533,7 @@ describe('trash()', () => {
             expect(readFileSync(where, 'utf8')).toBe(name);
             expect(where).toMatch(WINDOWS ? /\$Recycle\.Bin/i : /\.Trash/);
           } finally {
-            await takeOut(where);
+            await watched(`takeOut(${basename(file)})`, () => takeOut(where));
           }
           expect(existsSync(where)).toBe(false);
         }
@@ -545,7 +554,7 @@ describe('trash()', () => {
           expect(existsSync(dir)).toBe(false);
           expect(readFileSync(join(where, 'deep', 'x'), 'utf8')).toBe('x');
         } finally {
-          await takeOut(where);
+          await watched('takeOut(dir)', () => takeOut(where));
         }
       },
       SLOW

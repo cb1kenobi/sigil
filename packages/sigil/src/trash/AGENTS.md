@@ -390,7 +390,7 @@ PowerShell start of the file took 1.5 s, 2.2 s and 3.3 s against 0.15 to 0.28 s
 for the second, and the call that compiled took 1.4 s, 2.0 s and 9.2 s, with a
 call that loaded the cache after it at 0.3 to 1.4 s -- three Windows jobs on node
 22, 24 and 26, timed around each `trash()` call in the real-trash tests, as of
-this change. Over thirty-three Windows jobs in recent runs of `test.yml`, the
+this change. Over thirty-three Windows jobs in the eleven `test.yml` runs before this change, the
 first real-trash test (a compile and a cache hit) took 3.3 to 8.5 s in thirty
 of them and 12 s, 13 s and 17.8 s in the others, and the second (a hit) took
 0.35 to 0.7 s in every one. That one is the whole of the tail: the compile, and
@@ -402,9 +402,13 @@ directory and everything in it`, which is a cache hit at about half a second in
 every other run, took 40 s straight after. The rest of that job's tests, the
 cached-helper ones that compile into a cache of their own, ran at their usual
 1.5 to 4 s, and the job's whole duration (399 s) was inside the range of the
-thirty-three others (231 to 462 s). It passed on a rerun. **The cause was not
+thirty-three others (231 to 462 s). It passed on a rerun. Vitest does not cancel a test body that has timed out, so
+the first test's call was most likely still pending when the second began: one
+stall of about a hundred seconds that released both is the simplest reading, and
+it is an inference, not something measured. **The cause was not
 found:** the run was gone before anything measured it. What the numbers weigh against is a retry that waited, since a retry is a second
-PowerShell start and the stall was twenty times that. In the three measured runs
+PowerShell start and a compile, at most about 12 s in what was measured, against
+a stall that cost the two tests a hundred seconds between them. In the three measured runs
 the cache was written by the first call, so a cache that never saved is not what
 the normal case looks like either. What they do not support is contention from the rest of the suite
 as the usual cause: a compile that took 9.2 s was measured at 36% busy across
@@ -419,7 +423,8 @@ real-trash call on Windows and prints nothing for one that is not slow. For one
 past ten seconds it prints every five seconds how busy the machine was and how
 much memory it had free, and once the names of the processes running, so the next
 time a call stalls the log says whether the runner was starved or something
-held it -- which a bare `Test timed out in 60000ms` cannot. It is unproved by a
+held it, and the same for the cleanup that follows each move, which the test's
+limit also spans -- which a bare `Test timed out in 60000ms` cannot. It is unproved by a
 run that was slow, since none was available to this change; if it never fires,
 it costs nothing.
 
