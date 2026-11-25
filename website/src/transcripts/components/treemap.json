@@ -49,7 +49,7 @@
         "type": "(item: T) => K"
       },
       {
-        "description": "The name written on an item's tile, on its first whole row where the tile is wide enough. Defaults to the item itself for a string or a number, and no name otherwise. Drawn as a text draws it, without control characters.",
+        "description": "The name written on an item's tile, on its first whole row where the tile is wide enough. Defaults to the item itself for a string or a number, and no name otherwise. Drawn as plain text on one line: an escape sequence in it is removed whole, so a style in it is dropped and a tab is a space. A tile's colour is `color`'s.",
         "default": "the item itself for a string or a number",
         "name": "label",
         "optional": true,
@@ -62,7 +62,7 @@
         "type": "(items: readonly T[], level: ColorLevel) => Color"
       },
       {
-        "description": "The name written on a tile of gathered items, given them, largest first, and the columns there are for it. Defaults to `37 more`, or `+37` where that does not fit.",
+        "description": "The name written on a tile of gathered items, given them, largest first, and the columns there are for it. Defaults to `37 more`, or `+37` where that does not fit. Drawn as `label` is, as plain text on one line.",
         "default": "`37 more`",
         "name": "moreLabel",
         "optional": true,

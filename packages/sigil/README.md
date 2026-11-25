@@ -4293,7 +4293,8 @@ and `view()` is the readout as an element, for a tree of your own.
 
 `format` is `'words'` (`42s`, `3m 05s`, `2h 10m`, worded by the catalog so a
 locale can change the units), `'clock'` (`00:42`, `03:05`, `2:10:00`, which is
-digits and not translated) or a function from whole seconds. A stopwatch rounds
+digits and not translated) or a function from whole seconds, whose result is drawn as plain
+text on one line: an escape sequence in it is removed, so a style in it is dropped. A stopwatch rounds
 down and a timer rounds up, so a timer with 400 ms
 left says `1s` and `0s` only when it is over. `tick` is how often the readout is
 redrawn, a second by default, and lands on the boundary rather than a tick after
@@ -4570,7 +4571,8 @@ characters would not, and `maxWidth` truncates on grapheme clusters rather
 than slicing a surrogate pair in half. No borders — a table in a build log
 sits next to everything else that was printed, and rules around it are noise.
 
-A cell is text, and its escape sequences are dropped. A cell that has to keep
+A cell is text, and its escape sequences are removed whole: a string holding a
+colour draws as its plain words and the column is sized for them. A cell that has to keep
 its own styling -- a [badge](#badge) -- is a `TableCellView` instead, the
 `{ element, width }` every `*View()` returns: the column is sized by its
 `width`, the tree is aligned by `align`, and it is cut at `maxWidth`. A view is
@@ -4733,8 +4735,8 @@ label draws nothing.
 
 `badge()` returns a string and the caller does the writing, which puts it on the
 result side of `--quiet`, like `table()` and `note()`. **In a table, use
-`badgeView()`**: a string cell has its escape sequences dropped, so a styled
-`badge()` string would print as literal characters. A `table()` cell may be any
+`badgeView()`**: a string cell has its escape sequences removed, so a styled
+`badge()` string would lose its colour. A `table()` cell may be any
 `{ element, width }` -- a `TableCellView` -- and the table sizes the column by the
 `width`, aligns the tree by the column's `align`, and cuts it at the column's
 `maxWidth`. A cascade built without the framework's sheet draws both forms, as
@@ -5682,6 +5684,8 @@ so neighbours meet with no gap and no overlap.
   item drawn smaller than three pixels a side is one tile, textured as "many
   things"; the children of an item too small to draw on their own are gathered
   into one tile named `37 more` (`moreLabel` and `moreColor` say otherwise). A
+  `label` is drawn as plain text on one line, so a style in what it returns is
+  dropped; a tile's colour is `color`'s. A
   new tree is a new `root`; the same root at the same size is not laid out again.
 - **Colour is yours, and it degrades.** `color(item, level)` returns a colour for
   the level the frame is drawn at: an RGB is quantized to 256 or 16 colours, and a
@@ -6195,7 +6199,9 @@ ways. A column's `compare(a, b)` replaces it, `sortable: false` takes the column
 and the sort reads what the cell holds rather than what it draws: `value(row)` says
 what that is for a cell the `key` cannot reach, and `format(value, row)` turns it into
 a string or a `TableCellView` such as `badgeView()` returns, so `RSS` can draw `812M`
-and order by the bytes. Rows that tie keep the order they were handed in.
+and order by the bytes. A string `format()` returns has its escape sequences
+removed and is drawn as plain text; a cell that should be coloured is a
+`TableCellView`. Rows that tie keep the order they were handed in.
 
 **Column widths.** A column is as wide as its heading and the widest cell it has
 held, up to `maxWidth`, with two columns kept back on a sortable heading for the
