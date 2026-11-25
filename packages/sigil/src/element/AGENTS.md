@@ -225,7 +225,8 @@ the entry it belongs to.
   the string through `toDisplayText()` before measuring it, rather than teaching the
   measure about a tab -- and the chart's readout, which measures what the tooltip
   will draw, does (see "The readout is worked out as the bubble draws it" in
-  `packages/sigil/src/components/AGENTS.md`).
+  `packages/sigil/src/components/AGENTS.md`, which also records the components
+  SIG-670 swept for the same slip and the ones it left, with the reason for each).
 - **`printable()` marks the control characters a text would not draw as given,
   and reads the same set to find them (SIG-475).** Dropping one is right for the terminal and
   wrong for a file name: `bad<ESC>[31mname` is drawn as `bad[31mname`, which is

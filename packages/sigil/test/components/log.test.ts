@@ -242,6 +242,18 @@ describe('a multi-line status line', () => {
     expect(stderr.output).toBe(`${LOG_SYMBOLS.info} ${message}\n`);
   });
 
+  it('should size a line as the tree draws it, a tab being a space (SIG-670)', () => {
+    // a file is laid out as wide as its widest line and no wider, so a column
+    // counted short per tab wraps the line it was counting
+    const file = split({ columns: 20, err: false });
+    createLog({ colorLevel: 0, terminal: file.terminal }).message('ab\tcd\tef', { symbol: '*' });
+    expect(file.stderr.output).toBe('* ab cd ef\n');
+    // and the glyph is sized the same way
+    const glyph = split({ columns: 20, err: false });
+    createLog({ colorLevel: 0, terminal: glyph.terminal }).message('aaa', { symbol: '*\t*' });
+    expect(glyph.stderr.output).toBe('* * aaa\n');
+  });
+
   it('should measure a wide glyph by its columns, not its length', () => {
     const { stderr, terminal } = split({ columns: 12 });
     createLog({ colorLevel: 0, terminal }).message('aaa bbb', { symbol: '日本' });
@@ -550,6 +562,15 @@ describe('a status line with fields', () => {
       ms: 412,
     });
     expect(stderr.output).toBe(`${LOG_SYMBOLS.info} deployed to production\n  host=a ms=412\n`);
+  });
+
+  it('should judge whether the fields fit beside a message by what it draws, a tab being a space (SIG-670)', () => {
+    // `ab cd` is five columns drawn and four measured raw: with the glyph and its
+    // gap that is nine against a line of ten, which the fields' three and one more
+    // do not fit in
+    const { stderr, terminal } = split({ columns: 10 });
+    createLog({ colorLevel: 0, terminal }).message('ab\tcd', { fields: { a: 1 }, symbol: '*' });
+    expect(stderr.output).toBe('* ab cd\n  a=1\n');
   });
 
   it('should keep the fields on the one line of a file, whatever their length', () => {

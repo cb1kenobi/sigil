@@ -1,4 +1,4 @@
-import { box, type Element, text as textNode } from '../element/index.js';
+import { box, type Element, text as textNode, toDisplayText } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import type { BindingInfo } from '../input/index.js';
 import { createEffect } from '../renderer/index.js';
@@ -207,9 +207,18 @@ export function keyHelpEntries(infos: readonly BindingInfo[]): KeyHelpEntry[] {
   }));
 }
 
-/** Columns a line takes: the key, a space, and what it does. */
+/**
+ * Columns a line takes: the key, a space, and what it does.
+ *
+ * Measured as the text draws them, which holds a tab as a space (SIG-670). A binding
+ * can give neither a tab -- its label is a canonical key spelling and its description
+ * is folded to single spaces -- but an entry is a public shape, and one built by
+ * hand for `fitKeyHelp()` can.
+ */
 function lineWidth(entry: KeyHelpEntry): number {
-  return stringWidth(entry.label) + 1 + stringWidth(entry.description);
+  return (
+    stringWidth(toDisplayText(entry.label)) + 1 + stringWidth(toDisplayText(entry.description))
+  );
 }
 
 /** The ` · ` between two lines, and the ` …` that says some were left out. */
@@ -316,7 +325,10 @@ function shortRows(entries: readonly KeyHelpEntry[], width: number): Element[] {
 
 /** The long form: a column of groups, a row to a binding. */
 function longRows(entries: readonly KeyHelpEntry[]): Element[] {
-  const keyWidth = entries.reduce((most, entry) => Math.max(most, stringWidth(entry.label)), 0);
+  const keyWidth = entries.reduce(
+    (most, entry) => Math.max(most, stringWidth(toDisplayText(entry.label))),
+    0
+  );
 
   // groups in the order they first appear, and ungrouped lines first of all with
   // no heading: they are the app's own, and a heading called "undefined" is not

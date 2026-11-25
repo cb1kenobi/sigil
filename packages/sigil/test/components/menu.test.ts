@@ -334,6 +334,33 @@ describe('openMenu()', () => {
     expect(picture(s.root)[4]).to.equal('  │─ Recent files ─│');
   });
 
+  it('should size a label and a hint as they are drawn, a tab being a space (SIG-670)', () => {
+    const s = scene();
+    menuOn(s, {
+      items: [
+        { hint: 'k', label: 'a\tbcd' },
+        { hint: 'k', label: 'abc' },
+        { hint: 'k\tk', label: 'ab' },
+      ],
+    });
+    const rows = picture(s.root).slice(3, 6);
+    // the hints end in one column, which is what the widest label and hint left room for
+    expect(rows.map((row) => row.lastIndexOf('k'))).to.deep.equal([12, 12, 12]);
+    expect(rows.map((row) => row.length)).to.deep.equal([15, 15, 15]);
+  });
+
+  it('should draw a separator whose words hold a tab, as a space (SIG-670)', () => {
+    const s = scene();
+    menuOn(s, { items: [{ label: 'A' }, { separator: 'Re\tcent' }, { label: 'B' }] });
+    expect(picture(s.root)[4]).to.equal('  │─ Re cent ─│');
+  });
+
+  it('should draw a separator of only control characters as a plain line (SIG-670)', () => {
+    const s = scene();
+    menuOn(s, { items: [{ label: 'A' }, { separator: '\u0007' }, { label: 'B' }] });
+    expect(picture(s.root)[4]).to.match(/^ {2}│─+│$/);
+  });
+
   it('should be at least as wide as it was asked to be', () => {
     const s = scene();
     menuOn(s, { items: [{ label: 'A' }], minWidth: 20 });

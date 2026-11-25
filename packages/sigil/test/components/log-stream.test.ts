@@ -544,6 +544,14 @@ describe('a streamed status line', () => {
     expect(stderr.text).toBe('aaa bbb ccc\nddd\n* aaa bbb\n  ccc ddd\n');
   });
 
+  it('should draw a glyph that holds a tab whole, as a space, and indent under it (SIG-670)', async () => {
+    const { stderr, terminal } = split({ columns: 12 });
+    await createLog({ colorLevel: 0, terminal }).stream.message(['aaa bbb ccc ddd'], {
+      symbol: '*\t*',
+    });
+    expect(stderr.text).toBe('* * aaa bbb\n    ccc ddd\n');
+  });
+
   it('should not wrap a line written to a file, and end it where the text does', async () => {
     const { stderr, terminal } = split({ columns: 10, err: false });
     await createLog({ colorLevel: 0, terminal }).stream.info(

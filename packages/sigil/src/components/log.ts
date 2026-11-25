@@ -17,7 +17,13 @@
  */
 
 import { type Ansi, createAnsi, strip } from '../ansi/index.js';
-import { box, type Element, renderToLines, text as textNode } from '../element/index.js';
+import {
+  box,
+  type Element,
+  renderToLines,
+  text as textNode,
+  toDisplayText,
+} from '../element/index.js';
 import { resolveOutput } from '../style/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
@@ -324,7 +330,7 @@ export function logView(
   const children: Element[] = [...lines];
 
   if (extras.fields) {
-    const last = message.split(/\r?\n/).at(-1) ?? '';
+    const last = toDisplayText(message.split(/\r?\n/).at(-1) ?? '');
     const beside =
       extras.width === undefined ||
       stringWidth(last) + 1 + stringWidth(extras.fields) <= extras.width;
@@ -438,7 +444,11 @@ export function createLog(opts: LogOptions = {}): Log {
     // runs a getter on a field
     const fields = formatLogFields(given);
     const time = stamp(opts.timestamp, (opts.now ?? (() => new Date()))());
-    const gutter = (time ? stringWidth(time) + 1 : 0) + (symbol ? stringWidth(symbol) + 1 : 0);
+    // the message and the glyph are measured as the tree will draw them, which holds a
+    // tab as a space (SIG-670). The time and the fields need none of it: a control
+    // character in either is already a space or an escape
+    const gutter =
+      (time ? stringWidth(time) + 1 : 0) + (symbol ? stringWidth(toDisplayText(symbol)) + 1 : 0);
 
     detected ??= createAnsi({ stream: terminal.stderr });
     const colorLevel = colorLevelOf(opts, terminal, detected);
@@ -446,7 +456,7 @@ export function createLog(opts: LogOptions = {}): Log {
     // a log file is not wrapped for a screen: the reader has a pager, and a line
     // cut at 80 columns is one that cannot be grepped whole
     const columns = screenWidth();
-    const rows = message.split(/\r?\n/).map((line) => stringWidth(line));
+    const rows = message.split(/\r?\n/).map((line) => stringWidth(toDisplayText(line)));
     // the fields share the last row when they fit, so a file -- which has no
     // limit -- always has them there
     const beside = fields ? stringWidth(fields) + 1 : 0;
@@ -491,7 +501,7 @@ export function createLog(opts: LogOptions = {}): Log {
     // the same as it having nothing to say
     const quiet = silenced(level);
     const columns = screenWidth();
-    const gutter = symbol ? stringWidth(symbol) + 1 : 0;
+    const gutter = symbol ? stringWidth(toDisplayText(symbol)) + 1 : 0;
     const wrapper = createStreamWrapper(
       columns === undefined ? Infinity : Math.max(1, columns - gutter)
     );
@@ -508,7 +518,7 @@ export function createLog(opts: LogOptions = {}): Log {
             textNode(symbol, {
               class: `sigil-log-symbol sigil-symbol${level ? ` ${ROLE[level]}` : ''}`,
             }),
-            { cascade: themedCascade(opts), colorLevel, width: stringWidth(symbol) }
+            { cascade: themedCascade(opts), colorLevel, width: stringWidth(toDisplayText(symbol)) }
           ).join('')} `
         : '';
     const hang = ' '.repeat(gutter);

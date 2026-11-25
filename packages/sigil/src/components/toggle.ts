@@ -22,7 +22,7 @@
  * answers.
  */
 
-import { box, text as textNode } from '../element/index.js';
+import { box, text as textNode, toDisplayText } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { stringWidth } from '../width/index.js';
@@ -127,7 +127,7 @@ export function toggle(opts: ToggleOptions): Promise<boolean> {
     const summary = `${PROMPT_SYMBOLS.on} ${inactive}  ${PROMPT_SYMBOLS.off} ${active}`;
     const width = Math.max(1, terminal.width);
     // the mark and the two margins around the message, and a column to spare
-    const inline = stringWidth(opts.message) + stringWidth(summary) + 4 <= width;
+    const inline = stringWidth(toDisplayText(opts.message)) + stringWidth(summary) + 4 <= width;
     // what the line has to hold once answered is the longer name, and reserving it
     // is what keeps a question as wide as the screen from clipping its own answer
     const head = promptHeadWidths(

@@ -490,6 +490,21 @@ describe('an affordance in a narrow terminal', () => {
     }
   });
 
+  it('should give a question the columns it is drawn in, a tab being a space (SIG-670)', async () => {
+    // `Overwrite the file` is 18 columns drawn and 17 counted raw, and the head
+    // reserves a column of it for the mark and one for what follows: a message
+    // measured a column short per tab was cut to that width and wrapped
+    const ui = screenSetup({ columns: 50, rows: 8 });
+    const answer = settle(
+      confirm({ ansi: ui.ansi, message: 'Overwrite\tthe file', terminal: ui.terminal })
+    );
+
+    expect(ui.log.map((row) => row.trimEnd())).toEqual(['? Overwrite the file (Y/n)']);
+
+    await type(ui.stdin, '\u0003');
+    await answer;
+  });
+
   it('should settle beside a question that wraps for the hint', async () => {
     // the hint is reserved and the answer takes its place, so `yes` is beside the
     // question at every width the hint is -- the one prompt that needed no move

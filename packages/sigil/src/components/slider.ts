@@ -23,7 +23,13 @@
  * "A slider".
  */
 
-import { box, type Element, type ElementPropsWithout, text as textNode } from '../element/index.js';
+import {
+  box,
+  type Element,
+  type ElementPropsWithout,
+  text as textNode,
+  toDisplayText,
+} from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import type { DescribeOptions } from '../input/index.js';
 import { createEffect } from '../renderer/index.js';
@@ -254,7 +260,8 @@ export function Slider(props: SliderProps = {}): Element {
    * neighbours that `99%` had not.
    */
   let readoutWidth = 0;
-  const measure = (raw: number): number => stringWidth(format?.(raw) ?? '');
+  // measured as the text draws it, which holds a tab as a space (SIG-670)
+  const measure = (raw: number): number => stringWidth(toDisplayText(format?.(raw) ?? ''));
   if (format !== undefined) {
     if (last <= MEASURED) {
       for (let i = 0; i <= last; i++) {
@@ -331,8 +338,9 @@ export function Slider(props: SliderProps = {}): Element {
     if (readout) {
       // a format that returns something wider than it did over the range -- one
       // that reads the clock, say -- widens the readout rather than being cut
-      if (stringWidth(shown) > readoutWidth) {
-        readoutWidth = stringWidth(shown);
+      const columns = stringWidth(toDisplayText(shown));
+      if (columns > readoutWidth) {
+        readoutWidth = columns;
         readout.setProp('width', readoutWidth);
       }
       readout.setText(shown);

@@ -276,6 +276,21 @@ describe('Slider', () => {
       expect(picture(root)).toEqual(['o-- 2 items']);
     });
 
+    it('should reserve the readout as the text draws it, a tab being a space (SIG-670)', () => {
+      const value = new State(5);
+      const host = Slider({ ascii: true, format: (v) => `${v}\t%`, value, width: 4 });
+      const root = box({ 'flex-direction': 'row', width: 20 }, host, text('|'));
+
+      const rows: string[] = [];
+      for (const v of [5, 100, 5]) {
+        value.set(v);
+        flush();
+        rows.push((picture(root)[0] as string).trimEnd());
+      }
+      // the readout is as wide as its widest and ends where the next thing begins
+      expect(rows).toEqual(['o---   5 %|', '===o 100 %|', 'o---   5 %|']);
+    });
+
     it('should have no readout without format', () => {
       const host = Slider({ value: 1 });
       expect(host.children.map((child) => child.classes[0])).toEqual(['sigil-slider-track']);

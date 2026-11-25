@@ -319,6 +319,17 @@ describe('tasks()', () => {
     expect(ui.log).to.deep.equal(['✔ Installed 12 packages']);
   });
 
+  it('should leave a done line as wide as its title is drawn, a tab being a space (SIG-670)', async () => {
+    const ui = screenSetup();
+
+    await tasks([{ task: () => {}, title: 'Install\tpackages' }], {
+      ansi: ui.ansi,
+      terminal: ui.terminal,
+    });
+
+    expect(ui.log).to.deep.equal(['✔ Install packages']);
+  });
+
   it('should leave no line for a disabled task and not run it', async () => {
     const ui = screenSetup();
     let ran = false;
