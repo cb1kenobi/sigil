@@ -21,6 +21,7 @@
 
 import { strip } from '../ansi/index.js';
 import { box, type Element, renderToString, text as textNode } from '../element/index.js';
+import { isStreamGone, writeTo } from '../output.js';
 import { For } from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
@@ -451,7 +452,12 @@ export function outline(items: readonly OutlineItem[], opts: OutlineOptions = {}
 
 /** A list in a live region, whose items can be replaced. */
 export interface Outline {
-  /** Ends the outline, leaving it as it stands. Where there is no terminal, writes it. */
+  /**
+   * Ends the outline, leaving it as it stands. Where there is no terminal, writes it.
+   *
+   * @throws Where the list is written and a file took only part of it (SIG-680):
+   *   it is a document then, the way `page()`'s is. A live outline never throws.
+   */
   done(): void;
   /** Ends the outline and erases it, leaving nothing behind. */
   stop(): void;
@@ -468,7 +474,9 @@ export interface Outline {
  *
  * Where there is no terminal there is no frame to repaint, so nothing is written
  * until `done()`, which writes the list once, as `outline()` would. A quiet run
- * writes nothing.
+ * writes nothing. A list written to a file is a document, so `done()` throws if
+ * the file took only part of it, where `mycli plan > out.txt` would otherwise
+ * exit 0 over a cut-off one.
  *
  * @param items - The items to start with.
  * @param opts - The enumerators, the room, and where to draw.
@@ -512,7 +520,20 @@ export function createOutline(
         mounted.frame();
         mounted.done();
       } else if (mountLevel(base) !== 'quiet') {
-        terminal.write(`${outline(current, opts)}\n`);
+        // a document, and `mycli plan > out.txt` is the case: through `writeTo()` so a
+        // file that took only part of it is a throw rather than an exit 0 over a
+        // cut-off one (SIG-680). Nothing is drawn here, so there is no live region to
+        // order against; what the terminal would have swallowed -- the reader going
+        // away, or a terminal already closed -- still is
+        if (!terminal.closed) {
+          try {
+            writeTo(terminal.stdout, `${outline(current, opts)}\n`);
+          } catch (err) {
+            if (!isStreamGone(err, terminal.stdout)) {
+              throw err;
+            }
+          }
+        }
       }
     },
 

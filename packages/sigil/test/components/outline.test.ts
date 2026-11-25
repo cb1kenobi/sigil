@@ -436,6 +436,26 @@ describe('createOutline()', () => {
       expect(stdout.text).to.equal('• a\n• b\n');
     });
 
+    it('should swallow the reader going away, as the terminal does', () => {
+      const { ansi, stdout, terminal } = setup({ isTTY: false });
+      stdout.write = () => {
+        throw Object.assign(new Error('write EPIPE'), { code: 'EPIPE' });
+      };
+      const live = createOutline(['a'], { ansi, ...TERMINAL, terminal });
+
+      expect(() => live.done()).not.to.throw();
+    });
+
+    it('should throw what is not the reader going away, since the list is a document', () => {
+      const { ansi, stdout, terminal } = setup({ isTTY: false });
+      stdout.write = () => {
+        throw Object.assign(new Error('write ENOSPC'), { code: 'ENOSPC' });
+      };
+      const live = createOutline(['a'], { ansi, ...TERMINAL, terminal });
+
+      expect(() => live.done()).to.throw('ENOSPC');
+    });
+
     it('should write nothing on stop', () => {
       const { ansi, stdout, terminal } = setup({ isTTY: false });
       const live = createOutline(['a'], { ansi, ...TERMINAL, terminal });

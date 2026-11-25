@@ -5884,7 +5884,14 @@ added.
   is the cheapest reading of "items replaced" and needs no keyed diff of nested
   lists. A list has no frames to repaint in a log, and a line per `update()` would
   print the whole list each time, so a pipe gets the final list once from `done()`
-  and `stop()` writes nothing. A quiet run writes nothing, through `mountLevel()`
+  and `stop()` writes nothing. That write is a document (SIG-680): it is
+  `writeTo(terminal.stdout, ...)`, so a file that took only part of it makes
+  `done()` **throw** `The output was cut off` -- a throw rather than `page()`'s
+  rejection because `done()` returns `void`, and changing that is a breaking
+  change to a handle for one branch. What the terminal would have swallowed still
+  is: a closed terminal writes nothing, and `isStreamGone()` is caught, so
+  `mycli plan | head -1` stays silent. Only this branch moved: a live outline's
+  frames are the terminal's. A quiet run writes nothing, through `mountLevel()`
   like every other mount. A malformed list is refused where it is handed over,
   including in `update()`, and the screen keeps what it was showing.
 - **String form ignores `--quiet`.** A list is a result, on `table()`'s side of the
