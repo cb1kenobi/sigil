@@ -81,6 +81,25 @@ export type GroupSteps<T> = {
   [K in keyof T]: (answers: Partial<Omit<T, K>>, step: GroupStep<T[K]>) => Promise<T[K]> | T[K];
 };
 
+/**
+ * One step of a group given as a `Map`, which is the order the caller wrote.
+ *
+ * A `Map` cannot say which key resolves with what, so a step is typed over every
+ * answer at once: it resolves with one of `T`'s values, and is handed the answers so
+ * far as optional. Name the shape -- `group<{ port: number; name: string }>(steps)`
+ * -- and every step is checked against the shape's values, so each earlier answer
+ * is typed. Leave it off and the answers are `Record<string, unknown>`. What a
+ * `Map` cannot check, and an object can, is which step answers which key, or that
+ * every key of the shape has a step: the result is typed as the shape either way.
+ * A step of a `Map` literal whose returns differ -- one sync, one async, or two
+ * types -- needs the `Map`'s own type written, as any `Map` constructor does:
+ * `new Map<string, GroupMapStep<Shape>>([...])`.
+ */
+export type GroupMapStep<T> = (
+  answers: Partial<T>,
+  step: GroupStep<T[keyof T]>
+) => Promise<T[keyof T]> | T[keyof T];
+
 export interface GroupOptions<T> {
   /**
    * Called with the answers collected so far when a step is cancelled.
@@ -104,6 +123,10 @@ export interface GroupOptions<T> {
  * choices that depends on an earlier answer is a closure over the answers it is
  * handed. Steps run one at a time in key order -- the order `Object.keys()` gives,
  * so a key that reads as an integer is first, as it is anywhere in JavaScript.
+ * Steps given as a `Map` run in the order the `Map` holds them, which is the
+ * order they were written: steps named `'2'` and `'1'` in an object run `'1'`
+ * first, and in a `Map` run `'2'` first. Either way the answers resolve as an
+ * object keyed by step name, since an answer is read by its name.
  *
  * A step that is cancelled calls `onCancel` and rethrows. A step that throws
  * anything else is a bug in the step: it propagates untouched and `onCancel` is
@@ -122,8 +145,30 @@ export interface GroupOptions<T> {
  * @param opts - What to do on a cancel.
  * @returns The answers, keyed by step.
  */
-export async function group<T>(steps: GroupSteps<T>, opts: GroupOptions<T> = {}): Promise<T> {
-  const keys = Object.keys(steps) as (keyof T & string)[];
+export async function group<T>(steps: GroupSteps<T>, opts?: GroupOptions<T>): Promise<T>;
+export async function group<T = Record<string, unknown>>(
+  steps: ReadonlyMap<string, GroupMapStep<T>>,
+  opts?: GroupOptions<T>
+): Promise<T>;
+export async function group<T>(
+  given: GroupSteps<T> | ReadonlyMap<string, unknown>,
+  opts: GroupOptions<T> = {}
+): Promise<T> {
+  let steps: Record<string, unknown>;
+  let keys: (keyof T & string)[];
+  if (given instanceof Map) {
+    steps = Object.create(null) as Record<string, unknown>;
+    for (const [name, step] of given) {
+      if (typeof name !== 'string') {
+        throw new TypeError('group() step names must be strings');
+      }
+      steps[name] = step;
+    }
+    keys = [...given.keys()] as (keyof T & string)[];
+  } else {
+    steps = given as Record<string, unknown>;
+    keys = Object.keys(given) as (keyof T & string)[];
+  }
   /** The answers of the steps before the one being asked, and nothing else. */
   const answers: Partial<T> = {};
   /**
@@ -136,7 +181,7 @@ export async function group<T>(steps: GroupSteps<T>, opts: GroupOptions<T> = {})
   let at = 0;
   while (at < keys.length) {
     const key = keys[at] as keyof T & string;
-    const step = steps[key];
+    const step = steps[key] as GroupMapStep<T> | undefined;
     if (typeof step !== 'function') {
       throw new TypeError(`group() step "${key}" must be a function`);
     }
@@ -151,7 +196,7 @@ export async function group<T>(steps: GroupSteps<T>, opts: GroupOptions<T> = {})
       handed.value = earlier.get(key) as T[keyof T & string];
     }
 
-    let value: T[keyof T & string];
+    let value: Awaited<T[keyof T]>;
     try {
       // a copy, so a step that writes to what it was handed cannot change an
       // answer a later step reads

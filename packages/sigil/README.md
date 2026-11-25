@@ -3710,7 +3710,15 @@ try {
 ```
 
 `group()` runs its steps in key order and resolves with an object keyed the same
-way. A step is any function that returns a value or a promise, handed a copy of
+way. Key order is `Object.keys()`'s, which lists a key that reads as an integer
+first, so steps named `'2'` and `'1'` run `'1'` first however they were written. A
+`Map` of steps runs in the order the `Map` holds them -- `new Map([['2', ...], ['1', ...]])`
+asks `'2'` first -- and resolves with the same object of answers keyed by step name,
+since an answer is read by its name. A `Map` cannot say which key answers what, so
+`T` is `Record<string, unknown>` unless named, and then each step is checked against
+the shape's values but the `Map` cannot say that every key has a step:
+`group<{ port: number }>(new Map([['port', () => 3000]]))`.
+A step is any function that returns a value or a promise, handed a copy of
 the answers so far. Cancelling is still a `PromptError` rejection --
 `isCancel(err)` is true for Ctrl-C and false for a prompt with nobody to ask --
 and `onCancel(partial, err)` is called first with what had been answered. It may
@@ -5423,7 +5431,8 @@ not a view built again every tick.
   values, and the scale is the shown values' unless `min` and `max` are given --
   give them when two sparklines have to mean the same height.
 - **`barChart(data, { direction, width, height, keep, barWidth, gap, labelWidth, showValues, format })`**
-  takes `{ label, value }` objects or an object of numbers. `horizontal` (the
+  takes `{ label, value }` objects, a `Map` of numbers keyed by label, or an object
+  of numbers. `horizontal` (the
   default) is a label, a bar and a value in aligned columns, and a bar is measured
   in eighths of a cell. `vertical` is columns with the values and the labels under
   them. Bars grow from zero, or from the lowest value where some are negative; a
@@ -5437,7 +5446,11 @@ not a view built again every tick.
   `keep: 'first'` keeps the **first** bars instead, in either direction, which is
   what a list sorted largest first wants: `keep` is `'last'` by default, and an
   unknown value throws a `TypeError`. A ranked list is an array of `{ label, value }`
-  and not an object, whose integer-like keys JavaScript lists ascending first.
+  or a `Map`, which keep the order they were written in, and not an object, whose
+  integer-like keys JavaScript lists ascending first: `{ 500: 900, 404: 300, 200: 50 }`
+  is drawn 200, 404, 500 and keeps `200` first, where
+  `new Map([['500', 900], ['404', 300], ['200', 50]])` keeps `500`. A value that is not
+  a finite number is drawn as `-` for a `Map` as for an object.
 - **`lineChart(values, { width, height, min, max, axis, format, xLabels, legend, step, fill })`**
   is braille, two dots across and four down a cell, from the same `Dots` grid the
   canvas draws with. `values` is a list of numbers, or several series as

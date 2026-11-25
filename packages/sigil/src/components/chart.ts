@@ -91,8 +91,20 @@ export interface BarDatum {
 /** Which end of a list of bars a chart keeps when it cannot show them all. */
 export type BarKeep = 'first' | 'last';
 
-/** Bars, as a list or as an object whose keys are the labels. */
-export type BarData = readonly BarDatum[] | Readonly<Record<string, number>>;
+/**
+ * Bars, as a list, as a `Map` of numbers keyed by label, or as an object whose keys
+ * are the labels.
+ *
+ * The list and the `Map` are in the order the caller wrote them. An object is in
+ * `Object.keys()` order, which is JavaScript's rather than the caller's: a key that
+ * reads as an integer comes first, ascending, whatever order it was written in, so
+ * `{ 500: 900, 404: 300, 200: 50 }` is 200, 404, 500. A list sorted largest first
+ * -- and a chart given `keep: 'first'` -- is a list or a `Map`.
+ */
+export type BarData =
+  | readonly BarDatum[]
+  | ReadonlyMap<string, number>
+  | Readonly<Record<string, number>>;
 
 export interface BarChartOptions extends ChartOptions, ScaleOptions {
   /**
@@ -120,7 +132,8 @@ export interface BarChartOptions extends ChartOptions, ScaleOptions {
    * a list sorted largest first wants. The scale is over the bars shown either way.
    * Defaults to `last`. The first of an object is the first of its keys, which
    * JavaScript lists integer-like keys ascending before any others: a ranked list
-   * is an array of `{ label, value }`.
+   * is an array of `{ label, value }` or a `Map`, which keep the order they were
+   * written in.
    */
   keep?: BarKeep;
   /** The widest a label may be before it is cut. Defaults to its own width. */
@@ -460,6 +473,8 @@ function read<T>(source: ChartSource<T>): T {
     typeof source === 'object' &&
     source !== null &&
     !Array.isArray(source) &&
+    // a `Map` has a `get()` of its own, and is bar data and not a signal
+    !(source instanceof Map) &&
     typeof (source as { get?: unknown }).get === 'function'
   ) {
     return (source as { get(): T }).get();
@@ -700,6 +715,28 @@ function keepOf(who: string, keep: unknown): BarKeep {
  * @returns A handle on them.
  */
 function barsOf(data: BarData): Bars {
+  if (data instanceof Map) {
+    const map = data as ReadonlyMap<string, number>;
+    // walked and not copied out: what a chart draws from 200,000 bars is a few of
+    // them, and an entry list or an object each is the cost it exists to avoid
+    return {
+      length: map.size,
+      take: (count, keep) => {
+        const skip = keep === 'first' ? 0 : Math.max(0, map.size - count);
+        const taken: BarDatum[] = [];
+        let at = 0;
+        for (const [label, value] of map) {
+          if (taken.length >= count) {
+            break;
+          }
+          if (at++ >= skip) {
+            taken.push({ label, value });
+          }
+        }
+        return taken;
+      },
+    };
+  }
   if (Array.isArray(data)) {
     const list = data as readonly BarDatum[];
     return {
@@ -2075,7 +2112,7 @@ export type LineChartProps = CrosshairLineChartProps | PlainLineChartProps;
 export interface BarChartProps extends ChartElementProps, ScaleOptions {
   /** The width of a vertical bar. Defaults to sharing the width out between the bars. */
   barWidth?: number;
-  /** The bars: `{ label, value }` in a list, or an object of numbers. */
+  /** The bars: `{ label, value }` in a list, or numbers in a `Map` or an object. */
   data: ChartSource<BarData>;
   /** `horizontal` bars grow rightwards, `vertical` upwards. Defaults to `horizontal`. */
   direction?: 'horizontal' | 'vertical';
@@ -2096,7 +2133,7 @@ export interface BarChartProps extends ChartElementProps, ScaleOptions {
    * Which end of the list is shown when the bars do not fit: `last` keeps the
    * latest and drops the first, `first` keeps the first and drops the rest, which
    * is what a list sorted largest first wants. Defaults to `last`. As for
-   * `barChart()`, a ranked list is an array rather than an object.
+   * `barChart()`, a ranked list is an array or a `Map` rather than an object.
    */
   keep?: BarKeep;
   /** The widest a label may be before it is cut. Defaults to its own width. */

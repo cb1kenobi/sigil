@@ -7952,6 +7952,45 @@ and not the stack overflow that one fixed: no spread was involved.
   -- so `{ 500: 900, 404: 300, 200: 50 }` keeps `200` first -- and a ranked list is
   an array; review found it, and the JSDoc and README say so.
 
+  **A bar chart also takes a `Map`, because the caller's order is the one thing an
+  object cannot keep (SIG-702).** Chris decided on `Map` over refusing integer-like
+  keys, which would have been a break for every caller who has one, and over an
+  array of pairs, which `{ label, value }` already is. `BarData` is the list, a
+  `ReadonlyMap<string, number>` or the object, and an object is exactly what it was:
+  `Object.keys()` order, documented, with no change for a caller who never wrote
+  one. `barsOf()` walks a `Map` and builds only the `count` bars it keeps, from either
+  end, so 200,000 entries cost no object per bar any more than a record's keys do.
+  **A `Map` has a `get()` of its own, and `read()` took any object with one for a
+  signal** -- so a live `BarChart` was handed `map.get()`, which is `undefined`;
+  `read()` now leaves a `Map` alone. A value that is not a finite number is drawn as
+  `-` and a key is stringified by `labelLine()`, which is what an object's value and
+  an array's label already got: the object form refuses neither, so the `Map`
+  does not either, rather than being the one input that throws. The same is true
+  of `group()`, below.
+
+  **A prompt group's steps also take a `Map`, which is where the order is not a
+  look but the order things are asked in.** `group()` read steps through
+  `Object.keys()`, so steps keyed `'2'` and `'1'` ran `1` first -- two prompts in
+  the wrong order, rather than two bars. A `Map` runs in its own order. It resolves
+  with **the same object of answers keyed by step name**, and not a `Map`: the
+  answers are read by name, `onCancel`'s partial is an object already, and one
+  return type is one thing to type. The cost is that a `Map` cannot say which key
+  resolves with what, so its `T` is `Record<string, unknown>` unless named
+  (`group<Shape>(new Map<string, GroupMapStep<Shape>>(...))`), where an object's
+  is inferred, and where a named one is checked per value only -- a missing key or a step
+  answering the wrong key is not a type error, as it is for an object; a step of a `Map` literal that mixes sync and async returns needs the
+  `Map`'s type written, which is how a `Map` constructor infers. A name that is not a
+  string is refused with a `TypeError`, as a step that is not a function already was.
+  **It is an overload declared after the object's, and the order is load bearing both
+  ways:** the website's signature generator keeps the first declaration of a name, so
+  the object form is what the page shows, while the cost is that TypeScript reports a
+  failed object-form call against the last overload. A single signature over the
+  union was tried and infers `T` as the `Map` itself, so it is not an option. `instanceof
+  Map` is the test, which a `Map` from another realm fails.
+  **Table columns inferred from a row and a log's fields still read `Object.keys()`
+  and stay that way:** a table has explicit `columns` for a row whose order
+  matters, and a log field's order matters little.
+
   **A live horizontal chart in a scroll box that must show every bar needs an
   explicit `height`, and that is the answer rather than a gap.** It asks for a row a
   bar up to `MOST_ROWS` and no more, and `height` is a number, so a list that grows

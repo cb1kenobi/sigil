@@ -51,7 +51,7 @@
         "type": "number"
       },
       {
-        "description": "Which end of the list is shown when the chart has more bars than it has room for: `last` keeps the latest bars and drops the first, as a sparkline keeps its latest samples; `first` keeps the first bars and drops the rest, which is what a list sorted largest first wants. The scale is over the bars shown either way. Defaults to `last`. The first of an object is the first of its keys, which JavaScript lists integer-like keys ascending before any others: a ranked list is an array of `{ label, value }`.",
+        "description": "Which end of the list is shown when the chart has more bars than it has room for: `last` keeps the latest bars and drops the first, as a sparkline keeps its latest samples; `first` keeps the first bars and drops the rest, which is what a list sorted largest first wants. The scale is over the bars shown either way. Defaults to `last`. The first of an object is the first of its keys, which JavaScript lists integer-like keys ascending before any others: a ranked list is an array of `{ label, value }` or a `Map`, which keep the order they were written in.",
         "default": "`last`",
         "name": "keep",
         "optional": true,
