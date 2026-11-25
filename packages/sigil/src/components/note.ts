@@ -1,4 +1,4 @@
-import { strip } from '../ansi/index.js';
+import { strip, stripWellFormed } from '../ansi/index.js';
 import {
   box,
   type Element,
@@ -144,7 +144,14 @@ export function labelLine(value: string): string {
  *   through `strip()` first;
  * - `String()` is applied first, because a `format` from JavaScript may answer
  *   with the number itself, which has always been drawn and which
- *   `toDisplayLine()` would throw on.
+ *   `toDisplayLine()` would throw on;
+ * - what is removed is a **whole** sequence and not whatever `strip()` would
+ *   (SIG-710). `strip()` reads a lone `ESC` or C1 character as the start of a
+ *   sequence that never ends and takes the text after it, so `'caf\u009F rest'`
+ *   drew `caf`. A string a caller wrote may well hold one -- text decoded as
+ *   Latin-1 when it was UTF-8 is full of them -- so this goes through
+ *   `stripWellFormed()`, which keeps the text and draws the introducer as `\uFFFD`,
+ *   the way `printable()` draws a control character.
  *
  * Not `labelLine()`: that collapses every run of whitespace to one space and
  * trims, which is right for a label and would change a `format()` result that
@@ -163,7 +170,7 @@ export function formatLine<Args extends unknown[]>(
   format: (...args: Args) => string,
   ...args: Args
 ): string {
-  return toDisplayLine(strip(String(format(...args))));
+  return toDisplayLine(stripWellFormed(String(format(...args)), '\uFFFD'));
 }
 
 /**
