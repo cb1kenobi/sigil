@@ -2,6 +2,7 @@ import { type Element, text as textNode } from '../element/index.js';
 import { createEffect, MAX_TIMER_DELAY, timed } from '../renderer/index.js';
 import { State, untrack } from '../signals/index.js';
 import { type MountOptions, mountLevel } from './mount.js';
+import { formatLine } from './note.js';
 import { formatDuration } from './progress.js';
 
 /**
@@ -9,7 +10,9 @@ import { formatDuration } from './progress.js';
  *
  * `words` is `42s`, `3m 05s` and `2h 10m`, through the catalog so a locale can
  * word the units. `clock` is `00:42`, `03:05` and `2:10:00`: digits and colons,
- * which is not a thing a locale words. A function is handed whole seconds.
+ * which is not a thing a locale words. A function is handed whole seconds, and
+ * what it returns is drawn as plain text on one line: an escape sequence in it is
+ * removed whole, so a style in it is dropped.
  */
 export type ClockFormat = 'clock' | 'words' | ((seconds: number) => string);
 
@@ -48,7 +51,11 @@ export interface Clock {
   reset(): void;
   /** Starts, or resumes where `pause()` left it. Returns the clock. */
   start(): Clock;
-  /** The time, as `format` writes it. Read in an effect, it re-runs each tick. */
+  /**
+   * The time, as `format` writes it and as it is drawn: plain text on one line,
+   * with any escape sequence `format` returned removed. Read in an effect, it
+   * re-runs each tick.
+   */
   readonly text: string;
   /** The readout, as an element tree. */
   view(): Element;
@@ -178,7 +185,7 @@ function createClock(limit: number | undefined, opts: ClockOptions): Timer {
     // `1s`, and says `0s` only when it is over
     const seconds = limit === undefined ? Math.floor(spent() / 1000) : Math.ceil(left() / 1000);
     if (typeof format === 'function') {
-      return format(seconds);
+      return formatLine(format, seconds);
     }
     return format === 'clock' ? formatClock(seconds) : formatDuration(seconds);
   };

@@ -505,6 +505,23 @@ describe('clockView()', () => {
     mounted.stop();
   });
 
+  // the tree dropped the ESC byte and kept `[31m`, so a coloured readout was drawn as
+  // its parameters (SIG-706)
+  it('should draw a styled format() as plain text', async () => {
+    const ui = screenSetup({ columns: 20 });
+    const t = time();
+    const watch = stopwatch({
+      format: (s) => `\u001B[31m${s}s\u001B[39m`,
+      now: t.now,
+      terminal: ui.terminal,
+    }).start();
+    const mounted = mountLive(() => watch.view(), { ansi: ui.ansi, terminal: ui.terminal });
+
+    expect(watch.text).to.equal('0s');
+    expect(ui.frame).to.equal('0s');
+    mounted.stop();
+  });
+
   it('should draw nothing before the clock is started', () => {
     const ui = screenSetup({ columns: 20 });
     const watch = stopwatch({ terminal: ui.terminal });

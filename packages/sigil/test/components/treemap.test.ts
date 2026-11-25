@@ -645,6 +645,25 @@ describe('paintTreemap()', () => {
     }
   });
 
+  // the tree dropped the ESC byte and kept `[31m`, so a coloured label was drawn as
+  // its parameters and cut by them (SIG-706)
+  it('should draw a label with a style in it as plain text', () => {
+    const root = branch(ROOT, [leaf(ROOT, 'a', 500), leaf(ROOT, 'b', 500)]);
+    const map = layout(root, 20, 4);
+    const canvas = createCanvas({ height: 2, width: 20 });
+    canvas.paint((painter) =>
+      paintTreemap(painter, 0, 0, map, {
+        label: (tile) => (tile.kind === 'rest' ? '' : `\u001B[31m${tile.item.name}\u001B[39m`),
+        level: 0,
+      })
+    );
+    canvas.present();
+    const frame = canvas.snapshot();
+    const top = Array.from({ length: map.width }, (_, x) => frame.charAt(x, 0)).join('');
+
+    expect(top).toMatch(/^a█+ b█+ $/u);
+  });
+
   it('should draw a tile of many items with a texture, and one item solid', () => {
     const sub = `${ROOT}/sub`;
     const root = branch(ROOT, [

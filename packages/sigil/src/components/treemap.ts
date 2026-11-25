@@ -56,6 +56,7 @@ import { stringWidth } from '../width/index.js';
 import { truncate } from '../wrap/index.js';
 import { controlState, type Written } from './control.js';
 import { type DescribeListViewOptions, describedHosts } from './key-help.js';
+import { formatLine } from './note.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
 import { attachTooltip, type TooltipHandle, type TooltipOptions } from './tooltip.js';
 
@@ -127,7 +128,9 @@ export interface TreemapProps<T, K = T> {
   /**
    * The name written on an item's tile, on its first whole row where the tile is
    * wide enough. Defaults to the item itself for a string or a number, and no
-   * name otherwise. Drawn as a text draws it, without control characters.
+   * name otherwise. Drawn as plain text on one line: an escape sequence in it is
+   * removed whole, so a style in it is dropped and a tab is a space. A tile's
+   * colour is `color`'s.
    */
   label?: (item: T) => string;
   /**
@@ -140,7 +143,7 @@ export interface TreemapProps<T, K = T> {
   /**
    * The name written on a tile of gathered items, given them, largest first, and
    * the columns there are for it. Defaults to `37 more`, or `+37` where that does
-   * not fit.
+   * not fit. Drawn as `label` is, as plain text on one line.
    */
   moreLabel?: (items: readonly T[], room: number) => string;
   /**
@@ -1080,7 +1083,7 @@ export function paintTreemap<T, K>(
     if (end - start < 3) {
       continue;
     }
-    const label = truncate(toDisplayLine(opts.label(tile, end - start)), end - start);
+    const label = truncate(formatLine(opts.label, tile, end - start), end - start);
     if (stringWidth(label) === 0) {
       continue;
     }
