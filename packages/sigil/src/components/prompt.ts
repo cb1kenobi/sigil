@@ -3751,6 +3751,12 @@ function runLine<T>(
     // lead-in as much as the question (SIG-700). The promise below is asked the
     // same when it resolves
     if (settled) {
+      // a promise nothing waits on any more still has to be held, or its
+      // rejection is one nobody catches: it is the loader's, late, so `onError`
+      // hears it and the prompt's own outcome stands
+      if (ready instanceof Promise) {
+        ready.catch((error: unknown) => lateError(opts, error));
+      }
       return;
     }
     // the first write on a terminal that has gone throws from the executor, which

@@ -1905,8 +1905,10 @@ decided once, for all of them. The runs and the sabotage passes are in
   twice, because `fail()` and `submit()` check; the cost was stray output after
   the rejection. One check after `first()` covers both writes. `run()`, the drawn
   prompt, already returns when its first frame settled it, and every component
-  that passes a function for its first question (`path`'s siblings `file-picker`, `tree`)
-  does it through this runner.
+  that passes a function for its first question (`file-picker` and `tree`, the only two)
+  does it through this runner. A promise `first()` returned after ending the
+  prompt is still held, its rejection going to `onError` by `lateError()`: without
+  that it is nobody's, and an unhandled rejection kills the process.
 - **A table's column widths are worked out and the rest is the box model.** A
   shared column width across rows is the one thing flexbox cannot do for itself:
   each row would size its own cells and no two rows would agree. So the widths are
