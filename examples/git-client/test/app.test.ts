@@ -317,15 +317,16 @@ for (const [syntax, App] of [
         const client = await mount(App, repo);
 
         // the stage is one git and the refresh after it is several more, so the
-        // toast is raised after the first 1.5s and the press is not settled
+        // toast is raised after the first delay and the press is not settled
         // until more than four seconds after that
-        client.slow(1500);
+        const DELAY = 1250;
+        client.slow(DELAY);
         const started = Date.now();
         await client.press(' ');
         const took = Date.now() - started;
         // the other half of the claim, so that a faster git cannot make this pass
         // for the wrong reason: the refresh really did outlast a toast
-        expect(took).toBeGreaterThan(1500 + 4000);
+        expect(took).toBeGreaterThan(DELAY + 4000);
         expect(client.screen()).toMatch(/Staged a\.txt/);
 
         client.slow(0);

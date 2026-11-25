@@ -620,14 +620,15 @@ commit message in a text area. What it settled:
   keeps the four seconds, and `mount()` provides `Infinity`. Not a longer
   default and not a bigger margin, either of which only moves the machine it
   fails on. The footer assertions, which a toast at the bottom right could
-  cover, all still pass with a toast left up: the whole git client suite, 76
-  tests, passed with it.
+  cover, all still pass with a toast left up. The two `not.toMatch` ones in the dialog's
+  footer test read a row the toast covers from column 71 on; the dialog's own
+  keys end before that, but they were not shown to be absent beyond it.
   `should still show what an action said when the refresh after it outlasts the
   four seconds a toast has by default` is the regression test: `slow(ms)` on the
   mounted client delays every git, it asserts the press really took longer than
   a toast lasts so a fast git cannot pass it for the wrong reason, and without
-  the context it fails on `Staged a.txt` in both syntaxes. It costs about eight
-  seconds a syntax.
+  the context it fails on `Staged a.txt` in both syntaxes. It delays each git 1,250 ms, which is
+  about six seconds a syntax, and needs only the refresh to be over four.
 
 - **Its temp directories are removed by the test file, not by a sixth
   `temp.ts`.** "The suite removes every directory it makes" in
