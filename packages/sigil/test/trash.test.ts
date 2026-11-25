@@ -1,9 +1,12 @@
+import { cache } from '../src/paths.js';
 import { deletionDate, encodePath, trashFreedesktop, trashName } from '../src/trash/freedesktop.js';
 import { trash } from '../src/trash/index.js';
 import { keyOf, recycle } from '../src/trash/windows.js';
 import { tempDir } from './temp.js';
+import { execFile } from 'node:child_process';
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import { readdirSync } from 'node:fs';
 import {
   chmodSync,
   existsSync,
@@ -19,7 +22,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { lstat, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { cpus, freemem, tmpdir } from 'node:os';
 import { basename, dirname, join, sep } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -37,6 +40,89 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const WINDOWS = process.platform === 'win32';
 // the freedesktop trash writes Unix ids and modes, and Windows has neither
 const FREEDESKTOP = !WINDOWS;
+
+/* SIG-704 MEASUREMENT -- temporary */
+function cpuTimes() {
+  let busy = 0;
+  let total = 0;
+  for (const { times } of cpus()) {
+    busy += times.user + times.sys + times.irq + times.nice;
+    total += times.user + times.sys + times.irq + times.nice + times.idle;
+  }
+  return { busy, total };
+}
+function stamp(): string {
+  return new Date().toISOString().slice(11, 23);
+}
+function cacheFiles(): string {
+  try {
+    return readdirSync(join(cache() ?? '', 'sigil')).join(',') || '(empty)';
+  } catch {
+    return '(no dir)';
+  }
+}
+function snapshot(): Promise<string> {
+  return new Promise((resolveSnap) => {
+    execFile(
+      'tasklist',
+      ['/fo', 'csv', '/nh'],
+      { encoding: 'utf8', windowsHide: true },
+      (_e, out) => {
+        const counts: Record<string, number> = {};
+        for (const line of (out ?? '').split('\n')) {
+          const name = line.split('","')[0]?.replace('"', '').toLowerCase();
+          if (
+            name &&
+            /powershell|csc|vbcscompiler|msmpeng|node|conhost|cmd|mpcmdrun|defender|tiworker|msiexec|dotnet/.test(
+              name
+            )
+          ) {
+            counts[name] = (counts[name] ?? 0) + 1;
+          }
+        }
+        resolveSnap(JSON.stringify(counts));
+      }
+    );
+  });
+}
+async function timed<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  const t0 = performance.now();
+  let last = cpuTimes();
+  let snapped = false;
+  console.log(`[SIG-704 ${stamp()}] ${label} start; cache files: ${cacheFiles()}`);
+  const beat = setInterval(() => {
+    const now = cpuTimes();
+    const pct = Math.round((100 * (now.busy - last.busy)) / Math.max(1, now.total - last.total));
+    last = now;
+    const secs = Math.round((performance.now() - t0) / 1000);
+    console.log(
+      `[SIG-704 ${stamp()}] ${label} +${secs}s machine cpu ${pct}% free ${Math.round(freemem() / 1e6)} MB`
+    );
+    if (secs >= 12 && !snapped) {
+      snapped = true;
+      void snapshot().then((s) => console.log(`[SIG-704 ${stamp()}] ${label} processes ${s}`));
+    }
+  }, 5000);
+  try {
+    return await fn();
+  } finally {
+    clearInterval(beat);
+    console.log(
+      `[SIG-704 ${stamp()}] ${label} took ${Math.round(performance.now() - t0)} ms; cache files: ${cacheFiles()}`
+    );
+  }
+}
+function psStart(): Promise<void> {
+  return new Promise((resolveStart) => {
+    execFile(
+      `${process.env.SystemRoot ?? 'C:\\Windows'}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`,
+      ['-NoProfile', '-NonInteractive', '-STA', '-Command', 'exit 0'],
+      { windowsHide: true },
+      () => resolveStart()
+    );
+  });
+}
+/* end SIG-704 MEASUREMENT */
 
 /** A directory of its own, links resolved, since macOS's temp directory is behind `/var`. */
 function made(prefix: string): string {
@@ -425,6 +511,10 @@ describe('trash()', () => {
       'should move a file, and a name with spaces, quotes and more than ASCII',
       async () => {
         const root = made('sigil-trash-real-');
+        if (WINDOWS) {
+          await timed('powershell start A (nothing run)', psStart);
+          await timed('powershell start B (nothing run)', psStart);
+        }
         const names = ['plain.txt', `it's a "test" ü 日本.txt`];
         for (const name of names) {
           // a name with `"` is not a name Windows allows
@@ -432,7 +522,9 @@ describe('trash()', () => {
           writeFileSync(file, name);
           let where = '';
           try {
-            where = await trash(file);
+            where = await timed(`trash(${name.length > 9 ? 'unicode' : 'plain'}) in test 1`, () =>
+              trash(file)
+            );
             expect(where).not.toBe('');
             expect(existsSync(file)).toBe(false);
             expect(readFileSync(where, 'utf8')).toBe(name);
@@ -455,7 +547,7 @@ describe('trash()', () => {
         writeFileSync(join(dir, 'deep', 'x'), 'x');
         let where = '';
         try {
-          where = await trash(dir);
+          where = await timed('trash(dir) in test 2', () => trash(dir));
           expect(existsSync(dir)).toBe(false);
           expect(readFileSync(join(where, 'deep', 'x'), 'utf8')).toBe('x');
         } finally {
