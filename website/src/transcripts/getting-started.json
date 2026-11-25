@@ -12,7 +12,7 @@
     },
     {
       "command": "my-cli --help",
-      "output": "\u001b[1mUsage: \u001b[22mmy-cli [options] <command>\n\nWhat my-cli does\n\n\u001b[1mCommands:\u001b[0m\n  completion  Print a shell completion script\n  hello\n  help        Show help for a command\n\n\u001b[1mOptions:\u001b[0m\n  -v, --verbose  Say more\n  -h, --help     Show help for a command\n  -q, --quiet    Suppress progress, not results"
+      "output": "\u001b[1mUsage: \u001b[22mmy-cli [options] <command>\n\nWhat my-cli does\n\n\u001b[1mCommands:\u001b[0m\n  completion  Print a shell completion script\n  hello\n  help        Show help for a command\n  schema      Print each command's input as JSON Schema\n\n\u001b[1mOptions:\u001b[0m\n  -v, --verbose  Say more\n  -h, --help     Show help for a command\n  -q, --quiet    Suppress progress, not results"
     },
     {
       "command": "my-cli deploy api",

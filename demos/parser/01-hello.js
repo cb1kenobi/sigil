@@ -14,6 +14,7 @@ await main({
     name: 'hello',
     desc: 'A very small CLI',
     completion: false,
+    schema: false,
     commands: {
       greet: {
         desc: 'Say hello to somebody',

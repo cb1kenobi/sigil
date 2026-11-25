@@ -877,6 +877,16 @@ export interface Schema {
    */
   completion?: boolean;
   /**
+   * Whether to add a `schema` command, which prints each command's input as JSON
+   * Schema for an agent or a tool definition to read. On unless set to `false`;
+   * an app that declares its own `schema` command keeps it either way.
+   *
+   * Named after the command, as `help` and `completion` are. See
+   * `src/parser/schema-command.ts` and `inputSchemas()` in
+   * `@ttylabs/sigil/reference`.
+   */
+  schema?: boolean;
+  /**
    * The serializers this app can present a command's return value with, keyed on
    * the name `--format` takes.
    *

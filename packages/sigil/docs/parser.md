@@ -1437,6 +1437,25 @@ the `choices` a value is checked against — so there is nothing to declare to g
 it. See the [README](../README.md#shell-completion) for what it offers and what
 it deliberately does not.
 
+### The schema command
+
+A schema also gets a `schema` command, which prints each runnable command's input
+as JSON Schema for an agent or a tool definition to read. The same rules apply
+again: an app that declares its own `schema` keeps it, and `schema: false` adds
+nothing.
+
+```
+$ mycli schema
+$ mycli schema db migrate
+```
+
+It is an ordinary command, like `completion`, and like `completion` it answers on
+an app with a required global option, because the document is printed out of the
+schema rather than out of argv. A command it is given is resolved the way
+`help <command>` resolves one, so a mistyped one is the same `unknown-command`
+usage error with the same suggestion. See the
+[README](../README.md#describing-the-app-to-an-agent) for the shape it prints.
+
 ## Help wins over what is missing
 
 `parse()` decides whether help was asked for after walking argv and before

@@ -18,8 +18,9 @@ which provides the `sigil` command.
   `src/commands/` is a command named after its file, and a subdirectory is a
   command whose `index` module is the directory's own command. Nothing is
   registered by hand.
-- `--help`, `help`, `completion` and `--quiet` are generated from the schema,
-  and `sigil build` adds `--version`. Don't write them by hand.
+- `--help`, `help`, `completion`, `schema` and `--quiet` are generated from the
+  schema, and `sigil build` adds `--version`. Don't write them by hand. `schema`
+  prints each command's input as JSON Schema, for an agent to call the app with.
 - Wrap a command in `command()` from `@ttylabs/sigil`, so that `argv` is typed
   from its format strings. Dashed names are camel-cased: `--dry-run` is
   `argv.dryRun`.

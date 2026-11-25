@@ -21,6 +21,7 @@ await main({
     options: { '-v, --verbose': 'Say more' },
 
     completion: false,
+    schema: false,
     commands: {
       // the first bare label names the command, the rest are aliases
       'db, d': {

@@ -59,7 +59,7 @@ async function appState(schema: Schema, argv: string[] = []): Promise<ParseState
     return await parse({
       argv,
       env: {},
-      schema: { completion: false, help: false, name: 'mycli', ...schema },
+      schema: { completion: false, schema: false, help: false, name: 'mycli', ...schema },
     });
   } catch (err) {
     // a schema declaring a required option with no value is refused by its own
@@ -751,6 +751,7 @@ describe('commandPalette()', () => {
         },
       },
       completion: false,
+      schema: false,
       help: false,
       name: 'mycli',
     };
@@ -776,6 +777,7 @@ describe('commandPalette()', () => {
     const schema: Schema = {
       commands: { build: { run(): void {} } },
       completion: false,
+      schema: false,
       help: false,
       name: 'mycli',
       options: { '--config <file>': {} },
@@ -972,6 +974,7 @@ describe('commandPalette()', () => {
         },
       },
       completion: false,
+      schema: false,
       help: false,
       name: 'mycli',
     };

@@ -23,6 +23,7 @@ const schema = {
   topicSeparator: ':',
 
   completion: false,
+  schema: false,
   options: { '-v, --verbose': 'Say more' },
   commands: {
     db: {

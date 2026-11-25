@@ -65,7 +65,7 @@ describe('resolving a command tree', () => {
     const { commands } = resolveCommandTree(commandsDir, { facts: false });
     const state = (await main({
       argv: [],
-      schema: { commands: commandsDir, completion: false, help: false },
+      schema: { commands: commandsDir, completion: false, schema: false, help: false },
     })) as ParseState;
     const runtime = [...state.contexts[0]![Internal].commands.keys()];
 
@@ -174,13 +174,13 @@ describe('resolving a command tree', () => {
     // the package, with the modules beside it not being commands at all
     const state = (await main({
       argv: [],
-      schema: { commands: root, completion: false, help: false },
+      schema: { commands: root, completion: false, schema: false, help: false },
     })) as ParseState;
     expect([...state.contexts[0]![Internal].commands.keys()]).to.deep.equal(['everything']);
     expect(
       await main({
         argv: ['everything'],
-        schema: { commands: root, completion: false, help: false },
+        schema: { commands: root, completion: false, schema: false, help: false },
       })
     ).to.equal('one');
   });
@@ -983,7 +983,7 @@ describe('resolving a tree whose names are the file system’s', () => {
 
     const state = (await main({
       argv: [],
-      schema: { commands: dir, completion: false, help: false },
+      schema: { commands: dir, completion: false, schema: false, help: false },
     })) as ParseState;
     expect([...state.contexts[0]![Internal].commands.keys()]).to.deep.equal(['deploy']);
   });

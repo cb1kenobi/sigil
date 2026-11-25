@@ -67,6 +67,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 - [Output formats](#output-formats) — `--json`, `--format`, and a serialized error
 - [Help](#help)
 - [Shell completion](#shell-completion) — `completion` installs it, `completion bash` prints it
+- [Describing the app to an agent](#describing-the-app-to-an-agent) — `schema` prints each command's input as JSON Schema
 - [Translating](#translating) — `__`, `__n`, catalogs, `SIGIL_LOCALE`
 - [Typed argv](#typed-argv)
 - [Testing](#testing) — `runCommand()`, `runOnTerminal()`, `createTestTerminal()`, `frame()`, `KEYS`
@@ -1546,6 +1547,50 @@ passing it works.
 
 A value your app would have to compute, which is the static script's own trade
 above.
+
+---
+
+## Describing the app to an agent
+
+A `schema` command is added to the root, the same way `completion` is. It prints
+every runnable command's input as JSON Schema, which is what an agent, an MCP
+server or a tool definition reads to call your app without parsing its help:
+
+```
+$ mycli schema
+{
+  "commands": [
+    {
+      "description": "Migrate the database",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "config": { "type": "string", "description": "Where the config is" },
+          "dryRun": { "type": "boolean", "default": false },
+          "target": { "type": "string" }
+        },
+        "required": ["target"],
+        "type": "object"
+      },
+      "path": ["db", "migrate"]
+    }
+  ],
+  "program": "mycli"
+}
+$ mycli schema db migrate     # that command, and anything under it
+```
+
+A property is named after the `argv` key `run()` reads, and a command's schema
+holds the options of every command above it, since those reach it too. Naming a
+command resolves it the way `help <command>` does, aliases, a `topicSeparator`
+and the "did you mean" included, and a hidden command is printed when it is
+named. What the mapping says and leaves out is under
+[`sigil/reference`](#sigilreference), and `sigil reference --json-schema` prints
+the same document from the toolchain.
+
+`schema.schema: false` adds nothing, and an app that declares its own `schema`
+command, or an alias of that name, keeps it.
 
 ---
 
@@ -8710,8 +8755,8 @@ inside the module that declares them. That is the same cost generating a
 completion script pays, for the same reason, and it is why this is a subpath
 nothing in the runtime imports: an app pays for it only by asking.
 
-What it records is what the app declared. `help`, `completion`, `--help` and
-`--version` are `parse()`'s own additions, so a surface built from a schema does
+What it records is what the app declared. `help`, `completion`, `schema`,
+`--help` and `--version` are `parse()`'s own additions, so a surface built from a schema does
 not have them — which is what keeps an app's snapshot moving when the app moves
 rather than when the framework does.
 

@@ -24,6 +24,7 @@ await main({
     },
 
     completion: false,
+    schema: false,
     commands: {
       build: {
         args: ['<entry>'],

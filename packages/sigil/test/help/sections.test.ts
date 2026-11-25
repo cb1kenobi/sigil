@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 async function help(schema: Schema, argv: string[] = [], width = 72) {
   const state = await parse({
     argv,
-    schema: { completion: false, quiet: false, help: false, ...schema },
+    schema: { completion: false, schema: false, quiet: false, help: false, ...schema },
   });
   return resolveHelp(state, { width });
 }
@@ -120,6 +120,7 @@ describe('Option.group', () => {
   it('should ignore a group mutated into something that cannot be a heading', async () => {
     const schema: Schema = {
       completion: false,
+      schema: false,
       quiet: false,
       help: false,
       name: 'mycli',
@@ -416,6 +417,7 @@ describe('the help hook', () => {
   it('should say [options] in the usage line for a contributed section alone', async () => {
     const only: Schema = {
       completion: false,
+      schema: false,
       quiet: false,
       help: false,
       name: 'mycli',
@@ -496,6 +498,7 @@ describe('the help hook', () => {
   it('should not promise options for a section that contributes only arguments', async () => {
     const argsOnly: Schema = {
       completion: false,
+      schema: false,
       quiet: false,
       help: false,
       name: 'mycli',
@@ -734,6 +737,7 @@ describe('renderHelp() with sections', () => {
     const fired = vi.fn();
     const schema: Schema = {
       completion: false,
+      schema: false,
       quiet: false,
       help: false,
       name: 'mycli',
@@ -755,6 +759,7 @@ describe('renderHelp() with sections', () => {
   it('should let a caller override what the hooks would have contributed', async () => {
     const schema: Schema = {
       completion: false,
+      schema: false,
       quiet: false,
       help: false,
       name: 'mycli',
@@ -781,6 +786,7 @@ describe('renderHelp() with sections', () => {
   it('should change nothing for a command with no hooks', async () => {
     const schema: Schema = {
       completion: false,
+      schema: false,
       quiet: false,
       help: false,
       name: 'mycli',

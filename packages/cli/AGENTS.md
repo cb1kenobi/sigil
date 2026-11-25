@@ -7480,7 +7480,7 @@ gain that is a quiet `git status` on one platform.
 
 #### What it records is what the app declared
 
-`help`, `completion`, `--help` and `--version` are added by `parse()`, so a
+`help`, `completion`, `schema`, `--help` and `--version` are added by `parse()`, so a
 surface built by initializing the schema simply does not have them. That is the
 answer rather than a filter: an app's snapshot should move when the app moves and
 not when the framework does, and what the framework adds is the framework's to
@@ -7627,6 +7627,19 @@ two packages is one definition in the package both depend on.
   those too and wrote a document that did not parse.
 - **No `sigil.json` key.** Nothing has asked to commit one yet, and a key is easier
   to add than to take back, so `--check` needs `--out`.
+- **A built app prints the same document with `mycli schema`**, a command `parse()`
+  adds to the root as it adds `completion`, decided by Chris over
+  `--help --format json`. `registerSchemaCommand()` in
+  `packages/sigil/src/parser/schema-command.ts` follows `registerCompletion()`
+  in every respect: an app's own `schema` command or alias wins, `schema: false`
+  turns it off, it is `builtIn` and `needsNoValues`, and the mapping sits behind a
+  dynamic import. It is **listed in help**, as `completion` is, because help is
+  what an agent reads first. A named command is resolved through help's own
+  `resolveCommandPath()`, exported for it, so `schema db:migrate` and
+  `help db:migrate` cannot disagree, and `inputSchemas()`'s `under` option narrows
+  the document to it. Adding a third parser-owned command moved every list that
+  enumerates them, and the tests that wanted only the app's own commands gained
+  `schema: false` beside their `completion: false`, which is the existing shape.
 
 > Moved: _What the sabotage pass found, and the litter it left twice_, _What review round 1 found, and the two it was right about by the wrong reason_, _What review round 2 found, pointed at round 1's fixes and round 1's skipped list_, _What review round 3 found, pointed at round 2's fixes and round 2's skipped list_, _What review round 4 found, and the pattern across four of them_, _What CI found that four review rounds and five sabotage passes did not_, _What the PR review round found: the one string never cleaned_ — see [docs/history/a-markdown-command-reference-and-a-surface-snapshot.md](../../docs/history/a-markdown-command-reference-and-a-surface-snapshot.md).
 

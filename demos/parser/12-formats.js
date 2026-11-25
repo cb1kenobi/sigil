@@ -141,6 +141,7 @@ const schema = {
   formats: { csv: toCsv, yaml: toYaml },
 
   completion: false,
+  schema: false,
   commands: {
     list: {
       desc: 'List things, drawing to stdout where nothing asked for data',

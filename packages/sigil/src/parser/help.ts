@@ -99,7 +99,10 @@ export async function detectHelp(
   // when both are present: somebody who typed `help build` named the command
   // they meant, and the `--help` after it adds nothing
   if (handles.command && state.cmd === handles.command) {
-    return { contexts: await resolve(state, path(state, handles.command)), via: 'command' };
+    return {
+      contexts: await resolveCommandPath(state, path(state, handles.command)),
+      via: 'command',
+    };
   }
 
   if (typedOn(state, handles.option)) {
@@ -186,11 +189,20 @@ function path(state: ParseState, command: InternalCommand): string[] {
  * lazily declared command when it reaches one, and hands back what it walked
  * through.
  *
+ * Exported because `schema <command...>` names a command the same way (SIG-717),
+ * and one walk is what keeps `help db:migrate` and `schema db:migrate` agreeing
+ * about which command that is -- and about what to suggest when it is neither.
+ *
  * @param state - The parse state.
  * @param names - The command path.
  * @returns The chain, innermost first.
+ * @throws A `UsageError` with the code `unknown-command` when a name does not
+ *   resolve.
  */
-async function resolve(state: ParseState, names: string[]): Promise<InternalCommand[]> {
+export async function resolveCommandPath(
+  state: ParseState,
+  names: string[]
+): Promise<InternalCommand[]> {
   // the root, which is the last element of any chain
   const chain = [state.contexts[state.contexts.length - 1]!];
   const separator = topicSeparator(state.schema);

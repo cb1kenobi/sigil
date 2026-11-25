@@ -86,6 +86,13 @@ export interface InputSchemaOptions {
    * for the reason help leaves them out: they are reachable, and not offered.
    */
   readonly hidden?: boolean;
+  /**
+   * Only the command at this argv path and the commands below it, by each
+   * segment's canonical name. The command it names is included even when it is
+   * hidden, because naming one is asking for it -- the rule `help <command>`
+   * already follows. `inputSchemas()` alone reads it.
+   */
+  readonly under?: readonly string[];
 }
 
 /** One runnable command and what it takes. */
@@ -454,9 +461,15 @@ export function inputSchemas(
   surface: CommandSurface,
   opts: InputSchemaOptions = {}
 ): InputSchemaDocument {
+  const under = opts.under ?? [];
+  const below = (cmd: SurfaceCommand): boolean =>
+    under.every((segment, i) => cmd.path[i] === segment);
+  const named = (cmd: SurfaceCommand): boolean =>
+    under.length > 0 && cmd.path.length === under.length && below(cmd);
+
   return {
     commands: surface.commands
-      .filter((cmd) => cmd.runnable && (!cmd.hidden || opts.hidden))
+      .filter((cmd) => cmd.runnable && below(cmd) && (!cmd.hidden || opts.hidden || named(cmd)))
       .map((cmd) => ({
         ...(cmd.desc ? { description: cmd.desc } : {}),
         inputSchema: inputSchema(surface, cmd, opts),

@@ -13,6 +13,7 @@ await main({
   schema: {
     name: 'args',
     completion: false,
+    schema: false,
     commands: {
       copy: {
         desc: 'Copy files somewhere',
