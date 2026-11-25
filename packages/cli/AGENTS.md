@@ -628,10 +628,9 @@ makes it testable with a fixture directory and no bundler at all.
     after it, or may replace one it does: spell `name`, and one of `path` or
     `load`, literally, after the last spread or computed key -- never both of the
     last two, which is refused below. One error per placeholder, naming every key
-    the spread blocks. Nothing here resolves a name to the
-    literal it was declared as -- that wants a guard against a mutation between
-    the declaration and the spread, and is **SIG-440** -- so `...base` is refused
-    even where `base` is a `const` of plain keys.
+    the spread blocks. A name is resolved to the literal it was declared as only
+    behind the guard in the entry below (SIG-440); every other name is refused, and
+    so is a `const` that guard gives up on.
   - A **`name` that is not a string literal** -- a template with a substitution,
     a call, an identifier -- and an **accessor** `name`: write it as a string
     literal. A computed `name` was a warning that routed the built app by the key,
@@ -670,7 +669,8 @@ makes it testable with a fixture directory and no bundler at all.
   show what happens to those, and they leave the one refusal each is owed out of
   what they assert (`withoutPlacement()` in `test/build/discover.test.ts`, which
   names the commands and fails if one of them is not refused);
-  `discover/placeholder-spellings` spells `name` after its spreads. No example, no
+  `discover/placeholder-spellings` spelled `name` after its spreads, until SIG-440
+  made that unnecessary for a `const` nothing else touches. No example, no
   demo and no command of the toolchain is refused: `pnpm build` and a build of
   each example under `examples/` were run against it. Covered by `read a
   placeholder's name ...` and `read a placeholder's path and load ...` in
@@ -681,6 +681,64 @@ makes it testable with a fixture directory and no bundler at all.
   one thing wrong per file, built with `--entry`, so the exit code alone says
   which refusal it was and a refusal that is only a warning cannot hide behind
   another error.
+
+  **A spread of a name is read when the name is a `const` nothing else touches,
+  and refused as above when it is anything else (SIG-440).** `{ ...base, path:
+  './a.js' }` with `const base = { hidden: true }` was refused, and the fix it
+  asked for -- spell `name` after the spread -- said nothing the key did not
+  already say. `sealedObject()` in `bindings.ts` is the one place that decides, and
+  `flatten()` takes it as an optional resolver, so the seven keys, the module lift
+  and `warnUnbaked()` all read one list and cannot disagree about which spread was
+  resolved: a resolved spread is the literal's own members, in place, and
+  `mayCarry()`, `lastReplacing()` and `unspelledCarrier()` -- which only ever see
+  that list -- needed no signature change. The module is what `flatten()` is
+  handed rather than what those three are, which is where the ticket's scope said
+  to thread it and is a smaller change for the same effect. Callers with no module
+  to ask (`update-check.ts`) pass nothing and read a name as a spread, as before.
+
+  What it gives a name is **only** a reading, and a wrong one is the SIG-433/434
+  divergence, so it is the conservative half of every question. The binding has to
+  be a `const` of the module's own that is **not exported**, **bound exactly once
+  in the whole file** (a parameter, a block `let` or a function of the same name
+  anywhere gives it up, since the walk has no scope tree to say which a use means,
+  the rule `importBindings()` gives its own names), initialized with an object
+  literal itself -- not a call, not `command({ ... })`, which `bindingObject()`
+  alone looks through for the `desc` lift -- whose members are properties a spread
+  copies as they read: no accessor, no `__proto__`, no computed key that is not a
+  string, and no spread of anything but a literal, so a spread of a spread is
+  refused rather than resolved twice. And the name may occur **nowhere** but its
+  declaration and as the operand of an object spread: an assignment, a member
+  assignment (`base.path = ...`), a call argument (`Object.assign(base, ...)`,
+  `mutate(base)`), a closure, an export, a member read, an array spread and a type
+  query are all the same answer, because each is a use the build cannot follow and
+  one of them might write. That is more than the writes -- `base.hidden` read is
+  harmless -- and it is the cheap side to be wrong on: an app answers a refusal by
+  spelling the key, and a read is the one occurrence worth refusing for the
+  simplicity of the rule. The whole tree is read rather than the code after the
+  declaration, since a function declared above it can be called below. The cases
+  that are refused are a list in `test/build/sealed-binding.test.ts`, one line
+  each, so the next one is a decision somebody makes.
+
+  **The `desc` lift gets the resolution and not the mutation guard on its _own_
+  binding.** `export default cmd`, where `cmd` is a `const`, is `bindingObject()`'s
+  and stays what it was: the default export _is_ a reference to the name, so the
+  guard above would give up on every module this repository writes
+  (`--isolatedDeclarations` makes that the only shape), and a mutation there costs
+  a `desc` warning that was always the severity of that read. What the lift does
+  get is the spread resolution, since it asks `flatten()` the same question as a
+  placeholder: `export default { ...base, run() {} }` with a guarded `base` lifts
+  `base`'s `desc` and no longer reports a spread "that may carry a desc this
+  cannot see". One rule for a spread, and the older looser one only for the export
+  that cannot be guarded. Covered by `test/build/sealed-binding.test.ts` (the
+  guard, one line per refusal), `read a spread of a const that is only ever
+  spread ...` and `refused a spread of a const that something else can change ...`
+  in `test/build/discover.test.ts`, and built against source by
+  `test/build-command.test.ts` over `discover/placeholder-sealed` (the natural
+  shape, all seven keys, built and source agree) and three more files of
+  `discover/placeholder-single` -- `name-mutated`, `path-passed` and
+  `load-captured` -- each a const the guard must give up on. The consts the older
+  refusal tests spread are `let` now, so they still describe a spread the build
+  cannot read; `discover/placeholder-spellings` is the natural shape again.
 
   **A known divergence, not a rule: a built app carries none of the rest of what
   a placeholder declares.** The runtime reads every property off a placeholder

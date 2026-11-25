@@ -1,6 +1,8 @@
-const named = { name: 'later' };
-const pathed = { path: './commands/three.js' };
-const loaded = { load: () => import('./commands/four.js') };
+// `let` rather than `const`: the build resolves a spread of a `const` that is only ever
+// spread (SIG-440), and these are the spreads it cannot read
+let named = { name: 'later' };
+let pathed = { path: './commands/three.js' };
+let loaded = { load: () => import('./commands/four.js') };
 const key = 'path';
 
 // Each of these runs from source and used to build with no complaint: the build

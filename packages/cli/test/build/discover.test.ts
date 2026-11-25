@@ -418,7 +418,8 @@ describe("reading where an app's commands are", () => {
       // runtime registers is a fine one and the app starts, while the build
       // failed. What may be replaced is unknown, as it is in a module: a
       // warning, nothing baked, and never an error
-      const source = `const base = { desc: 'Build the app', path: './commands/a.js' };
+      // `let`, so that the spread is of a name the build cannot resolve (SIG-440)
+      const source = `let base = { desc: 'Build the app', path: './commands/a.js' };
 export default {
   baseDir: import.meta.dirname,
   commands: {
@@ -480,7 +481,8 @@ export default {
       // spelling before them is the one that runs -- baked when it is readable,
       // refused when the runtime refuses it, `!` name or not. And a
       // `desc: undefined` that a spread replaces is a `desc`, not the module's
-      const source = `const base = { path: './commands/a.js' };
+      // `let`, so that the spread is of a name the build cannot resolve (SIG-440)
+      const source = `let base = { path: './commands/a.js' };
 export default {
   baseDir: import.meta.dirname,
   commands: {
@@ -1240,8 +1242,9 @@ export default {
       // the first. A spelling a later spread or computed key may replace, or a
       // key a spread may carry and nothing spells, is unknown: a warning and
       // nothing baked, as a computed one is, and never refused
-      const source = `const base = { alias: 'erase', path: './commands/a.js' };
-const off = { default: false, path: './commands/a.js' };
+      // `let`, so that the spreads are of names the build cannot resolve (SIG-440)
+      const source = `let base = { alias: 'erase', path: './commands/a.js' };
+let off = { default: false, path: './commands/a.js' };
 export default {
   baseDir: import.meta.dirname,
   commands: {
@@ -1344,7 +1347,8 @@ export default {
       // app answers to `second`. A name nothing here can read is refused rather
       // than warned about, because a built app routed by the wrong one is a
       // command that is simply not there
-      const source = `const named = { name: 'later' };
+      // `let`, so that the spread is of a name the build cannot resolve (SIG-440)
+      const source = `let named = { name: 'later' };
 const key = 'name';
 const prefix = 'pre';
 const nm = () => 'got';
@@ -1446,8 +1450,8 @@ export default {
       // refusal is for a module that is not known, or known and unreadable: one
       // that is spelled, that nothing replaces and that is a literal decides
       const source = `import { join } from 'node:path';
-const pathed = { path: './commands/a.js' };
-const loaded = { load: () => import('./commands/a.js') };
+let pathed = { path: './commands/a.js' };
+let loaded = { load: () => import('./commands/a.js') };
 const key = 'path';
 const path = './commands/a.js';
 const on = true;
@@ -1569,6 +1573,127 @@ export default {
           'Cannot combine "load" with "path" in the "both" command: both name the module that is the command, so only one of them can be it',
         ]);
       });
+    });
+
+    it('read a spread of a const that is only ever spread, for all seven keys, in the shape the app is written in', async () => {
+      // SIG-440. `{ ...base, path: './commands/a.js' }` is the natural way to share
+      // a few keys between placeholders, and was refused for `name`, `path` and
+      // `load` and warned about for the rest, because `base` is a name. A const
+      // nothing else names is what it was declared as, so it is read like the
+      // literal it is -- `name` and `path` need no spelling after the spread
+      const source = `const named = { name: 'later' };
+const pathed = { path: './commands/a.js' };
+const loaded = { load: () => import('./commands/a.js') };
+const shared = { desc: 'Shared words', hidden: true, alias: 'sh', default: true };
+const replaced = { desc: 'from the const' };
+export default {
+  baseDir: import.meta.dirname,
+  commands: {
+    one: { ...named, path: './commands/a.js' },
+    two: { ...pathed },
+    three: { ...loaded },
+    four: { ...shared, path: './commands/a.js' },
+    five: { desc: 'early', ...replaced, path: './commands/a.js' },
+    six: { name: 'early', ...named, ...pathed },
+    seven: { ...{ ...pathed }, ...named },
+  },
+};\n`;
+
+      await withSchema(source, (dir) => {
+        const { commands, diagnostics } = readAppCommands(discoverApp(dir));
+        const list = commands?.kind === 'inline' ? commands.commands : [];
+        const module = (name: string) => at(list, name).module?.split(/[\\/]/).at(-1);
+
+        // nothing is refused or warned about for any of them
+        expect(diagnostics.map((d) => d.message)).toEqual([]);
+
+        // `name`, then `path` and `load`: what the const holds, where the app puts it
+        expect(list.map((command) => command.name)).toEqual([
+          'later',
+          'two',
+          'three',
+          'four',
+          'five',
+          'later',
+          'later',
+        ]);
+        for (const command of ['later', 'two', 'three', 'four', 'five']) {
+          expect(module(command), command).toBe('a.js');
+        }
+
+        // `desc`, `hidden`, `alias` and `default` are the same reading
+        expect(at(list, 'four').desc).toBe('Shared words');
+        expect(at(list, 'four').hidden).toBe(true);
+        expect(at(list, 'four').alias).toEqual(['sh']);
+        expect(at(list, 'four').default).toBe(true);
+        // ...and the spread is what runs where it follows a spelling of the key
+        expect(at(list, 'five').desc).toBe('from the const');
+      });
+    });
+
+    it('refused a spread of a const that something else can change, with the message it always had', async () => {
+      // SIG-440. The guard is what makes the reading above safe: a wrong answer
+      // for a `name`, a `path` or a `load` is a built app that routes by another
+      // name or runs no module, with a build that said nothing. So a name the
+      // build cannot show nothing else touches stays what it was -- refused for
+      // those three, a warning for `alias` and `default`. Each of these is one of
+      // the cases the rule gives up on rather than argues about
+      const cases: ReadonlyArray<[string, string]> = [
+        ['assigned', 'const base = { path: "./commands/a.js" };\nbase.path = "./commands/b.js";'],
+        ['reassigned', 'let base = { path: "./commands/a.js" };'],
+        [
+          'passed',
+          'const base = { path: "./commands/a.js" };\nObject.assign(base, { path: "./commands/b.js" });',
+        ],
+        ['called', 'const base = { path: "./commands/a.js" };\nmutate(base);'],
+        [
+          'captured',
+          'const base = { path: "./commands/a.js" };\nconst swap = () => { base.path = "./commands/b.js"; };',
+        ],
+        ['exported', 'export const base = { path: "./commands/a.js" };'],
+        ['listed', 'const base = { path: "./commands/a.js" };\nexport { base };'],
+        ['getter', 'const base = { get path() { return "./commands/a.js"; } };'],
+        ['computed', 'const key = "path";\nconst base = { [key]: "./commands/a.js" };'],
+        ['chained', 'const inner = { path: "./commands/a.js" };\nconst base = { ...inner };'],
+        ['called-in', 'const base = freeze({ path: "./commands/a.js" });'],
+      ];
+
+      for (const [what, declaration] of cases) {
+        const source = `${declaration}
+export default {
+  baseDir: import.meta.dirname,
+  commands: {
+    x: { ...base },
+    y: { desc: 'y', alias: 'why', default: true, ...base, name: 'y', path: './commands/a.js' },
+  },
+};\n`;
+
+        await withSchema(source, (dir) => {
+          const { commands, diagnostics } = readAppCommands(discoverApp(dir));
+          const list = commands?.kind === 'inline' ? commands.commands : [];
+          const errors = diagnostics.filter((d) => d.severity === 'error').map((d) => d.message);
+
+          // `x` has no module and no name the build can read: refused, once
+          expect(errors, what).toHaveLength(1);
+          expect(errors[0], what).toContain(
+            'the "x" command spreads another object, which may carry its "name", "path" or "load"'
+          );
+          expect(at(list, 'x').module, what).toBeUndefined();
+          // `y` writes `name` and `path` after the spread, which decides both;
+          // `alias` and `default` are written before it, so they are unknown
+          expect(at(list, 'y').alias, what).toBeUndefined();
+          expect(at(list, 'y').default, what).toBeUndefined();
+          const warnings = diagnostics
+            .filter((d) => d.severity === 'warning')
+            .map((d) => d.message);
+          expect(
+            warnings.some((message) =>
+              message.includes('"y" command\'s "alias" is written before a spread')
+            ),
+            what
+          ).toBe(true);
+        });
+      }
     });
 
     it('should warn about an alias or a default it cannot read, naming the command', () => {

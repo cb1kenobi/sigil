@@ -1,4 +1,6 @@
-const base = { desc: 'from base', hidden: true };
+// `let` rather than `const`: the build resolves a spread of a `const` that is only ever
+// spread (SIG-440), and this module is about the spread it cannot read
+let base = { desc: 'from base', hidden: true };
 
 // what runs is `base`'s description and `base`'s hidden flag, whatever is
 // written above the spread

@@ -457,7 +457,8 @@ describe('extracting a command module', () => {
       // `base` carries -- and the build baked `early` and `false`
       const { diagnostics, facts } = extractCommand(
         'a.js',
-        `const base = { desc: 'from base', hidden: true };
+        // `let`, so that the spread is of a name the build cannot resolve (SIG-440)
+        `let base = { desc: 'from base', hidden: true };
          export default { desc: 'early', hidden: false, ...base, run() {} };`
       );
 

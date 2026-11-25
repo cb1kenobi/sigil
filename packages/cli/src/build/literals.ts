@@ -11,6 +11,7 @@
  * the caller decides whether that is worth reporting. Nothing here guesses.
  */
 
+import type { ParsedModule } from './parse-module.ts';
 import { walk } from './walk.ts';
 import type { Expression, Node, ObjectExpression, ObjectProperty, SpreadElement } from 'oxc-parser';
 
@@ -183,8 +184,9 @@ export function plainProperty(object: ObjectExpression, name: string): ObjectPro
  * `load`), and never bakes a wrong value. A call is not looked through here,
  * even the single-argument one `objectLiteral()` unwraps: a wrapper adding a
  * `desc` is exactly the case this question exists for. Resolving a name to the
- * literal it was declared as is SIG-440, and wants a guard against a mutation
- * between the declaration and the spread before it can be trusted.
+ * literal it was declared as is `flatten()`'s, behind the guard `sealedObject()` in
+ * `bindings.ts` is: a name it did not resolve is a spread of a name, and is
+ * refused here (SIG-440).
  *
  * A plain property is not asked about: its key is its own, and the caller
  * reads it by name.
@@ -336,20 +338,40 @@ export type Member = ObjectExpression['properties'][number];
  * and what stays computed is a key that is not a string: `[key]`, `['de' +
  * 'sc']`, `[1]`, a symbol. Those are the members `mayCarry()` is asked about.
  *
+ * A spread of a **name** is a literal too when the caller can say which one it
+ * is, and only then (SIG-440): `resolve` answers for a name, and answers only
+ * where the module cannot have changed what the name holds between its
+ * declaration and the spread -- `sealedResolver()` in `bindings.ts`, which is the
+ * one place that is decided. Without one, a name stays a spread, which is what
+ * every caller did before and what a caller that has no module to ask still does.
+ * What a resolved literal holds is read as a literal and no further, so a spread
+ * inside it is never resolved in turn.
+ *
  * The members are the source's own nodes, except a computed key that was
- * rewritten to the plain one, so a position taken from one is the source's.
+ * rewritten to the plain one, so a position taken from one is the source's -- a
+ * resolved name's, the position of the declaration it was read from.
  *
  * @param object - The object literal.
+ * @param resolve - The object literal a name holds, where that is known.
  * @returns Its members, in the order the object has them.
  */
-export function flatten(object: ObjectExpression): Member[] {
+export function flatten(
+  object: ObjectExpression,
+  resolve?: (name: string) => ObjectExpression | undefined
+): Member[] {
   const members: Member[] = [];
 
   for (const member of object.properties) {
     if (member.type === 'SpreadElement') {
       const inner = unwrapShallow(member.argument);
       if (inner.type === 'ObjectExpression') {
-        members.push(...flatten(inner));
+        members.push(...flatten(inner, resolve));
+        continue;
+      }
+
+      const held = inner.type === 'Identifier' ? resolve?.(inner.name) : undefined;
+      if (held) {
+        members.push(...flatten(held));
       } else {
         members.push(member);
       }
@@ -372,6 +394,68 @@ export function flatten(object: ObjectExpression): Member[] {
   }
 
   return members;
+}
+
+/**
+ * The object expression an expression is, looking through calls or not.
+ *
+ * @param node - The expression.
+ * @param calls - Whether a one-argument call is the object it wraps.
+ * @returns The literal, or `undefined`.
+ */
+export function literalOf(node: Expression, calls: boolean): ObjectExpression | undefined {
+  if (calls) {
+    return objectLiteral(node);
+  }
+
+  const inner = unwrapShallow(node);
+  return inner.type === 'ObjectExpression' ? inner : undefined;
+}
+
+/**
+ * The object literal a module-scope `const` holds, if it holds one.
+ *
+ * `const` only: a `let` or a `var` can be reassigned between the declaration
+ * and the export, so what the binding held when the file was read is not what
+ * it holds when the module runs -- and a lift that guessed would bake a
+ * description the app does not have. Module scope only, for the same reason a
+ * computed key is unreadable: a binding declared somewhere else is a question
+ * about scope that this pass does not answer.
+ *
+ * This is the declaration and nothing about what happened to it afterwards; a
+ * reader whose wrong answer is a build that diverges from the app asks
+ * `sealedObject()` in `bindings.ts`, which asks this and then the rest.
+ *
+ * @param parsed - The module.
+ * @param name - The binding to resolve.
+ * @param calls - Whether a one-argument call is the object it wraps.
+ * @returns The object expression, or `undefined` when it is not one.
+ */
+export function bindingObject(
+  parsed: ParsedModule,
+  name: string,
+  calls: boolean
+): ObjectExpression | undefined {
+  for (const node of parsed.program.body) {
+    const declaration =
+      node.type === 'VariableDeclaration'
+        ? node
+        : node.type === 'ExportNamedDeclaration' && node.declaration?.type === 'VariableDeclaration'
+          ? node.declaration
+          : undefined;
+
+    if (declaration?.kind !== 'const') {
+      continue;
+    }
+
+    for (const declarator of declaration.declarations) {
+      if (declarator.id.type === 'Identifier' && declarator.id.name === name && declarator.init) {
+        return literalOf(declarator.init as never, calls);
+      }
+    }
+  }
+
+  return undefined;
 }
 
 /** What a reader of an object's members may be handed: the literal or its list. */
