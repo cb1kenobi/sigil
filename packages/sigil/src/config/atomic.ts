@@ -507,6 +507,94 @@ function keepOf(path: string): Keep {
 }
 
 /**
+ * What Windows answers a rename over a file somebody else has open (SIG-415).
+ *
+ * `rename()` over a destination another process holds open without
+ * `FILE_SHARE_DELETE` -- an antivirus scanner, an indexer, an editor -- fails
+ * with one of these three, and the hold is usually gone in milliseconds.
+ * `graceful-fs`, which npm writes through, retries the same set -- but only
+ * while the destination is *absent*, so it is the precedent for the codes and
+ * not for this scenario. **Not reproduced** on Windows before it was added,
+ * which is Chris's decision on SIG-415 and is recorded in
+ * `src/config/AGENTS.md`; the tests stage it with a mocked `rename`.
+ */
+const BUSY_CODES: ReadonlySet<unknown> = new Set(['EACCES', 'EBUSY', 'EPERM']);
+
+/**
+ * How long to wait before each retry of a busy rename, in milliseconds.
+ *
+ * Its length is the number of retries and its sum, 1,000, is the bound: after
+ * the last wait the next failure is the answer. Short first because the usual
+ * hold is a scanner's and is over almost at once. A destination that really is
+ * read-only or denied answers one of the three too -- most likely `EPERM` -- and
+ * costs the whole second before it says so, which is the price of not being
+ * able to tell the two apart from the code.
+ */
+const BUSY_BACKOFF_MS: readonly number[] = [10, 20, 40, 80, 160, 320, 370];
+
+/**
+ * Whether a failed rename is worth another try.
+ *
+ * Read per call rather than bound at load, for the reason `which()` reads it:
+ * that is what lets the Windows half be tested on the machine it is written on.
+ */
+function isBusy(error: unknown): boolean {
+  return (
+    process.platform === 'win32' &&
+    typeof error === 'object' &&
+    error !== null &&
+    BUSY_CODES.has((error as { code?: unknown }).code)
+  );
+}
+
+/**
+ * `rename()` over the target, retried while Windows says the target is busy.
+ *
+ * One definition of the retry, in the only place in the package that renames a
+ * file into place: the completion installer's rc and script writes and every
+ * store go through `writeAtomic()`.
+ * What it throws is the **last** attempt's own error, code and all, rather than
+ * one made here, so the caller's cleanup and `inertError()` see what Node said.
+ */
+async function renameInto(temp: string, real: string): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await rename(temp, real);
+      return;
+    } catch (e: unknown) {
+      const wait = BUSY_BACKOFF_MS[attempt];
+      if (wait === undefined || !isBusy(e)) {
+        throw e;
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, wait));
+    }
+  }
+}
+
+/**
+ * `renameInto()` for a caller that cannot await, which waits by blocking.
+ *
+ * `Atomics.wait()` on a private buffer sleeps the thread without spinning and
+ * without a dependency, which is how `renderer/app.ts` already waits in its own
+ * synchronous exit path. Blocking is the point here: this is the save an exit
+ * handler makes, and it has nowhere to yield to.
+ */
+function renameIntoSync(temp: string, real: string): void {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      renameSync(temp, real);
+      return;
+    } catch (e: unknown) {
+      const wait = BUSY_BACKOFF_MS[attempt];
+      if (wait === undefined || !isBusy(e)) {
+        throw e;
+      }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, wait);
+    }
+  }
+}
+
+/**
  * Writes a file atomically.
  *
  * What a failed write throws is Node's own error, with its message escaped and
@@ -572,7 +660,7 @@ async function save(path: string, text: string): Promise<void> {
     if (keep.uid !== undefined && keep.gid !== undefined) {
       await chown(temp, keep.uid, keep.gid);
     }
-    await rename(temp, real);
+    await renameInto(temp, real);
   } catch (e: unknown) {
     await unlink(temp).catch(() => undefined);
     throw e;
@@ -628,7 +716,7 @@ function saveSync(path: string, text: string): void {
     if (keep.uid !== undefined && keep.gid !== undefined) {
       chownSync(temp, keep.uid, keep.gid);
     }
-    renameSync(temp, real);
+    renameIntoSync(temp, real);
   } catch (e: unknown) {
     try {
       unlinkSync(temp);
