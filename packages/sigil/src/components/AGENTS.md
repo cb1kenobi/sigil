@@ -8471,7 +8471,9 @@ have.
   `strip()` has always done; the guard is for the introducer with nothing to introduce,
   and treating every 8-bit C1 character as text is the wider rule, left to Chris
   (SIG-710 follow-up). It scans in a loop and not a recursion, which review found
-  overflowing the stack at about 2,000 lone U+009D. A control character that is not
+  overflowing the stack at about 2,000 lone U+009D, and in one pass over an unended
+  string sequence, because resuming at each introducer inside it ran each to the end of
+  the string: 100,000 lone U+009D took 10.8 s that way and 3 ms now. A control character that is not
   C1 or `ESC` (a bell, a `NUL`) is still dropped by `toDisplayLine()` after, not marked.
   Pinned in `test/ansi/strip.test.ts` and `test/components/note.test.ts`, each case
   sabotaged: `formatLine()` back on `strip()` fails four, treating an unterminated

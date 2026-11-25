@@ -241,8 +241,12 @@ describe('stripWellFormed()', () => {
 
   // the first version recursed into what followed each introducer, one frame each
   it('should read a long run of lone introducers in a loop, not a recursion', () => {
-    const run = C1(0x9d).repeat(20_000);
-    expect(stripWellFormed(`a${run}b`, MARK)).toBe(`a${MARK.repeat(20_000)}b`);
+    // and in linear time: each was matched to the end of the string and rescanned,
+    // which is ten seconds for a hundred thousand and a test that cannot finish
+    const run = C1(0x9d).repeat(100_000);
+    expect(stripWellFormed(`a${run}b`, MARK)).toBe(`a${MARK.repeat(100_000)}b`);
+    const words = `word${C1(0x9f)}`.repeat(20_000);
+    expect(stripWellFormed(words, MARK)).toBe(`word${MARK}`.repeat(20_000));
     const mojibake = Buffer.from('\u201d'.repeat(5_000), 'utf8').toString('latin1');
     expect(stripWellFormed(mojibake, MARK)).not.toMatch(/[\u0080-\u009f]/u);
   });

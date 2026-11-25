@@ -113,6 +113,13 @@ export function strip(str: string): string {
 }
 
 /**
+ * The C1 characters that open a string sequence, which `grammar()` spells out in
+ * its first two alternatives: the ones that, with nothing to end them, run to the
+ * end of what is there.
+ */
+const unended = /[\u0090\u0098\u009D\u009E\u009F]/gu;
+
+/**
  * Removes every escape sequence that is whole, and marks what is not (SIG-710).
  *
  * `strip()` is a terminal's reading, and a terminal that meets a lone `ESC` or a
@@ -153,7 +160,9 @@ export function strip(str: string): string {
  *
  * @param str - The string.
  * @param replacement - What stands for an introducer that began nothing, such as
- * `'\uFFFD'`.
+ * `'\uFFFD'`. It should be text that cannot continue a sequence: it is read as
+ * part of what follows an unended string sequence, so a parameter byte such as
+ * `?` can join a C1 CSI there.
  * @returns The string with the whole sequences gone and the rest kept.
  */
 export function stripWellFormed(str: string, replacement: string): string {
@@ -168,15 +177,21 @@ export function stripWellFormed(str: string, replacement: string): string {
   let from = 0;
   for (let found = any.exec(str); found !== null; found = any.exec(str)) {
     out += str.slice(from, found.index);
-    if (whole.test(found[0])) {
-      from = any.lastIndex;
-    } else {
-      // one introducer and then text, and the text is read again from the next
-      // character, in a loop rather than a recursion: a string of ten thousand
-      // lone introducers is one call and not ten thousand frames
-      out += replacement;
-      from = found.index + 1;
-      any.lastIndex = from;
+    from = any.lastIndex;
+    if (!whole.test(found[0])) {
+      // one introducer and then text, and the text is read again. A string
+      // sequence that was never ended ran to the end of the match, so every
+      // string introducer inside it was never ended either and is marked here,
+      // in one pass: resuming at each of them instead would run each one to the
+      // end of the string, which is quadratic in a run of lone U+009D. What is
+      // left cannot hold one, so the second call is over text with nothing in it
+      // to loop on
+      out +=
+        replacement +
+        stripWellFormed(
+          found[0].slice(1).replace(unended, () => replacement),
+          replacement
+        );
     }
   }
   return out + str.slice(from);
