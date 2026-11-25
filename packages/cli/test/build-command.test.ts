@@ -905,13 +905,12 @@ describe('sigil build', () => {
     const app = join(fixtures, 'discover', 'placeholder-spellings');
     const { err } = await sigil('build', app, '--out', out, '--no-sourcemap');
 
+    // `base` and `off` are `const`s that are only ever spread, so the build reads
+    // what they hold and has nothing to warn about (SIG-440); the warning for a
+    // spread it cannot read is asserted over `discover.test.ts`'s sources
     expect(err).not.toContain('error:');
-    expect(err).toContain(
-      'the "purge" command\'s "alias" is written before a spread or a computed key, which may replace it when the app runs, so it cannot be read at build time; the built app will not answer to the alias the app runs with'
-    );
-    expect(err).toContain(
-      'the "stage" command\'s "default" is written before a spread or a computed key, which may replace it when the app runs, so it cannot be read at build time; the built app will not run it when argv names no command'
-    );
+    expect(err).not.toContain('"purge" command');
+    expect(err).not.toContain('"stage" command');
     expect(process.exitCode).toBeFalsy();
 
     const spawn = (file: string, argv: string[]) => {
@@ -932,10 +931,9 @@ describe('sigil build', () => {
     expect(source('rm').stdout).toBe('remove ran\n');
     expect(source('del').stderr).toContain('Unexpected argument "del"');
 
-    // what the spread carries is not read, so the built app does not answer to
-    // it -- the one difference, and the one the warning names
+    // what the spread carries is read, so the built app answers to it as well
     expect(source('erase').stdout).toBe('purge ran\n');
-    expect(built('erase').stderr).toContain('Unexpected argument "erase"');
+    expect(built('erase')).toStrictEqual(source('erase'));
   }, 60_000);
 
   it("a placeholder's name, path and load were read from their first spelling, so the built app routed by a name and ran a module the app does not", async () => {
@@ -994,6 +992,51 @@ describe('sigil build', () => {
     }
     expect(source('symbol').stdout).toBe('a ran\n');
     expect(source('asynced').stdout).toBe('b ran\n');
+  }, 60_000);
+
+  it('a placeholder that spreads a const only ever spread was refused, though the build could read what the const holds', async () => {
+    // SIG-440. `{ ...named, path: ... }` is the natural way to share keys between
+    // placeholders, and the build refused it for `name`, `path` and `load` and
+    // warned about the other four, because `named` is a name. A const nothing
+    // else touches is read like the literal it is, and the built app has to agree
+    // with the app: the same names route, the same modules run, the same default
+    // is dispatched and the same words are listed
+    const app = join(fixtures, 'discover', 'placeholder-sealed');
+    const { err } = await sigil('build', app, '--out', out, '--no-sourcemap');
+
+    expect(err).not.toContain('error:');
+    expect(err).not.toContain('cannot tell');
+    expect(process.exitCode).toBeFalsy();
+
+    const spawn = (file: string, argv: string[]) => {
+      const { status, stderr, stdout } = spawnSync(process.execPath, [file, ...argv], {
+        cwd: tmpdir(),
+        encoding: 'utf-8',
+      });
+      return { status, stderr, stdout };
+    };
+    const built = (...argv: string[]) => spawn(join(out, 'placeholder-sealed.mjs'), argv);
+    const source = (...argv: string[]) => spawn(join(app, 'dev.ts'), argv);
+
+    for (const argv of [
+      ['renamed'],
+      ['viapath'],
+      ['viaload'],
+      ['aliased'],
+      ['sh'],
+      [],
+      ['--help'],
+    ]) {
+      expect(built(...argv), argv.join(' ')).toStrictEqual(source(...argv));
+    }
+
+    // and what they are is what the app answers to, not an empty match
+    expect(source('renamed').stdout).toBe('a ran\n');
+    expect(source('viaload').stdout).toBe('b ran\n');
+    expect(source('sh').stdout).toBe('a ran\n');
+    expect(source().stdout).toBe('a ran\n');
+    expect(source('--help').stdout).toMatch(/^\s+aliased\b.*Shared words$/m);
+    expect(source('--help').stdout).not.toMatch(/^\s+named$/m);
   }, 60_000);
 
   it('should refuse a placeholder whose name, path or load a spread or a computed key may carry or replace', async () => {
@@ -1082,6 +1125,10 @@ describe('sigil build', () => {
     ['path-getter', 'x', '"path" is an accessor or a method rather than a value'],
     ['load-block', 'x', '"load" is not an arrow function returning a literal import()'],
     ['load-method', 'x', '"load" is an accessor or a method rather than a value'],
+    // SIG-440: a const the build would read, written to where it cannot see
+    ['name-mutated', 'later', 'spreads another object, which may carry its "name"'],
+    ['path-passed', 'x', 'spreads another object, which may carry its "path" or "load"'],
+    ['load-captured', 'x', 'spreads another object, which may carry its "path" or "load"'],
     ['both', undefined, 'Cannot combine "load" with "path" in the "x" command'],
   ])(
     'should refuse %s, which has that one thing wrong with it, and no other',

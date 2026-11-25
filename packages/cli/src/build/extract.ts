@@ -63,15 +63,17 @@
  * never written.
  */
 
+import { sealedResolver } from './bindings.ts';
 import type { Diagnostic } from './diagnostic.ts';
 import { translatedKey } from './i18n.ts';
 import {
+  bindingObject,
   isUndefined,
   flatten,
   lastReplacing,
   literalBoolean,
+  literalOf,
   literalString,
-  objectLiteral,
   plainProperty,
   propertyKey,
   stringList,
@@ -80,7 +82,7 @@ import {
 } from './literals.ts';
 import { locate, parseModule, type ParsedModule } from './parse-module.ts';
 import { escapeControls } from '@ttylabs/sigil/error-handler';
-import type { Expression, ObjectExpression } from 'oxc-parser';
+import type { ObjectExpression } from 'oxc-parser';
 
 /** What a command module says about itself, read statically. */
 export interface CommandFacts {
@@ -217,7 +219,7 @@ export function factsOf(parsed: ParsedModule, routedBy?: RoutedBy): Extracted {
   // read off `flatten()`'s list, as a placeholder is: a spread of an object
   // literal is what it holds and `['desc']` is `desc`, so one definition says
   // what a literal spells wherever it is asked (SIG-433, SIG-434)
-  const members = flatten(object);
+  const members = flatten(object, sealedResolver(parsed));
   const replacing: Record<string, number> = Object.fromEntries(
     LIFTED.map((key) => [key, lastReplacing(members, key)])
   );
@@ -617,63 +619,5 @@ export function defaultObject(
       'the default export is not an object literal, so it cannot be read at build time; help will list this command by name alone',
     severity: 'warning',
   });
-  return undefined;
-}
-
-/**
- * The object literal an expression is, looking through calls or not.
- *
- * @param node - The expression.
- * @param calls - Whether a one-argument call is the object it wraps.
- * @returns The literal, or `undefined`.
- */
-function literalOf(node: Expression, calls: boolean): ObjectExpression | undefined {
-  if (calls) {
-    return objectLiteral(node);
-  }
-
-  const inner = unwrapShallow(node);
-  return inner.type === 'ObjectExpression' ? inner : undefined;
-}
-
-/**
- * The object literal a module-scope `const` holds, if it holds one.
- *
- * `const` only: a `let` or a `var` can be reassigned between the declaration
- * and the export, so what the binding held when the file was read is not what
- * it holds when the module runs -- and a lift that guessed would bake a
- * description the app does not have. Module scope only, for the same reason a
- * computed key is unreadable: a binding declared somewhere else is a question
- * about scope that this pass does not answer.
- *
- * @param parsed - The module.
- * @param name - The binding to resolve.
- * @param calls - Whether a one-argument call is the object it wraps.
- * @returns The object expression, or `undefined` when it is not one.
- */
-function bindingObject(
-  parsed: ParsedModule,
-  name: string,
-  calls: boolean
-): ObjectExpression | undefined {
-  for (const node of parsed.program.body) {
-    const declaration =
-      node.type === 'VariableDeclaration'
-        ? node
-        : node.type === 'ExportNamedDeclaration' && node.declaration?.type === 'VariableDeclaration'
-          ? node.declaration
-          : undefined;
-
-    if (declaration?.kind !== 'const') {
-      continue;
-    }
-
-    for (const declarator of declaration.declarations) {
-      if (declarator.id.type === 'Identifier' && declarator.id.name === name && declarator.init) {
-        return literalOf(declarator.init as never, calls);
-      }
-    }
-  }
-
   return undefined;
 }

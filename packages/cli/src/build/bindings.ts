@@ -20,10 +20,10 @@
  * shapes that stay unreachable is in AGENTS.md rather than repeated here.
  */
 
-import { unwrapShallow } from './literals.ts';
+import { bindingObject, flatten, propertyKey, unwrapShallow } from './literals.ts';
 import { type ParsedModule } from './parse-module.ts';
 import { walk } from './walk.ts';
-import type { CallExpression, Expression } from 'oxc-parser';
+import type { CallExpression, Expression, ObjectExpression } from 'oxc-parser';
 
 /**
  * Every way one module can reach one export.
@@ -176,7 +176,30 @@ export function importedAs(parsed: ParsedModule, local: string): ImportedFrom | 
  * @returns The names it re-binds.
  */
 function reboundNames(parsed: ParsedModule): Set<string> {
-  const names = new Set<string>();
+  return new Set(bindingSites(parsed).keys());
+}
+
+/**
+ * Every binding site in a module, counted per name: the declaration of a name
+ * and each place something else binds it again.
+ *
+ * `reboundNames()` is the names, and this is the names with how many times, which
+ * is the question a binding the module declares has to ask about itself: one
+ * site is the declaration, and a second is a parameter, a `let` in a block or a
+ * function that may be what a use of the name means instead (SIG-440). One walk,
+ * for both questions, so they cannot read a binding differently.
+ *
+ * @param parsed - The module.
+ * @returns How many times each name is bound by something other than an import.
+ */
+function bindingSites(parsed: ParsedModule): Map<string, number> {
+  const known = sites.get(parsed);
+  if (known) {
+    return known;
+  }
+
+  const counted = new Map<string, number>();
+  const names: string[] = [];
 
   walk(parsed.program, (node) => {
     // an import's own binding is not a shadow of itself
@@ -200,7 +223,157 @@ function reboundNames(parsed: ParsedModule): Set<string> {
     return true;
   });
 
-  return names;
+  for (const name of names) {
+    counted.set(name, (counted.get(name) ?? 0) + 1);
+  }
+
+  sites.set(parsed, counted);
+  return counted;
+}
+
+/** The binding sites of a module, read once: a module is asked about per spread. */
+const sites = new WeakMap<ParsedModule, Map<string, number>>();
+
+/**
+ * The object literal a module-scope `const` holds, **when nothing can have
+ * changed it** between its declaration and any use -- or `undefined`, which is
+ * the answer for everything that cannot be shown (SIG-440).
+ *
+ * This is what lets a placeholder spread `...base` of a same-module `const`
+ * without the build refusing it, and what keeps that safe: a wrong answer here
+ * is a built app that routes by a name, or bundles a module, the app does not,
+ * which is what SIG-433 and SIG-434 refuse for. So the answer is given only for
+ * a binding that is
+ *
+ * - a `const` of the module's own, **not exported** -- an export is a name any
+ *   importer can write through;
+ * - bound exactly once in the whole module, so no parameter, `let`, function or
+ *   block shadows it where a use sits (the walk has no scope tree to say which
+ *   it is, the reason `importBindings()` gives the same names up);
+ * - initialized with an object literal itself, not a call or a wrapper around
+ *   one, whose members are all properties a spread copies as they read -- no
+ *   accessor, no `__proto__`, no computed key that is not a string and no spread
+ *   of anything but another literal (a spread of a spread is not resolved
+ *   twice); and
+ * - **named nowhere except as the operand of an object spread** -- never
+ *   assigned, never member-assigned (`base.path = ...`), never passed to a call
+ *   (`Object.assign(base, ...)`, `mutate(base)`), never captured by a closure,
+ *   never exported, never read by a member. Any other occurrence of the name is
+ *   a use this cannot follow, so it is a use that might write, and it is refused
+ *   whole rather than argued about: an unrelated property called `base` costs a
+ *   refusal the app answers by spelling the key, and that is the cheap side.
+ *
+ * Read off the whole tree rather than from the declaration forward, since a
+ * function declared above it can still be called after it.
+ *
+ * @param parsed - The module.
+ * @param name - The binding.
+ * @returns The literal it holds, or `undefined` where that cannot be shown.
+ */
+export function sealedObject(parsed: ParsedModule, name: string): ObjectExpression | undefined {
+  let cache = sealed.get(parsed);
+  if (!cache) {
+    cache = new Map();
+    sealed.set(parsed, cache);
+  }
+
+  if (!cache.has(name)) {
+    cache.set(name, sealedObjectOf(parsed, name));
+  }
+
+  return cache.get(name);
+}
+
+/** What `sealedObject()` answered per module and name, since the answer is a walk. */
+const sealed = new WeakMap<ParsedModule, Map<string, ObjectExpression | undefined>>();
+
+/**
+ * `sealedObject()` as a function of a name alone, which is what `flatten()` takes.
+ *
+ * @param parsed - The module the names are in.
+ * @returns The resolver.
+ */
+export function sealedResolver(
+  parsed: ParsedModule
+): (name: string) => ObjectExpression | undefined {
+  return (name) => sealedObject(parsed, name);
+}
+
+/** Whether a property's value is an array or an object literal, which a spread shares. */
+function holdsObject(value: Expression | unknown): boolean {
+  const inner = unwrapShallow(value as Expression);
+  return inner.type === 'ObjectExpression' || inner.type === 'ArrayExpression';
+}
+
+function sealedObjectOf(parsed: ParsedModule, name: string): ObjectExpression | undefined {
+  if (bindingSites(parsed).get(name) !== 1) {
+    return undefined;
+  }
+
+  // the declaration itself, and only a plain one: `bindingObject()` also reads an
+  // exported `const`, which is exactly what is refused here
+  const declarator = parsed.program.body
+    .flatMap((node) =>
+      node.type === 'VariableDeclaration' && node.kind === 'const' ? node.declarations : []
+    )
+    .find((each) => each.id.type === 'Identifier' && each.id.name === name);
+  const object = declarator ? bindingObject(parsed, name, false) : undefined;
+  if (!declarator || !object) {
+    return undefined;
+  }
+
+  // what a spread copies as it reads: an accessor is read at the spread and not
+  // by the build, `__proto__` sets a prototype and copies nothing, a computed key
+  // that is not a string names nothing here, and a spread is another question
+  const readable = flatten(object).every(
+    (member) =>
+      member.type !== 'SpreadElement' &&
+      !member.computed &&
+      member.kind === 'init' &&
+      propertyKey(member) !== undefined &&
+      propertyKey(member) !== '__proto__' &&
+      // a spread is a shallow copy, so a nested array or object is the very one
+      // the const holds, handed to whoever the spread went to: `{ ...base }.alias`
+      // can be pushed to without the name ever being written (SIG-440, review)
+      !holdsObject(member.value)
+  );
+  if (!readable) {
+    return undefined;
+  }
+
+  // every occurrence of the name but its declaration and an object spread's
+  // operand is a use that might write -- or might hand the object to something
+  // that does. A JSX name is an occurrence too (`<base.path />` reads a member),
+  // and so is a spread above the declaration, which throws from source. A module
+  // with `with` or a direct `eval` can bind or write any name without saying so
+  const allowed = new Set<unknown>([declarator.id]);
+  let used = false;
+  walk(parsed.program, (node) => {
+    if (node.type === 'WithStatement') {
+      used = true;
+    } else if (node.type === 'ObjectExpression') {
+      for (const property of node.properties) {
+        if (property.type === 'SpreadElement') {
+          const operand = unwrapShallow(property.argument);
+          if (operand.type === 'Identifier' && operand.name === name) {
+            if (operand.start < declarator.end) {
+              used = true;
+            }
+            allowed.add(operand);
+          }
+        }
+      }
+    } else if (
+      (node.type === 'Identifier' || node.type === 'JSXIdentifier') &&
+      (node.name === 'eval' || (node.name === name && !allowed.has(node)))
+    ) {
+      used = true;
+    }
+
+    return !used;
+  });
+
+  return used ? undefined : object;
 }
 
 /**
@@ -211,9 +384,9 @@ function reboundNames(parsed: ParsedModule): Set<string> {
  * unread pattern can only cost an optimization.
  *
  * @param value - A pattern, or whatever was on the key.
- * @param into - Where to collect the names.
+ * @param into - Where to collect the names, one entry per binding site.
  */
-function patternNames(value: unknown, into: Set<string>): void {
+function patternNames(value: unknown, into: string[]): void {
   if (!value || typeof value !== 'object') {
     return;
   }
@@ -231,7 +404,7 @@ function patternNames(value: unknown, into: Set<string>): void {
       patternNames(node.left, into);
       return;
     case 'Identifier':
-      into.add(String(node.name));
+      into.push(String(node.name));
       return;
     case 'ObjectPattern':
       for (const property of (node.properties as Record<string, unknown>[]) ?? []) {

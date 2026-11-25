@@ -39,6 +39,7 @@
  * from (`schemaModule()`) -- because running it would run the app.
  */
 
+import { sealedResolver } from './bindings.ts';
 import { type Diagnostic, displayPath } from './diagnostic.ts';
 import { type CommandFacts, factsOf, type RoutedBy } from './extract.ts';
 import { translatedKey } from './i18n.ts';
@@ -808,7 +809,7 @@ function placeholderFacts(
   nameString: string
 ): PlaceholderFacts {
   const command = commandName(nameString);
-  const spelled = (key: string) => placeholderSpelling(object, key);
+  const spelled = (key: string) => placeholderSpelling(object, key, parsed);
   const beforeOpaque = (key: string, consequence: string) =>
     replacedMessage(command.name, key, consequence);
   const carried = (key: string, consequence: string) =>
@@ -943,6 +944,8 @@ function placeholderFacts(
  *
  * @param object - The command literal.
  * @param key - The key in question.
+ * @param parsed - The module, which a spread of a `const` of its own is read in
+ *   (SIG-440).
  * @param computed - Whether a computed key that may be `key` is a carrier as
  *   well as a spread, which `name`, `path` and `load` ask and the rest do not.
  * @returns The spelling that runs, `undefined` where the key is not declared;
@@ -952,6 +955,7 @@ function placeholderFacts(
 function placeholderSpelling(
   object: ObjectExpression,
   key: string,
+  parsed: ParsedModule,
   computed = false
 ): {
   carrier: SpreadElement | ObjectProperty | undefined;
@@ -960,7 +964,7 @@ function placeholderSpelling(
 } {
   // the members the object evaluates to, which is what the runtime registers:
   // a spread of a literal is what it holds and `['path']` is `path`
-  const members = flatten(object);
+  const members = flatten(object, sealedResolver(parsed));
   let found: ObjectProperty | undefined;
   for (const property of members) {
     if (property.type !== 'SpreadElement' && propertyKey(property) === key) {
@@ -968,7 +972,7 @@ function placeholderSpelling(
     }
   }
 
-  const replaced = found !== undefined && members.indexOf(found) < lastReplacing(members, key);
+  const replaced = found !== undefined && members.lastIndexOf(found) < lastReplacing(members, key);
 
   // `undefined` is what the runtime reads as not declared
   const declared =
@@ -1014,7 +1018,7 @@ function readSpelled(
   }
 ): ObjectProperty | undefined {
   const { consequence, diagnostics, name, parsed, severity } = report;
-  const { carrier, declared, replaced } = placeholderSpelling(object, key);
+  const { carrier, declared, replaced } = placeholderSpelling(object, key, parsed);
   if (declared && replaced) {
     diagnostics.push({
       ...locate(parsed, declared.start),
@@ -1359,7 +1363,7 @@ function placeholderIdentity(
     diagnostics.push({ ...locate(parsed, at.start), message, severity: 'error' });
   const spell = (property: 'load' | 'name' | 'path') => ({
     key: property,
-    ...placeholderSpelling(object, property, true),
+    ...placeholderSpelling(object, property, parsed, true),
   });
   const name = spell('name');
   const path = spell('path');
@@ -1551,7 +1555,7 @@ function warnUnbaked(
   // what the object spells, as the build reads it: an unbaked key inside a
   // literal spread or under a computed key written as a string is as unbaked as
   // one written plainly
-  for (const property of flatten(object)) {
+  for (const property of flatten(object, sealedResolver(parsed))) {
     if (property.type === 'SpreadElement') {
       continue;
     }
