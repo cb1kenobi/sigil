@@ -444,6 +444,12 @@ that knowledge was undiscoverable from outside this repository.
       advance itself threw and `onTimerError()` heard nothing (SIG-660). It is
       the signals layer's default report now, below, and `onTimerError()` still
       hears nothing, which is asserted.
+      A frame handler, a layout or an `onMount` callback that fails on a frame
+      timer under a throwing `onError` was the same uncaught exception, measured
+      the same way, and is written the same way since SIG-674 (`Error in frame:
+      ...`, `Error in frame error handler: ...`, exit code `1`), pinned in
+      `test/renderer/on-error-frame-timer.test.ts`; `frame()` called by the test
+      itself still raises, since it has a caller.
     - **A bare effect**, flushed in a microtask: `setErrorHandler()`, or the
       `createEffects()` scope's own. With none it is `Error in effect: ...` on the
       real stderr and `process.exitCode` set to `1`, a line a test passes over -- so a
