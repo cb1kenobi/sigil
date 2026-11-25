@@ -3243,8 +3243,20 @@ it is a component rather than the frame effect SIG-103 is.
   it rejects and nothing is written; unheard, it is written and **still rejects**,
   with a handler of its own attached through `Promise.prototype.then` -- which
   does not count as listening -- so that the rejection is not also unhandled. A
-  caller that subscribes after that finds the rejection and no second report;
-  the failure was reported once, for the moment nobody was there.
+  caller that subscribes after that finds the rejection and no second report of
+  its own; the failure was reported once, for the moment nobody was there. **That
+  is a cost, and it is documented on `done`:** `start()`, a long `await` on
+  something else and only then `await done` is a late subscriber whose run failed
+  in between, and gets the rejection **and** the report with the exit code set.
+  An `await` also subscribes one microtask after it is evaluated while a `.catch()`
+  does at once, so one that follows `await null` over a run that has already
+  settled is late too (found by review round 1, measured on a replica). The
+  alternative, judging at the end of the tick the way the runtime's own unhandled
+  rejection pass does, would cost a timer on every run to move the line a few
+  microtasks, so the rule is the plain one. The controls stay with whoever built
+  the promise (an executor and a private field), and the report is written even
+  if stderr throws, which would otherwise have left `done` pending. Several
+  failures the renderer raised as one aggregate are written one each.
 
   The report is the default one and not a second call to `onError`: what `leave()`
   raises is what `onError` threw for the failure, which it was already given, so

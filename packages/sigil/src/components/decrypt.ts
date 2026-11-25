@@ -1192,7 +1192,13 @@ export interface Decrypt {
    * `Promise.all()`. A caller that is not is not handed an unhandled rejection:
    * `start()` returns the decrypt and awaiting is optional, so the failure is
    * written to stderr instead, led by `Error in decrypt:`, with the exit code set
-   * (SIG-691). Either way it is reported once.
+   * (SIG-691).
+   *
+   * Whether anything is waiting is asked at the moment of the failure, so a
+   * caller that has not subscribed yet then is not waiting: `start()`, a long
+   * `await` on something else, and only then `await done` gets the rejection
+   * **and** the report. Subscribe before the run can end -- `await` it, or call
+   * `done.catch()` on it -- to be the one that hears of it.
    */
   readonly done: Promise<void>;
   /** Starts, optionally replacing the text first. */
@@ -1218,28 +1224,19 @@ export interface Decrypt {
  * `await`, `then()`, `catch()`, `finally()` and everything that takes a promise
  * go through `then()`, and a subclass is what makes `await` do so: a native
  * promise is awaited without it. `species` is `Promise`, so what `then()` derives
- * is an ordinary promise rather than another of these, and `resolve` and `reject`
- * are the settle functions its executor was handed.
+ * is an ordinary promise rather than another of these. It is built the way any
+ * promise is, by an executor, so that the controls stay with whoever built it.
  */
 class Heard extends Promise<void> {
   static override get [Symbol.species](): PromiseConstructor {
     return Promise;
   }
 
-  /** Whether `then()` has been called on it, by whatever route. */
-  heard = false;
-  readonly reject: (reason: unknown) => void;
-  readonly resolve: () => void;
+  #heard = false;
 
-  constructor() {
-    let resolve!: () => void;
-    let reject!: (reason: unknown) => void;
-    super((res, rej) => {
-      resolve = res;
-      reject = rej;
-    });
-    this.resolve = resolve;
-    this.reject = reject;
+  /** Whether `then()` has been called on it, by whatever route. */
+  get heard(): boolean {
+    return this.#heard;
   }
 
   // a thenable on purpose: it is the whole of how a waiter is noticed
@@ -1248,7 +1245,7 @@ class Heard extends Promise<void> {
     onFulfilled?: ((value: void) => A | PromiseLike<A>) | null,
     onRejected?: ((reason: unknown) => B | PromiseLike<B>) | null
   ): Promise<A | B> {
-    this.heard = true;
+    this.#heard = true;
     return super.then(onFulfilled, onRejected);
   }
 }
@@ -1355,7 +1352,12 @@ export function createDecrypt(opts: DecryptOptions = {}): Decrypt {
    */
   function begin(): Promise<void> {
     const mine = ++run;
-    const out = new Heard();
+    let resolveOut!: () => void;
+    let rejectOut!: (reason: unknown) => void;
+    const out = new Heard((resolve, reject) => {
+      resolveOut = resolve;
+      rejectOut = reject;
+    });
     new Promise<void>((resolve) => {
       settle = resolve;
     })
@@ -1364,21 +1366,31 @@ export function createDecrypt(opts: DecryptOptions = {}): Decrypt {
           leave();
         }
       })
-      .then(out.resolve, (error: unknown) => {
-        if (!out.heard) {
-          // what `leave()` raises is what `onError` threw for the failure, which
-          // it has already been given -- so it is written by the default report
-          // rather than handed to `onError` a second time. Rethrowing is how
-          // `handOver()` is asked for exactly that
-          handOver(
-            (thrown) => {
-              throw thrown;
-            },
-            error,
-            'Error in decrypt'
-          );
+      .then(resolveOut, (error: unknown) => {
+        try {
+          if (!out.heard) {
+            // what `leave()` raises is what `onError` threw for the failure,
+            // which it has already been given -- so it is written by the default
+            // report rather than handed to `onError` a second time. Rethrowing is
+            // how `handOver()` is asked for exactly that. Each of several is
+            // written, since the renderer raises more than one as an aggregate
+            // whose own message says only that they were several
+            for (const each of error instanceof AggregateError ? error.errors : [error]) {
+              handOver(
+                (thrown) => {
+                  throw thrown;
+                },
+                each,
+                'Error in decrypt'
+              );
+            }
+          }
+        } finally {
+          // whatever the report did, the promise is settled: a stderr that
+          // throws must not leave `done` pending for the caller that comes
+          // looking
+          rejectOut(error);
         }
-        out.reject(error);
       });
     // through the prototype, which is not `Heard.then()`: this handler is ours and
     // must not count as somebody listening
