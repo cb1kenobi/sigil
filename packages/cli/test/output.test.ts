@@ -347,3 +347,32 @@ describe('an app built on main(), the writers SIG-542 left', () => {
     });
   });
 });
+
+/**
+ * The remaining writers, decided one at a time (SIG-672): `page()` is a document
+ * and is the one that changed.
+ */
+describe('an app built on main(), the writers SIG-663 left', () => {
+  const fixture = join(here, 'fixtures', 'main-output', 'app.mjs');
+
+  describe.skipIf(process.platform === 'win32')('under a size limit', () => {
+    it('should write the whole of a paged document when nothing limits the file', async () => {
+      const dest = join(dir, 'page-whole.txt');
+      const ran = await runToFile(fixture, ['page'], dest);
+
+      expect(ran.code).toBe(0);
+      expect(statSync(dest).size).toBeGreaterThan(2900);
+    });
+
+    it('should exit non-zero over a paged document that was cut off', async () => {
+      const dest = join(dir, 'page-cut.txt');
+      const ran = await runToFile(fixture, ['page'], dest, 1);
+
+      // the limit bit, so a zero below is the defect and not a limit that never applied
+      expect(statSync(dest).size).toBeLessThan(2900);
+      expect(ran.code).toBe(1);
+      expect(ran.stderr).toContain('The output was cut off');
+      expect(ran.stderr).not.toMatch(STACK);
+    });
+  });
+});

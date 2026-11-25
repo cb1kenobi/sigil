@@ -61,6 +61,7 @@ import {
   isAbort,
   type KeyEvent,
 } from '../input/index.js';
+import { writeTo } from '../output.js';
 import { render, type Renderer } from '../renderer/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
@@ -1170,6 +1171,8 @@ export interface PageOptions extends Omit<PagerOptions, 'content' | 'onQuit'>, S
  * typing into -- the document is **written out as it was given** and the promise
  * resolves, which is what `less` does when its output is not a terminal: the
  * reader is somebody's `grep`, and what they want is the text.
+ * A file that took only part of it rejects the promise (SIG-672), since
+ * `page() > out.txt` is a document and exiting 0 over half of one is the defect.
  *
  * @param content - The document.
  * @param opts - How to show it, and where.
@@ -1182,7 +1185,14 @@ export function page(content: string | readonly string[], opts: PageOptions = {}
   if (!canReadKeys({ stdin, terminal })) {
     const body = typeof content === 'string' ? content : content.join('\n');
     if (body !== '') {
-      terminal.stdout.write(body.endsWith('\n') ? body : `${body}\n`);
+      // a document, and `mycli log > out.txt` is the case: through `writeTo()` so a
+      // file that took only part of it is a rejection rather than an exit 0 over a
+      // cut-off one (SIG-672). A rejection and not a throw, since this returns a promise
+      try {
+        writeTo(terminal.stdout, body.endsWith('\n') ? body : `${body}\n`);
+      } catch (err) {
+        return Promise.reject(err);
+      }
     }
     return Promise.resolve();
   }

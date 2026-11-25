@@ -8686,7 +8686,7 @@ import { guardOutput, isStreamGone, writeOut, writeTo } from '@ttylabs/sigil/out
 guardOutput(); // `mycli list | head -1` is a command that finished, not a stack trace
 
 writeOut(JSON.stringify(data)); // throws if a file took only part of it
-writeTo(process.stderr, 'a diagnostic\n'); // the same, for any stream
+writeTo(process.stderr, 'a diagnostic\n'); // the same, for the process's own stderr
 ```
 
 **`guardOutput()`** puts one listener on `process.stdout` and on `process.stderr`,
@@ -8701,15 +8701,20 @@ streams to guard others. It is never taken off, because the `EPIPE` for the last
 write arrives after the program has finished.
 
 **`writeOut()`** and **`writeTo()`** are for output somebody will read as data.
-When the stream is a regular file -- `mycli --json > out.json` -- Node writes it
+When the stream is the process's own `process.stdout` or `process.stderr` and is
+a regular file -- `mycli --json > out.json` -- Node writes it
 with one `fs.writeSync()` and throws the byte count away, so a kernel that takes
 only part of it (a full disk, or `ulimit -f`) raises no error and the program
 exits 0 over a cut-off file. These loop on the count instead, and what is left
-fails with `The output was cut off: 1024 of 2276 bytes were written (EFBIG).` A
-pipe, a terminal, a stream with no file descriptor, and a stream whose `write` was
-replaced (which is a capture, and is left to the capture) are written through
-`stream.write()` as before. `writeFully(text, write)` is the loop on its own, over
-any sink that says how many bytes it took.
+fails with `The output was cut off: 1024 of 2276 bytes were written (EFBIG).` Every
+other stream is written through `stream.write()` as before: a pipe, a terminal,
+a stream with no file descriptor, a stream whose `write` was replaced (which is a
+capture, and is left to the capture) and **a stream you opened yourself**. An
+`fs.WriteStream` has a queue and a position of its own, and writing to its
+descriptor would put the text ahead of what it still holds and, for one opened
+with `start`, at the wrong offset -- so a short write there is the stream's to
+report, as its `error` event. `writeFully(text, write)` is the loop on its own,
+over any sink that says how many bytes it took.
 
 `main()` writes `--help`, `--version` and a command's serialized output through
 `writeOut()`; a command that prints its own document is the one to change.

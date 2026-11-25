@@ -223,23 +223,19 @@ export function errorHandler(err: unknown, opts: ErrorHandlerOptions = {}): void
   // covers a throwing `write`; an asynchronous EPIPE arrives as an `error`
   // event on the stream, which `guardOutput()` listens for.
   //
-  // Through `writeTo()` for the process's own stderr, which is the one place that
-  // knows a regular file takes a write in part: `mycli 2> log` on a full disk lost
-  // the message itself, with nothing to say so, because Node discards the byte
-  // count. A stream the caller handed in is `write()` as it always was -- an
-  // `fs.WriteStream` has a descriptor and a queue of its own, and writing round
-  // the queue puts the message ahead of what it holds. What `writeTo()` throws on
-  // a cut-off is caught below like any other failed write, because the error path
-  // has nowhere left to report to -- stderr is the thing that failed
+  // Through `writeTo()`, which is the one place that knows a regular file takes a
+  // write in part: `mycli 2> log` on a full disk lost the message itself, with
+  // nothing to say so, because Node discards the byte count. It takes the checked
+  // path for the process's own stderr only, and `write()`s any other stream -- an
+  // `fs.WriteStream` has a descriptor and a queue of its own, which a write round
+  // it would jump (SIG-671). What `writeTo()` throws on a cut-off is caught below
+  // like any other failed write, because the error path has nowhere left to report
+  // to -- stderr is the thing that failed
   let code = errorExitCode(err);
   const own = stderr === process.stderr;
   const line = `${trimTrailingNewlines(text)}\n`;
   try {
-    if (own) {
-      writeTo(process.stderr, line);
-    } else {
-      stderr.write(line);
-    }
+    writeTo(stderr, line);
   } catch (writeErr) {
     safeLog(writeErr);
     // the verdict is still the error's own, so a usage error is still 2 and the
