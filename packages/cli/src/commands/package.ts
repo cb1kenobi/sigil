@@ -35,12 +35,11 @@ import {
   assertToolchain,
   assertUpdateCheckDeclared,
   bakedUpdateCheck,
-  handCalledCheckWarning,
   bundleApp,
   bunTargetRuntime,
   bunVersion,
   readSchemaUpdateCheck,
-  wrappedCheckWarning,
+  updateCheckVerdict,
   compileWithBun,
   compileWithNode,
   type CompileResult,
@@ -330,29 +329,20 @@ const pkg: AnyCommand = command({
       // until now. Before `compileAll()`, which is the expensive half -- a
       // binary written and signed for an app whose update check cannot work
       //
-      // A schema that names its own checker has said where to look, and
-      // importing the builder it names it with is what put the specifier in
-      // the graph -- so that import is not a second thing to declare. One that
-      // names it through a call of the app's own is not refused for it either,
-      // but is warned, because that call may not hand the checker back
-      const schemaCheck = readSchemaUpdateCheck(found.app.entry);
-      assertUpdateCheckDeclared(
+      // what the app's update check needs declared, and what it should be told
+      // about, is `updateCheckVerdict()`'s to say rather than this function's,
+      // so a test can ask it without a runtime to package with (SIG-676)
+      const verdict = updateCheckVerdict(
         sigilConfig,
-        (result.usesUpdateCheck &&
-          schemaCheck !== 'names' &&
-          schemaCheck !== 'wrapped' &&
-          'import') ||
-          (schemaCheck === 'asks' && 'schema')
+        result,
+        readSchemaUpdateCheck(found.app.entry)
       );
-      const unconfirmed = wrappedCheckWarning(sigilConfig, result.importsCheck, schemaCheck);
-      if (unconfirmed) {
-        writeNote([unconfirmed], process.stderr);
-      }
-      // the other half of the same hole: a confirmed schema checker serves the
-      // automatic check, and a hand-called `check()` reads `sigil.json` (SIG-609)
-      const handCalled = handCalledCheckWarning(sigilConfig, result.importsCheck, schemaCheck);
-      if (handCalled) {
-        writeNote([handCalled], process.stderr);
+      assertUpdateCheckDeclared(sigilConfig, verdict.declare);
+      // the schema's checker serves the automatic check and a hand-called
+      // `check()` reads `sigil.json` (SIG-609), and a checker named through a
+      // call may not come back from it (SIG-593, SIG-676)
+      for (const note of verdict.notes) {
+        writeNote([note], process.stderr);
       }
       // after the refusals above, so an app that is not going to be packaged
       // is not also told what its sheet would have cost

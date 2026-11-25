@@ -478,14 +478,18 @@ export function assertUpdateCheckDeclared(
  * `assertUpdateCheckDeclared()` is not asked of such an app, because the usual
  * one only imports a builder to write `updateCheck: githubChecker(...)` and a
  * refusal there stops a correct build. But `wrap({ checker })` may hand back
- * something else, or nothing at all when `wrap` is nullish, and then an app that
- * also calls `check()` with no checker of its own ships a binary whose update
- * check does nothing. The build cannot tell the two apart, so it says so and
- * leaves the decision with the build's author (SIG-593).
+ * something else, or nothing at all when `wrap` is nullish, and then the
+ * automatic check has no checker and does nothing -- and an app that also calls
+ * `check()` with no checker of its own has a second check that does nothing. The
+ * build cannot tell a wrapper that passes the checker through from one that drops
+ * it, so it says so and leaves the decision with the build's author (SIG-593).
  *
- * Asked once the bundle reaches `check` itself and not merely the specifier
- * (SIG-666): a wrapped schema that imports only a builder
- * never calls `check()` by hand and has no hollow check to be told about.
+ * Asked of every wrapped schema that declares nothing in `sigil.json`, whether or
+ * not the app reaches `check()` (SIG-676): SIG-666 narrowed this to the apps that
+ * import `check()` and left a wrapper that drops the checker, in an app that does
+ * not, as the automatic check doing nothing with no word said. What differs is
+ * what the message is about -- a wrapper in every case, and `check()` too when the
+ * app imports it.
  *
  * @param config - The app's `sigil.json`.
  * @param importsCheck - Whether a module of the bundle reaches `check()`.
@@ -497,13 +501,16 @@ export function wrappedCheckWarning(
   importsCheck: boolean,
   schema: SchemaUpdateCheck | undefined
 ): string | undefined {
-  if (!importsCheck || schema !== 'wrapped' || config.updateCheck) {
+  if (schema !== 'wrapped' || config.updateCheck) {
     return undefined;
   }
 
   return (
     "This app's updateCheck names its checker through a call, and the build cannot see what that call returns. " +
-    `It imports check() from ${UPDATE_CHECK_SPECIFIER}, so if it calls it with no checker of its own, the binary's update check does nothing. ` +
+    "If it hands back no checker, the binary's automatic update check does nothing. " +
+    (importsCheck
+      ? `The app also imports check() from ${UPDATE_CHECK_SPECIFIER}, and a check() called with no checker of its own does nothing either. `
+      : '') +
     'Declare "updateCheck" in sigil.json -- "npm", "github" or "custom" for where to look, or "none" -- to settle it.'
   );
 }
@@ -546,6 +553,52 @@ export function handCalledCheckWarning(
     'Declare "updateCheck" in sigil.json -- "npm", "github" or "custom" for where to look -- to give it one. ' +
     'An app that passes a checker to check() does not need to, and "none" says so.'
   );
+}
+
+/** What `sigil package` has to say about an app's update check, once the bundle is read. */
+export interface UpdateCheckVerdict {
+  /** Why the app must declare `updateCheck` in `sigil.json`, or `false` when it need not. */
+  readonly declare: UpdateCheckUse | false;
+  /** The warnings to write, which refuse nothing. */
+  readonly notes: readonly string[];
+}
+
+/**
+ * Everything `sigil package` decides about an app's update check from what the
+ * bundle and the schema showed, in one place a test can reach without a runtime.
+ *
+ * It takes the bundle result itself rather than the two flags, so that which of
+ * them a decision reads is part of what is asked and not of how it was wired:
+ * `usesUpdateCheck` is the specifier and `importsCheck` is `check()`, and passing
+ * one for the other is the defect SIG-666 fixed and no bun-free test could see
+ * come back (SIG-676).
+ *
+ * @param config - The app's `sigil.json`.
+ * @param bundle - What `bundleApp()` found in the module graph.
+ * @param schema - What `readSchemaUpdateCheck()` made of the schema.
+ * @returns Whether to demand a declaration, and the warnings to write.
+ */
+export function updateCheckVerdict(
+  config: SigilConfig,
+  bundle: { readonly importsCheck: boolean; readonly usesUpdateCheck: boolean },
+  schema: SchemaUpdateCheck | undefined
+): UpdateCheckVerdict {
+  // A schema that names its own checker has said where to look, and importing
+  // the builder it names it with is what put the specifier in the graph -- so
+  // that import is not a second thing to declare. One that names it through a
+  // call of the app's own is not refused for it either, but is warned, because
+  // that call may not hand the checker back
+  const declare =
+    (bundle.usesUpdateCheck && schema !== 'names' && schema !== 'wrapped' && 'import') ||
+    (schema === 'asks' && 'schema');
+
+  return {
+    declare,
+    notes: [
+      wrappedCheckWarning(config, bundle.importsCheck, schema),
+      handCalledCheckWarning(config, bundle.importsCheck, schema),
+    ].filter((note): note is string => note !== undefined),
+  };
 }
 
 /** What a source read of one checker field came to. */
