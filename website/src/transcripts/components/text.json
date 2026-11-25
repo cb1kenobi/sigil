@@ -28,7 +28,7 @@
         "type": "string"
       },
       {
-        "description": "Shown in place of what is typed, for a password.",
+        "description": "Shown in place of what is typed, for a password. One holding a control character is refused with a `PromptError`.",
         "name": "mask",
         "optional": true,
         "type": "string"
