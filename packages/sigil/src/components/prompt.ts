@@ -483,6 +483,49 @@ interface Handlers<T> {
 }
 
 /**
+ * Where a throw goes once the prompt has settled (SIG-683, SIG-692).
+ *
+ * The caller already has its answer or its rejection, so there is nobody left to
+ * raise to: it goes to `onError` through `handOver()`, which writes what the
+ * handler throws rather than raising it, and nowhere if the caller gave none.
+ *
+ * @param opts - What the caller handed in.
+ * @param error - What was thrown.
+ */
+function lateError(opts: PromptOptions, error: unknown): void {
+  if (opts.onError !== undefined) {
+    handOver(opts.onError, error, 'Error in prompt');
+  }
+}
+
+/**
+ * Runs one step of giving a prompt up, and keeps what it throws from the
+ * promise (SIG-692).
+ *
+ * Giving a prompt up is writes -- the router's `stop()` ends bracketed paste, the
+ * screen is handed back -- and on a terminal that has gone a write throws. That
+ * throw used to leave the function that settles the prompt ahead of the line
+ * that settles it, so the caller awaited an answer it had been given or an error
+ * it had been sent, and the throw went on to an abort listener, a stream's `end`
+ * or the tail of a promise chain with nothing to catch it. Each step is guarded
+ * on its own as well, because one that fails must not skip the ones after it:
+ * the screen is still owed back when the input was not.
+ *
+ * Only called once the prompt is marked settled, which is what makes `onError` the
+ * right place for the throw: it is no longer the answer.
+ *
+ * @param opts - What the caller handed in.
+ * @param step - What to run.
+ */
+function release(opts: PromptOptions, step: (() => void) | undefined): void {
+  try {
+    step?.();
+  } catch (error) {
+    lateError(opts, error);
+  }
+}
+
+/**
  * Runs a prompt: a canvas, the one input router, and everything put back
  * whichever way it ends.
  *
@@ -529,10 +572,12 @@ function run<T>(opts: PromptOptions, make: () => Handlers<T>): Promise<T> {
 
     /** Everything this prompt took, given back in the order it was taken. */
     function detach(): void {
-      stopListening?.();
+      const listening = stopListening;
+      const input = stopInput;
       stopListening = undefined;
-      stopInput?.();
       stopInput = undefined;
+      release(opts, listening);
+      release(opts, input);
     }
 
     function fail(error: unknown): void {
@@ -541,7 +586,7 @@ function run<T>(opts: PromptOptions, make: () => Handlers<T>): Promise<T> {
       }
       settled = true;
       detach();
-      mounted?.stop();
+      release(opts, () => mounted?.stop());
       reject(error);
     }
 
@@ -564,9 +609,7 @@ function run<T>(opts: PromptOptions, make: () => Handlers<T>): Promise<T> {
      */
     function report(error: unknown): void {
       if (settled) {
-        if (opts.onError !== undefined) {
-          handOver(opts.onError, error, 'Error in prompt');
-        }
+        lateError(opts, error);
         return;
       }
       fail(error);
@@ -577,6 +620,9 @@ function run<T>(opts: PromptOptions, make: () => Handlers<T>): Promise<T> {
         return;
       }
       settled = true;
+      // a write that fails while the input is given back is not the answer
+      // either (SIG-692): `detach()` reports it and goes on, so what follows
+      // still runs and the caller still hears
       detach();
 
       // the answer is the answer whatever the last frame does, so resolving is
@@ -591,7 +637,9 @@ function run<T>(opts: PromptOptions, make: () => Handlers<T>): Promise<T> {
       } catch (error) {
         report(error);
       } finally {
-        mounted?.done();
+        // guarded for the same reason `detach()` is: a `finally` that throws
+        // before `resolve()` is the hang this is written to prevent
+        release(opts, () => mounted?.done());
         resolve(value);
       }
     }
@@ -3428,7 +3476,9 @@ function runLine<T>(
 
     function end(): void {
       settled = true;
-      stop();
+      // a router that cannot be given back is reported and not raised, so what
+      // settled the prompt still reaches the caller (SIG-692)
+      release(opts, stop);
     }
 
     function fail(error: unknown): void {
@@ -3439,7 +3489,7 @@ function runLine<T>(
       // what was written stays where it is, the question and whatever was typed
       // after it, and the next output starts under it: taking nothing back is the
       // whole of this form, and it holds for a cancel as much as for an answer
-      write(NEWLINE);
+      release(opts, () => write(NEWLINE));
       reject(error);
     }
 
@@ -3517,9 +3567,8 @@ function runLine<T>(
         return;
       }
       end();
-      if (read.said) {
-        sayLine(read.said);
-      }
+      // the answer is the answer whatever the last line does (SIG-692)
+      release(opts, read.said ? () => sayLine(read.said!) : undefined);
       resolve(read.value);
     }
 
