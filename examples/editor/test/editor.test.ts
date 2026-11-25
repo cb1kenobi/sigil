@@ -1,5 +1,5 @@
 import { createDoc, diskText, shownPath, tabLabels } from '../src/documents.ts';
-import { LIVE_LIMIT, MAX_PREVIEW } from '../src/preview.ts';
+import { LIVE_LIMIT, MAX_PREVIEW, PAUSE } from '../src/preview.ts';
 import { App, stylesheet } from '../src/root.tsx';
 import { createWorkspace, type Workspace, WorkspaceContext } from '../src/workspace.ts';
 import { type App as RunningApp, runApp } from '@ttylabs/sigil/app';
@@ -50,7 +50,8 @@ interface Mounted {
   /**
    * Presses keys, one read each, and paints the frame after the last. A lone
    * Escape is held by the router for `ESCAPE_TIMEOUT`, in case it is the start of
-   * an Alt chord, so it is waited out rather than run into the next key.
+   * an Alt chord, so it is resolved by `pressEscape()` rather than run into the
+   * next key.
    */
   press(...keys: string[]): Promise<void>;
   /** Reads a file of the directory back off the disk. */
@@ -74,6 +75,44 @@ const CTRL_PAGE_UP = `${ESC}[5;5~`;
 /** Shift-Right, and Ctrl-End: the end of the value. */
 const SHIFT_RIGHT = `${ESC}[1;2C`;
 const CTRL_END = `${ESC}[1;5F`;
+
+/**
+ * Presses a lone Escape and has the router decide it is one, without waiting for
+ * a clock.
+ *
+ * The router holds the key on its own `setTimeout` of `ESCAPE_TIMEOUT`, and a
+ * test that slept `ESCAPE_TIMEOUT + 30` of real time was asking a busy machine to
+ * run two timers in order within 30 ms of each other: a loaded runner fires them
+ * late, and late is when the sleep returns before the router has decided. So the
+ * timer is the test's for the length of the key -- faked before the press, so
+ * that the router arms a fake one, and advanced by exactly the timeout. Only the
+ * timer functions are faked, since a frame is waited for with `setImmediate`, and
+ * a test already holding fake timers keeps them, and has its clock advanced by
+ * the timeout.
+ *
+ * What it cannot keep is a timer the app arms **during** that window which is due
+ * after it: putting the real ones back discards every pending fake one, so such a
+ * timer would silently never fire. The renderer's frame timer is one, and is
+ * safe only because `press()` ends in `frame()`, which resets it. A key that
+ * armed a longer timer of its own, a toast or a debounce, wants a test that holds
+ * the clock for the whole of it instead.
+ *
+ * @param term - The terminal to press it on.
+ */
+async function pressEscape(term: TestTerminal): Promise<void> {
+  const held = vi.isFakeTimers();
+  if (!held) {
+    vi.useFakeTimers({ toFake: ['clearTimeout', 'setTimeout'] });
+  }
+  try {
+    await term.press(KEYS.escape);
+    await vi.advanceTimersByTimeAsync(ESCAPE_TIMEOUT);
+  } finally {
+    if (!held) {
+      vi.useRealTimers();
+    }
+  }
+}
 
 /** The one mounted now, which `afterEach` quits if the test did not. */
 let running: Mounted | undefined;
@@ -108,9 +147,10 @@ async function mount(dir: string, opts: { colorLevel?: 0 | 1 } = {}): Promise<Mo
     app,
     async press(...keys) {
       for (const key of keys) {
-        await term.press(key);
         if (key === KEYS.escape) {
-          await new Promise((resolve) => setTimeout(resolve, ESCAPE_TIMEOUT + 30));
+          await pressEscape(term);
+        } else {
+          await term.press(key);
         }
       }
       await frame(app);
@@ -712,10 +752,28 @@ describe('the editor', () => {
       await open(it, 'long.md');
       expect(previewText(it)).toContain('Long');
 
-      // a key does not draw it again at once, and a pause does
-      await it.press(KEYS.right, KEYS.right, KEYS.right, 'X');
-      expect(previewText(it)).not.toContain('LXong');
-      await vi.waitFor(() => expect(previewText(it)).toContain('LXong'), { timeout: 3000 });
+      // a key does not draw it again at once, and a pause does. The pause is the
+      // preview's own `setTimeout`, so it is the clock the test holds: on a real
+      // one the 200 ms ran out between the key and the assertion whenever the
+      // machine was busy, and "not yet" read as "already". Only the timer
+      // functions are faked, since a frame is waited for with `setImmediate`
+      vi.useFakeTimers({ toFake: ['clearTimeout', 'setTimeout'] });
+      try {
+        await it.press(KEYS.right, KEYS.right, KEYS.right, 'X');
+        expect(previewText(it)).not.toContain('LXong');
+        await vi.advanceTimersByTimeAsync(PAUSE - 1);
+        await frame(it.app);
+        expect(previewText(it)).not.toContain('LXong');
+        await vi.advanceTimersByTimeAsync(1);
+        // and the renderer's own frame timer, which is a `setTimeout` too, paints
+        // it: drawing the preview has to ask for a frame, and `frame()` would
+        // paint one whether it did or not. A frame is at most a thirtieth of a
+        // second off, so a tenth is a bound and not a wait
+        await vi.advanceTimersByTimeAsync(100);
+        expect(previewText(it)).toContain('LXong');
+      } finally {
+        vi.useRealTimers();
+      }
 
       // a preview put away and shown again is a new drawing, and does not wait
       await it.press(ctrl('p'), ...'preview', KEYS.enter);
