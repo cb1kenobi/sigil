@@ -1084,6 +1084,8 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   // added when SIG-310 split the ring and the console patch out of the overlay
   'components/console-capture': [4, 1_573],
   'components/control': [347, 177_632],
+  // added by SIG-685: 939 B over three modules, the check every configured glyph shares
+  'components/control-character': [2, 939],
   // added by SIG-281
   'components/data-table': [516, 263_936],
   'components/date': [544, 278_157],

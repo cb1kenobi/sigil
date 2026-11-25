@@ -29,6 +29,7 @@ import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { maxOf, stringWidth } from '../width/index.js';
 import { terminalWidth } from '../wrap/index.js';
 import { colorLevelOf } from './color-level.js';
+import { refuseControl } from './control-character.js';
 import { type Mounted, type MountOptions, mountLevel, mountLive } from './mount.js';
 import { unicodeSupported } from './note.js';
 
@@ -81,7 +82,8 @@ export interface OutlineOptions extends StyledOptions {
    *
    * A function is handed `{ index, depth, count, item }` and returns the marker
    * as text. Escape sequences are dropped from it, and a line break is read as a
-   * space.
+   * space (`\n` and `\r`, and the blanks around them). Any other control character, a
+   * tab included, is refused with a `TypeError`.
    */
   enumerator?: OutlineEnumerator | readonly OutlineEnumerator[];
   /** The environment to read the terminal from. Defaults to `process.env`. */
@@ -304,7 +306,11 @@ export function outlineMarkers(
     if (typeof marker !== 'string') {
       throw new TypeError(`Expected an enumerator to return a string`);
     }
-    return strip(marker).replaceAll(/\s*[\n\r]+\s*/g, ' ');
+    const read = strip(marker).replaceAll(/\s*[\n\r]+\s*/g, ' ');
+    // after the two rules above, which are the ones a function's marker has: what is
+    // left is a tab or a bell, which draws as something other than it measures
+    refuseControl(`an outline marker for item ${index + 1} at depth ${depth}`, read);
+    return read;
   });
   const column = maxOf(
     drawn.map((marker) => stringWidth(marker)),

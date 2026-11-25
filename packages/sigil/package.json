@@ -105,6 +105,10 @@
       "types": "./dist/components/control.d.mts",
       "default": "./dist/components/control.mjs"
     },
+    "./components/control-character": {
+      "types": "./dist/components/control-character.d.mts",
+      "default": "./dist/components/control-character.mjs"
+    },
     "./components/data-table": {
       "types": "./dist/components/data-table.d.mts",
       "default": "./dist/components/data-table.mjs"

@@ -4,6 +4,7 @@ import { createEffect } from '../renderer/index.js';
 import { State, untrack } from '../signals/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
 import { stringWidth } from '../width/index.js';
+import { refuseControl } from './control-character.js';
 import { type Mounted, type MountOptions, mountLevel, mountLive } from './mount.js';
 
 /**
@@ -33,9 +34,15 @@ export interface ProgressStatsOptions {
 }
 
 export interface ProgressOptions extends MountOptions, ProgressStatsOptions {
-  /** The character drawn for the part still to do. Defaults to a light block. */
+  /**
+   * The character drawn for the part still to do. Defaults to a light block. One
+   * holding a control character is refused with a `TypeError`.
+   */
   empty?: string;
-  /** The character drawn for the part done. Defaults to a full block. */
+  /**
+   * The character drawn for the part done. Defaults to a full block. One holding a
+   * control character is refused with a `TypeError`.
+   */
   filled?: string;
   /** A label shown before the bar. */
   text?: string;
@@ -79,8 +86,11 @@ export interface Progress {
  * @param filled - The character for the part done.
  * @param empty - The character for the part left.
  * @returns The bar.
+ * @throws If either character holds a control character.
  */
 export function renderBar(ratio: number, width: number, filled: string, empty: string): string {
+  refuseControl('a progress bar filled character', filled);
+  refuseControl('a progress bar empty character', empty);
   const columns = Math.max(1, Math.floor(width));
 
   // the characters may be wider than one column -- a full block is one, but
@@ -222,6 +232,10 @@ export interface ProgressViewOptions {
  * @returns The tree.
  */
 export function progressView(state: ProgressState, opts: ProgressViewOptions): Element {
+  // asked here rather than left to `renderBar()`, which a log never calls: a bar
+  // that is refused on a terminal is refused in a pipe too
+  refuseControl('a progress bar filled character', opts.filled);
+  refuseControl('a progress bar empty character', opts.empty);
   const label = textNode('', { class: 'sigil-progress-label', 'margin-right': 1 });
   const bar = textNode('', { class: 'sigil-progress-bar sigil-accent', 'margin-right': 1 });
   const percent = textNode('', {
@@ -568,6 +582,8 @@ export function progressTotal(next: number | undefined, fallback: number): numbe
 export function createProgress(opts: ProgressOptions = {}): Progress {
   const filled = opts.filled ?? '█';
   const empty = opts.empty ?? '░';
+  refuseControl('a progress bar filled character', filled);
+  refuseControl('a progress bar empty character', empty);
   const step = progressStep(opts.step);
   const state = progressState(opts.text ?? '', progressTotal(opts.total, 100));
   // resolved up front rather than off the backend, because `barWidth()` is read

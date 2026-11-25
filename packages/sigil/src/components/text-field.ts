@@ -34,6 +34,7 @@ import { box, type Element, type ElementPropsWithout, text as textNode } from '.
 import { createEffect } from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import { stringWidth } from '../width/index.js';
+import { refuseControl } from './control-character.js';
 import { controlCondition, type ControlCondition } from './control.js';
 import { boundary, type Edit, editLine, insertAt, pastedLine, typedText } from './editing.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
@@ -52,7 +53,8 @@ export interface TextFieldProps {
    * What is drawn in place of each column of the value, for a password.
    *
    * A column count rather than a substitution, which is the `password()` prompt's
-   * rule: a two-column character is two of these.
+   * rule: a two-column character is two of these. One holding a control character
+   * throws a `TypeError`.
    */
   mask?: string;
   /** Called with the value after every edit that changed it. Not called for a write the app made. */
@@ -109,6 +111,9 @@ export function TextField(props: TextFieldProps = {}): Element {
   );
   if (props.mask !== undefined && (typeof props.mask !== 'string' || props.mask === '')) {
     throw new TypeError(`Expected a text field mask to be a non-empty string`);
+  }
+  if (props.mask !== undefined) {
+    refuseControl('a text field mask', props.mask);
   }
   if (props.placeholder !== undefined && typeof props.placeholder !== 'string') {
     throw new TypeError(`Expected a text field placeholder to be a string`);

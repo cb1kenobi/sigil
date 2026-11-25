@@ -28,6 +28,7 @@ import { terminal as defaultTerminal } from '../terminal/index.js';
 import { TOKEN_ROLE } from '../theme/index.js';
 import { graphemes, graphemeWidth, stringWidth } from '../width/index.js';
 import { wrap } from '../wrap/index.js';
+import { controlFault, holdsControl } from './control-character.js';
 import {
   boundary,
   deleteAfter,
@@ -218,7 +219,10 @@ export interface AccessibleOptions {
 export interface TextOptions extends PromptOptions, AccessibleOptions {
   /** Used when the answer is empty. */
   default?: string;
-  /** Shown in place of what is typed, for a password. */
+  /**
+   * Shown in place of what is typed, for a password. One holding a control character
+   * is refused with a `PromptError`.
+   */
   mask?: string;
   /** Shown dimmed when nothing has been typed. */
   placeholder?: string;
@@ -1253,6 +1257,14 @@ function summaryOf(written: string): string {
  */
 export function text(opts: TextOptions): Promise<string> {
   const terminal = opts.terminal ?? defaultTerminal;
+
+  // the mask is drawn in place of every column of the value, so a tab in it hides
+  // the answer rather than masking it
+  const maskFault = opts.mask === undefined ? undefined : controlFault('`mask`', opts.mask);
+  if (maskFault !== undefined) {
+    return refusePrompt(opts.message, maskFault);
+  }
+
   // flattened the way a paste is, because it is put in the field the way a paste
   // is: a one-line field cannot hold a line break whoever handed it one
   let value = typeof opts.value === 'string' ? pastedLine(opts.value) : '';
@@ -2070,7 +2082,7 @@ export function multiline(opts: MultilineOptions): Promise<string> {
   // a mark is drawn on every row, and `CellBuffer.put()` throws on a control
   // character -- so one here would take the first frame down rather than draw
   const mark = opts.gutter ?? '';
-  if (/\p{Cc}/u.test(mark)) {
+  if (holdsControl(mark)) {
     return Promise.reject(
       new PromptError(`"${opts.message}" has a \`gutter\` holding a control character`)
     );

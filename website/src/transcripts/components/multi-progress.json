@@ -10,7 +10,7 @@
         "type": "number"
       },
       {
-        "description": "The character drawn for the part still to do. Defaults to a light block.",
+        "description": "The character drawn for the part still to do. Defaults to a light block. One holding a control character is refused with a `TypeError`.",
         "default": "a light block",
         "name": "empty",
         "optional": true,
@@ -24,7 +24,7 @@
         "type": "boolean"
       },
       {
-        "description": "The character drawn for the part done. Defaults to a full block.",
+        "description": "The character drawn for the part done. Defaults to a full block. One holding a control character is refused with a `TypeError`.",
         "default": "a full block",
         "name": "filled",
         "optional": true,

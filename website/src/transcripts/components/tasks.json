@@ -31,7 +31,7 @@
         "type": "boolean"
       },
       {
-        "description": "The frames to cycle: a set such as `ARC`, or an array of your own. Defaults to `DOTS`, or to `LINE` where the terminal cannot be trusted with braille.",
+        "description": "The frames to cycle: a set such as `ARC`, or an array of your own. Defaults to `DOTS`, or to `LINE` where the terminal cannot be trusted with braille. A frame holding a control character is refused with a `TypeError` where the spinner is created.",
         "default": "`DOTS`",
         "name": "frames",
         "optional": true,

@@ -26,6 +26,7 @@ import { box, text as textNode, toDisplayText } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { stringWidth } from '../width/index.js';
+import { controlFault } from './control-character.js';
 import {
   type AccessibleOptions,
   promptAsLines,
@@ -67,10 +68,7 @@ function fault(name: string, label: string): string | undefined {
   if (label.trim() === '') {
     return `\`${name}\` is empty, and a state with no name cannot be told from the other`;
   }
-  if (/\p{Cc}/u.test(label)) {
-    return `\`${name}\` ${JSON.stringify(label)} holds a control character`;
-  }
-  return undefined;
+  return controlFault(`\`${name}\``, label);
 }
 
 /**

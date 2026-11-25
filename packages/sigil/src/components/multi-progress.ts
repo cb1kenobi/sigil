@@ -3,6 +3,7 @@ import { For } from '../renderer/index.js';
 import { State, untrack } from '../signals/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { stringWidth } from '../width/index.js';
+import { refuseControl } from './control-character.js';
 import { type Mounted, type MountOptions, mountLevel, mountLive } from './mount.js';
 import {
   clampProgress,
@@ -22,9 +23,15 @@ import {
 export interface MultiProgressOptions extends MountOptions, ProgressStatsOptions {
   /** How wide each bar itself is. Defaults to a third of the terminal, 10-40. */
   barWidth?: number;
-  /** The character drawn for the part still to do. Defaults to a light block. */
+  /**
+   * The character drawn for the part still to do. Defaults to a light block. One
+   * holding a control character is refused with a `TypeError`.
+   */
   empty?: string;
-  /** The character drawn for the part done. Defaults to a full block. */
+  /**
+   * The character drawn for the part done. Defaults to a full block. One holding a
+   * control character is refused with a `TypeError`.
+   */
   filled?: string;
   /**
    * Whether a bar that finished stays in the frame. Defaults to true.
@@ -91,12 +98,16 @@ export interface MultiProgress {
  * @param labelWidth - How wide the widest label is, so the bars start in a column.
  * @param opts - How each bar is drawn.
  * @returns The tree.
+ * @throws If `filled` or `empty` holds a control character.
  */
 export function multiProgressView(
   rows: State<readonly ProgressState[]>,
   labelWidth: State<number>,
   opts: ProgressViewOptions
 ): Element {
+  // asked here rather than left to the first row, which is built from an effect
+  refuseControl('a progress bar filled character', opts.filled);
+  refuseControl('a progress bar empty character', opts.empty);
   const columns = { label: () => labelWidth.get() };
 
   return For({
@@ -124,6 +135,8 @@ export function multiProgressView(
 export function createMultiProgress(opts: MultiProgressOptions = {}): MultiProgress {
   const filled = opts.filled ?? '█';
   const empty = opts.empty ?? '░';
+  refuseControl('a progress bar filled character', filled);
+  refuseControl('a progress bar empty character', empty);
   const step = progressStep(opts.step);
   const keep = opts.keep !== false;
   const terminal = opts.terminal ?? opts.backend?.terminal ?? defaultTerminal;
