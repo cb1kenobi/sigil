@@ -522,7 +522,7 @@ describe('barChart()', () => {
         barChartView(data, { ...plain, width: 40 });
 
       expect(
-        growthOf(draw, make(16_000), make(128_000), 8, 'horizontal barChart', 1)
+        growthOf(draw, make(16_000), make(128_000), 8, 'horizontal barChart', 1, 4)
       ).to.be.lessThan(4);
     });
   });
