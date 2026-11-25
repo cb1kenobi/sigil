@@ -244,6 +244,23 @@ describe('a decrypt that finished over a screen that failed, whose onError throw
     expect(process.exitCode).toBe(1);
   });
 
+  it('should raise no unhandled rejection when the report cannot be written either (SIG-691)', async () => {
+    const heard: unknown[] = [];
+    let rejection: unknown;
+    const seen = await rejecting(async () => {
+      stderr?.mockImplementation(() => {
+        throw new Error('stderr gone');
+      });
+      const { effect } = broken(heard);
+      await vi.advanceTimersByTimeAsync(100);
+      await effect.done.catch((error: unknown) => void (rejection = error));
+    });
+
+    expect(seen).toEqual([]);
+    // the report was dropped, and done still settled with the failure
+    expect(String(rejection)).toBe('Error: onError broke');
+  });
+
   const listeners = {
     'an await': async (done: Promise<void>) => {
       await done;

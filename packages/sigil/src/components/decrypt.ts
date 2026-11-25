@@ -1367,15 +1367,15 @@ export function createDecrypt(opts: DecryptOptions = {}): Decrypt {
         }
       })
       .then(resolveOut, (error: unknown) => {
-        try {
-          if (!out.heard) {
-            // what `leave()` raises is what `onError` threw for the failure,
-            // which it has already been given -- so it is written by the default
-            // report rather than handed to `onError` a second time. Rethrowing is
-            // how `handOver()` is asked for exactly that. Each of several is
-            // written, since the renderer raises more than one as an aggregate
-            // whose own message says only that they were several
-            for (const each of error instanceof AggregateError ? error.errors : [error]) {
+        if (!out.heard) {
+          // what `leave()` raises is what `onError` threw for the failure,
+          // which it has already been given -- so it is written by the default
+          // report rather than handed to `onError` a second time. Rethrowing is
+          // how `handOver()` is asked for exactly that. Each of several is
+          // written, since the renderer raises more than one as an aggregate
+          // whose own message says only that they were several
+          for (const each of error instanceof AggregateError ? error.errors : [error]) {
+            try {
               handOver(
                 (thrown) => {
                   throw thrown;
@@ -1383,14 +1383,18 @@ export function createDecrypt(opts: DecryptOptions = {}): Decrypt {
                 each,
                 'Error in decrypt'
               );
+            } catch {
+              // a stderr that throws is gone, and there is nowhere left to say
+              // so: what the write threw is dropped, here and per error, so the
+              // rest of an aggregate is still tried. Let out, it would reject
+              // the promise this handler returns, which nothing holds -- the
+              // unhandled rejection this branch exists to prevent
             }
           }
-        } finally {
-          // whatever the report did, the promise is settled: a stderr that
-          // throws must not leave `done` pending for the caller that comes
-          // looking
-          rejectOut(error);
         }
+        // whatever the report did, the promise is settled: a stderr that throws
+        // must not leave `done` pending for the caller that comes looking
+        rejectOut(error);
       });
     // through the prototype, which is not `Heard.then()`: this handler is ours and
     // must not count as somebody listening

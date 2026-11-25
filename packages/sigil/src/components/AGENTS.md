@@ -3277,8 +3277,12 @@ it is a component rather than the frame effect SIG-103 is.
   alternative, judging at the end of the tick the way the runtime's own unhandled
   rejection pass does, would cost a timer on every run to move the line a few
   microtasks, so the rule is the plain one. The controls stay with whoever built
-  the promise (an executor and a private field), and the report is written even
-  if stderr throws, which would otherwise have left `done` pending. Several
+  the promise (an executor and a private field), and `done` settles whatever the
+  report did. A report that cannot be written -- a stderr that throws -- is
+  dropped, one error at a time, so the rest of an aggregate is still tried. Let
+  out, that throw first left `done` pending, and then, with `done` settled in a
+  `finally`, still rejected the promise the handler returned, which nothing holds:
+  the unhandled rejection this exists to prevent, found in review of the PR. Several
   failures the renderer raised as one aggregate are written one each.
 
   The report is the default one and not a second call to `onError`: what `leave()`
