@@ -580,6 +580,101 @@ describe('barChart()', () => {
     });
   });
 
+  // SIG-702: an object lists a key that reads as an integer first, ascending, so
+  // `{ 500: 900, 404: 300, 200: 50 }` kept 200 where the caller wrote 500 first
+  describe('a Map', () => {
+    const codes = (): Map<string, number> =>
+      new Map([
+        ['500', 900],
+        ['404', 300],
+        ['200', 50],
+      ]);
+    const labels = (rows: string[]): string[] => rows.map((row) => row.split(' ')[0] as string);
+
+    it('should keep the caller\u2019s first bar where an object keeps the lowest integer', () => {
+      const opts = { height: 1, keep: 'first', showValues: false, width: 8 } as const;
+
+      expect(labels(bars(codes(), opts))).to.deep.equal(['500']);
+      expect(labels(bars({ 500: 900, 404: 300, 200: 50 }, opts))).to.deep.equal(['200']);
+    });
+
+    it('should keep the caller\u2019s last bars by default, in the order written', () => {
+      expect(labels(bars(codes(), { height: 2, showValues: false, width: 8 }))).to.deep.equal([
+        '404',
+        '200',
+      ]);
+    });
+
+    it('should draw every bar in the order written when they fit, as a list does', () => {
+      const list = [...codes()].map(([label, value]) => ({ label, value }));
+
+      expect(bars(codes(), { height: 9 })).to.deep.equal(bars(list, { height: 9 }));
+      expect(labels(bars(codes(), { height: 9 }))).to.deep.equal(['500', '404', '200']);
+    });
+
+    it('should draw a vertical chart from a Map, and keep its first columns where asked', () => {
+      const rows = bars(codes(), {
+        barWidth: 3,
+        direction: 'vertical',
+        height: 1,
+        keep: 'first',
+        showValues: false,
+        width: 7,
+      });
+
+      expect(rows.at(-1)).to.equal('500 404');
+    });
+
+    it('should scale over the bars kept, as a list does', () => {
+      const opts = { height: 2, keep: 'first', min: 0, showValues: false, width: 6 } as const;
+
+      expect(bars(codes(), opts)).to.deep.equal(
+        bars(
+          [
+            { label: '500', value: 900 },
+            { label: '404', value: 300 },
+          ],
+          opts
+        )
+      );
+    });
+
+    it('should draw a value that is not a finite number as a dash, as an object does', () => {
+      const data = new Map([
+        ['a', Number.NaN],
+        ['b', 2],
+      ]);
+
+      expect(bars(data, { width: 12 })[0]).to.equal('a          -');
+      expect(bars(data, { width: 12 })).to.deep.equal(bars({ a: Number.NaN, b: 2 }, { width: 12 }));
+    });
+
+    it('should draw an empty Map as an empty chart, as an empty object', () => {
+      expect(bars(new Map())).to.deep.equal(bars({}));
+    });
+
+    it('should not ask the caller to format a bar it did not keep, from either end', () => {
+      const data = new Map(Array.from({ length: 200_000 }, (_, i) => [String(i), i % 7]));
+      let calls = 0;
+      const format = (value: number): string => {
+        calls++;
+        return String(value);
+      };
+      for (const keep of ['first', 'last'] as const) {
+        calls = 0;
+        barChart(data, { ...plain, format, height: 3, keep, width: 20 });
+
+        expect(calls).to.equal(3);
+      }
+    });
+
+    it('should build the same rows through barChartView()', () => {
+      const { element } = barChartView(codes(), { ...plain, height: 2, keep: 'first', width: 20 });
+
+      expect(element.children.length).to.equal(2);
+    });
+  });
+
   describe('horizontal, fitted to its height', () => {
     const digits = (n: number, from = 0): { label: string; value: number }[] =>
       Array.from({ length: n }, (_, i) => ({ label: String(from + i), value: from + i + 1 }));

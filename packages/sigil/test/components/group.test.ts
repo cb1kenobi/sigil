@@ -1,6 +1,7 @@
 import {
   cancel,
   group,
+  type GroupMapStep,
   type GroupStep,
   intro,
   isBack,
@@ -155,6 +156,106 @@ describe('group()', () => {
 
   it('should answer an empty group with an empty object', async () => {
     expect(await group({})).to.deep.equal({});
+  });
+
+  // SIG-702: an object lists a key that reads as an integer first, so steps keyed
+  // '2' and '1' ran 1 first whatever order they were written in
+  describe('steps given as a Map', () => {
+    it("should ask '2' before '1' when the Map is written that way", async () => {
+      const order: string[] = [];
+      const answers = await group(
+        new Map([
+          ['2', () => (order.push('2'), 'two')],
+          ['1', () => (order.push('1'), 'one')],
+        ])
+      );
+
+      expect(order).to.deep.equal(['2', '1']);
+      expect(answers).to.deep.equal({ '1': 'one', '2': 'two' });
+    });
+
+    it('should still run the same steps in an object in Object.keys() order', async () => {
+      const order: string[] = [];
+      await group({
+        '2': () => (order.push('2'), 0),
+        '1': () => (order.push('1'), 0),
+      });
+
+      expect(order).to.deep.equal(['1', '2']);
+    });
+
+    it('should hand a step the answers before it, in the Map order, and go back in it', async () => {
+      const seen: unknown[] = [];
+      const second = scripted<string>([BACK, 'again']);
+      const answers = await group<Record<string, string>>(
+        new Map<string, GroupMapStep<Record<string, string>>>([
+          ['b', () => 'first'],
+          ['a', (answered, handed) => (seen.push({ ...answered }), second.step(answered, handed))],
+        ])
+      );
+
+      expect(seen).to.deep.equal([{ b: 'first' }, { b: 'first' }]);
+      expect(answers).to.deep.equal({ a: 'again', b: 'first' });
+    });
+
+    it('should call onCancel with what the Map had answered so far', async () => {
+      const onCancel = vi.fn();
+      await expect(
+        group<Record<string, number>>(
+          new Map<string, GroupMapStep<Record<string, number>>>([
+            ['b', () => 1],
+            ['a', () => cancelled()],
+          ]),
+          { onCancel }
+        )
+      ).rejects.toBeInstanceOf(PromptError);
+
+      expect(onCancel.mock.calls[0]?.[0]).to.deep.equal({ b: 1 });
+    });
+
+    it('should keep a name called __proto__ as an answer', async () => {
+      const answers = await group(new Map([['__proto__', () => 'x']]));
+
+      expect(Object.keys(answers)).to.deep.equal(['__proto__']);
+      expect(Object.getPrototypeOf(answers)).to.equal(Object.prototype);
+    });
+
+    it('should refuse a step that is not a function, and a name that is not a string', async () => {
+      await expect(group(new Map([['a', 1]]) as never)).rejects.toThrow(
+        'step "a" must be a function'
+      );
+      await expect(group(new Map([[1, () => 1]]) as never)).rejects.toThrow(
+        'step names must be strings'
+      );
+    });
+
+    it('should answer an empty Map with an empty object', async () => {
+      expect(await group(new Map())).to.deep.equal({});
+    });
+
+    it('should type the answers as a record, or as the shape that was named', () => {
+      const loose = () => group(new Map([['a', () => 1]]));
+      expectTypeOf(loose).returns.resolves.toEqualTypeOf<Record<string, unknown>>();
+
+      interface Shape {
+        count: number;
+        label: string;
+      }
+      const named = () =>
+        group<Shape>(
+          new Map<keyof Shape, GroupMapStep<Shape>>([
+            ['count', () => 3],
+            [
+              'label',
+              ({ count }) => {
+                expectTypeOf(count).toEqualTypeOf<number | undefined>();
+                return 'x';
+              },
+            ],
+          ])
+        );
+      expectTypeOf(named).returns.resolves.toEqualTypeOf<Shape>();
+    });
   });
 
   describe('cancelling', () => {

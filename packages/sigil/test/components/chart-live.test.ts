@@ -478,6 +478,28 @@ describe('BarChart', () => {
     expect(picture(column(3, chart), 9, 3).at(-1)).toBe('0 1 2 3 4');
   });
 
+  // SIG-702: a Map has a get() of its own, which a chart read as a signal
+  it('should show the Map it is given, and keep its first bar where asked', () => {
+    const data = new Map([
+      ['500', 900],
+      ['404', 300],
+      ['200', 50],
+    ]);
+    const chart = BarChart({ ascii: false, data, keep: 'first', showValues: false });
+
+    expect(picture(column(1, chart), 9, 1).map((line) => line.slice(0, 3))).toEqual(['500']);
+  });
+
+  it('should redraw when a State holds a Map and is set to another', async () => {
+    const data = new State<Map<string, number>>(new Map([['b', 1]]));
+    const root = column(undefined, BarChart({ ascii: false, data, showValues: false }));
+    expect(picture(root, 6, 1).map((line) => line.slice(0, 1))).toEqual(['b']);
+
+    data.set(new Map([['a', 1]]));
+    await flush();
+    expect(picture(root, 6, 1).map((line) => line.slice(0, 1))).toEqual(['a']);
+  });
+
   it('should show every bar of more than 1,000 in a host that has the rows, given a height', () => {
     const data = Array.from({ length: 1500 }, (_, i) => ({ label: 'x', value: i % 7 }));
     const chart = BarChart({ ascii: false, data, height: 1500, showValues: false });
