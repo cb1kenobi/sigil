@@ -692,7 +692,7 @@ the entry it belongs to.
   threw>`, then `Error in input error handler: <what onError threw>`, and the exit
   code is set to 1 if it was not already; an `onError` that rethrows what it was
   given is one line. The router goes on with the rest of the read, as it does for
-  an `onError` that returns. **Without `onError` it is unchanged**: the throw
+  an `onError` that returns. **Still outside the rule, and said so rather than left to be found:** `onEnd()` handlers called from the stream's `end` and `error` listeners raise what they threw (see above), without consulting `onError`. **Without `onError` it is unchanged**: the throw
   escapes, for the reason above. Pinned in `test/input/input.test.ts`.
   What `runApp()` does with it is under "Running an app: `runApp()`" in
   `src/renderer`. Pinned in `test/input/input.test.ts` and

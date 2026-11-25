@@ -1185,8 +1185,8 @@ export function createInput(opts: InputOptions = {}): InputRouter {
    * a mouse report, a paste, a sequence's deadline, and a resize -- and from no
    * handler site inside them, which is what "at the router rather than per
    * component" comes to: one catch per entry, however many handlers the event
-   * reaches. A key a handler `feed()`s is an entry of its own, so what its handlers
-   * throw is reported there and is not rethrown through the `feed()` call.
+   * reaches. `feed()` is not an entry of its own: it reaches `route()`, so what a
+   * handler it fed throws is reported there and is not rethrown through the `feed()` call.
    *
    * @param error - What the handler threw.
    */
