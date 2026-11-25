@@ -689,6 +689,38 @@ describe('barChart()', () => {
     });
   });
 
+  // SIG-698: an escape sequence is drawn as the text of its parameters and sized
+  // as such, so a coloured `format()` shrank every bar
+  describe('a format() that returns a styled string', () => {
+    const styled = (value: number): string => `\u001b[31m${value}%\u001b[39m`;
+
+    it('should draw the plain text, and leave the bars the room they had without a style', () => {
+      const data = { a: 5, b: 10 };
+
+      expect(bars(data, { format: styled, width: 30 })).to.deep.equal(
+        bars(data, { format: (value) => `${value}%`, width: 30 })
+      );
+      expect(bars(data, { format: styled, width: 30 }).join('')).to.not.include('[31m');
+    });
+
+    it('should size a vertical column and a line chart axis by the plain text', () => {
+      const plainFormat = (value: number): string => `${value}%`;
+
+      expect(
+        bars({ a: 5, b: 10 }, { direction: 'vertical', format: styled, height: 2, width: 14 })
+      ).to.deep.equal(
+        bars({ a: 5, b: 10 }, { direction: 'vertical', format: plainFormat, height: 2, width: 14 })
+      );
+      expect(line([0, 10], { format: styled, height: 3, width: 12 })).to.deep.equal(
+        line([0, 10], { format: plainFormat, height: 3, width: 12 })
+      );
+    });
+
+    it('should leave a format with no escape in it as it was written', () => {
+      expect(bars({ a: 5 }, { format: () => '[31m5', width: 14 }).join('')).to.include('[31m5');
+    });
+  });
+
   it('should hand back a tree and the room it takes through its view', () => {
     const { element, width } = barChartView({ a: 1, b: 2 }, { ...plain, width: 12 });
 

@@ -1,5 +1,11 @@
 import { strip } from '../ansi/index.js';
-import { box, type Element, renderToString, text as textNode } from '../element/index.js';
+import {
+  box,
+  type Element,
+  renderToString,
+  text as textNode,
+  toDisplayLine,
+} from '../element/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { stringWidth } from '../width/index.js';
 import { terminalWidth } from '../wrap/index.js';
@@ -118,6 +124,46 @@ export function unicodeSupported(
  */
 export function labelLine(value: string): string {
   return strip(String(value)).replaceAll(/\s+/g, ' ').trim();
+}
+
+/**
+ * What a caller's `format()` wrote, as it will be drawn (SIG-686, SIG-694, SIG-698).
+ *
+ * A chart's `format(value)` and a page indicator's `format(page, pages)` answer
+ * with a string that is measured and then drawn, and the two have to be the same
+ * string. They were not, in three ways, and this is the one place that says all
+ * three:
+ *
+ * - a tab is drawn as a space and measured as nothing, so the string goes through
+ *   `toDisplayLine()`, in its single-line form because a line break would push
+ *   every row after it down by one;
+ * - an escape sequence is drawn as the text of its parameters, since the tree
+ *   drops the `ESC` byte and keeps `[31m`, and a bar is then sized against that
+ *   longer word and loses columns. The style is dropped, as `labelLine()` drops
+ *   it and a tooltip and a line chart's crosshair readout already do, so it goes
+ *   through `strip()` first;
+ * - `String()` is applied first, because a `format` from JavaScript may answer
+ *   with the number itself, which has always been drawn and which
+ *   `toDisplayLine()` would throw on.
+ *
+ * Not `labelLine()`: that collapses every run of whitespace to one space and
+ * trims, which is right for a label and would change a `format()` result that
+ * had no escape in it. This leaves such a result as it was, a tab apart.
+ *
+ * It lives beside `labelLine()` and is published from the same subpath, because
+ * a component that ejects imports its siblings by a subpath and `chart` and
+ * `paginator` are two that do.
+ *
+ * @param format - The caller's `format()`, or the default.
+ * @param args - What it is given: a number for a chart, a page and a count for a
+ *   page indicator.
+ * @returns What is drawn for it, as one line of plain text.
+ */
+export function formatLine<Args extends unknown[]>(
+  format: (...args: Args) => string,
+  ...args: Args
+): string {
+  return toDisplayLine(strip(String(format(...args))));
 }
 
 /**

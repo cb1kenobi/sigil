@@ -1023,6 +1023,7 @@ export const HELPERS: Readonly<Record<string, readonly string[]>> = {
     'fitKeyHelp',
     'formatClock',
     'formatDuration',
+    'formatLine',
     'formatLogFields',
     'formatRate',
     'isTableCellView',
