@@ -27,6 +27,7 @@ import { sort } from '../../src/components/sort.js';
 import { toggle } from '../../src/components/toggle.js';
 import { directoryTree, selectTree } from '../../src/components/tree.js';
 import { baseDir } from '../../src/paths.js';
+import { settleKeys } from '../../src/testing/index.js';
 import { type ScreenHarness, screenSetup, settleOutput, tick } from './helpers.js';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -355,7 +356,7 @@ describe('a line text()', () => {
     );
 
     await type(ui.stdin, ESCAPE);
-    await new Promise((resolve) => setTimeout(resolve, 80));
+    await settleKeys(ui);
     const { error } = await result;
 
     expect(error).toBeInstanceOf(PromptBack);
@@ -1221,7 +1222,7 @@ describe('a line path() asking before a long list', () => {
     await tabTab(ui);
     await type(ui.stdin, ESCAPE);
     // a lone Escape waits out the router's timeout before it is a key
-    await new Promise((resolve) => setTimeout(resolve, 80));
+    await settleKeys(ui);
     await settleOutput(ui);
     expect(ui.log).toEqual(['File f-', QUESTION_AT, 'File f-']);
 
@@ -1239,7 +1240,7 @@ describe('a line path() asking before a long list', () => {
     await type(ui.stdin, 'n');
     await settleOutput(ui);
     await type(ui.stdin, ESCAPE);
-    await new Promise((resolve) => setTimeout(resolve, 80));
+    await settleKeys(ui);
     const { error } = await result;
 
     expect(error).toBeInstanceOf(PromptBack);
@@ -1795,7 +1796,7 @@ describe('a group asked as lines', () => {
     });
 
     await type(ui.stdin, 'ann', ENTER, ESCAPE);
-    await new Promise((resolve) => setTimeout(resolve, 80));
+    await settleKeys(ui);
     await type(ui.stdin, 'e', ENTER, 'n', ENTER);
 
     expect(await answers).toEqual({ name: 'anne', ok: false });

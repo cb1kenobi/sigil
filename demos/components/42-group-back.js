@@ -19,8 +19,8 @@
  * Piped there is nobody to ask, so the second half sends the keys a person would
  * have typed through a test terminal and prints the screen after each one.
  */
-import { confirm, ESCAPE_TIMEOUT, group, select, text } from '@ttylabs/sigil/components';
-import { createTestTerminal, KEYS, tick } from '@ttylabs/sigil/testing';
+import { confirm, group, select, text } from '@ttylabs/sigil/components';
+import { createTestTerminal, KEYS, pressEscape, tick } from '@ttylabs/sigil/testing';
 
 /**
  * The flow, over whichever terminal it is handed.
@@ -65,17 +65,16 @@ if (process.stdin.isTTY && process.stdout.isTTY) {
    * Presses keys and prints what the screen shows after them.
    *
    * A lone Escape is held for `ESCAPE_TIMEOUT` before it is a key, since it could
-   * be the start of an Alt chord, so the clock is let run past it.
+   * be the start of an Alt chord, so it is pressed with `pressEscape()`, which
+   * waits for the router to have decided it: a sleep past the timeout would print
+   * the screen from before the Escape on a machine that was slow to fire it.
    *
    * @param label - What is being sent, for the reader of the transcript.
    * @param keys - The reads to send.
    */
   async function type(label, ...keys) {
     for (const key of keys) {
-      await ui.press(key);
-      if (key === KEYS.escape) {
-        await new Promise((resolve) => setTimeout(resolve, ESCAPE_TIMEOUT + 10));
-      }
+      await (key === KEYS.escape ? pressEscape(ui) : ui.press(key));
       await tick();
     }
     console.log(`\n> ${label}`);

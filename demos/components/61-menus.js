@@ -48,7 +48,7 @@ import { box, renderToString, text } from '@ttylabs/sigil/element';
 import { createInput, isAbort } from '@ttylabs/sigil/input';
 import { createEffect, createRoot, render } from '@ttylabs/sigil/renderer';
 import { flush, State } from '@ttylabs/sigil/signals';
-import { createTestTerminal, ctrl, KEYS } from '@ttylabs/sigil/testing';
+import { createTestTerminal, ctrl, KEYS, pressEscape } from '@ttylabs/sigil/testing';
 import { themedCascade } from '@ttylabs/sigil/theme';
 
 const live = process.stdin.isTTY && process.stdout.isTTY;
@@ -335,7 +335,6 @@ if (live) {
   input.focus.focus(ui.rows[0]);
 
   const cascade = themedCascade({ sheets: [STYLES] });
-  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const draw = () => {
     flush();
     return renderToString(holder, { cascade, colorLevel: 0, height: HEIGHT, width: WIDTH });
@@ -370,9 +369,8 @@ if (live) {
     }
   };
   const escape = async () => {
-    await term.press(KEYS.escape);
-    // a lone Escape is held until nothing follows it
-    await sleep(100);
+    // a lone Escape is held until nothing follows it, so this waits for it to be decided
+    await pressEscape(term);
     draw();
   };
   // the pointer, aimed at where the layout put things rather than at fixed cells,

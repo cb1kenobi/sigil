@@ -20,10 +20,10 @@ import {
   resolveStyles,
   text,
 } from '../../src/element/index.js';
-import { createInput, ESCAPE_TIMEOUT, type KeyEvent } from '../../src/input/index.js';
+import { createInput, type KeyEvent } from '../../src/input/index.js';
 import { flush, State } from '../../src/signals/index.js';
 import { type ColorScheme, Restyler } from '../../src/style/index.js';
-import { alt, createTestTerminal, ctrl, KEYS } from '../../src/testing/index.js';
+import { alt, createTestTerminal, ctrl, KEYS, pressEscape } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 import { DERIVED } from './form-harness.js';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -539,8 +539,7 @@ describe('the keys it claims', () => {
     expect(s.input.focus.current.get()).toBe(other);
 
     s.input.focus.focus(field);
-    await s.term.press(KEYS.escape);
-    await new Promise((resolve) => setTimeout(resolve, ESCAPE_TIMEOUT + 30));
+    await pressEscape(s.term);
     expect(s.seen).toContain('escape');
   });
 
@@ -734,8 +733,7 @@ describe('inside openModal()', () => {
   it('should still dismiss on Escape with the field focused', async () => {
     const d = dialog({ onSubmit: () => {} });
 
-    await d.term.press(KEYS.escape);
-    await new Promise((resolve) => setTimeout(resolve, ESCAPE_TIMEOUT + 30));
+    await pressEscape(d.term);
     expect(d.handle.open).toBe(false);
     expect(await d.handle.result).toBeUndefined();
   });

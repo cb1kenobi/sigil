@@ -9,9 +9,14 @@ import * as jsx from '../src/root.tsx';
 import * as tag from '../src/root.ui.ts';
 import { type App, runApp } from '@ttylabs/sigil/app';
 import type { Element } from '@ttylabs/sigil/element';
-import { ESCAPE_TIMEOUT } from '@ttylabs/sigil/input';
 import { provideContext } from '@ttylabs/sigil/renderer';
-import { createTestTerminal, frame, KEYS, type TestTerminal } from '@ttylabs/sigil/testing';
+import {
+  createTestTerminal,
+  frame,
+  KEYS,
+  pressEscape,
+  type TestTerminal,
+} from '@ttylabs/sigil/testing';
 import { mkdtempSync, rmSync, writeFileSync, appendFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -93,8 +98,7 @@ async function mount(
   const it: Mounted = {
     app,
     async escape() {
-      await term.press(KEYS.escape);
-      await new Promise((resolve) => setTimeout(resolve, ESCAPE_TIMEOUT + 30));
+      await pressEscape(term);
       await settle();
     },
     async press(...keys) {

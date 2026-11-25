@@ -5,6 +5,7 @@ import {
   type OutputStream,
   type Terminal,
 } from '../terminal/index.js';
+import { HELD_KEYS, type HeldKeysProbe } from '../util/held-keys.js';
 import { TIMER_ERROR } from '../util/timed.js';
 import { Screen, screenStream } from './screen.js';
 import { PassThrough } from 'node:stream';
@@ -98,7 +99,8 @@ export interface TestTerminal {
    * The one key this cannot settle is a lone `KEYS.escape`: there is no byte
    * that tells Escape from the start of an Alt chord, so the router *holds* it
    * for `ESCAPE_TIMEOUT` and no number of turns of the event loop will make it
-   * a key. Advance the clock, or press something after it -- see `alt()`.
+   * a key. Press it with `pressEscape()`, which waits for the router to decide,
+   * or advance the clock, or press something after it -- see `alt()`.
    *
    * @param chunks - The reads, in order.
    * @returns Settled, so the next assertion sees the frames they caused.
@@ -174,6 +176,15 @@ export interface TestTerminalOptions {
  * its temporal dead zone when the table is built.
  */
 const ESC = String.fromCharCode(0x1b);
+
+/** The timer `settleKeys()` polls with, read at load, ahead of any `useFakeTimers()`. */
+const realSetTimeout = globalThis.setTimeout;
+
+/** The clock its deadline is read off, bound at load for the same reason: a faked `Date` stands still. */
+const realNow = performance.now.bind(performance);
+
+/** How long `settleKeys()` waits for a router to decide, unless it is told otherwise. */
+const SETTLE_TIMEOUT = 3000;
 
 /** The keys `KEYS` names, as a union so that a misspelling is a type error. */
 export type TestKeyName =
@@ -345,6 +356,83 @@ export async function tick(times = 2): Promise<void> {
 }
 
 /**
+ * Waits until no router reading this terminal holds a key it is still waiting on.
+ *
+ * A lone Escape is held for `ESCAPE_TIMEOUT` on a real timer, in case it is the
+ * start of a longer key, and a test that sleeps a fixed span past that is asking a
+ * loaded machine to run two timers in order within a margin: the sleep returns
+ * before the router has decided, and the assertion reads a screen the Escape has
+ * not reached (SIG-695). This asks the router itself, so there is no margin to
+ * lose -- it returns when the key has been decided, however long that took, and
+ * not before.
+ *
+ * It waits on **real** timers. Under `vi.useFakeTimers()` the hold never ends by
+ * itself, so advance the clock instead; this throws after three seconds
+ * rather than waiting for the test's own timeout to say nothing. It takes no
+ * account of a handler's own asynchronous work, beyond the turns of the loop
+ * `tick()` gives, and a terminal no router reads from returns at once.
+ *
+ * Only a router built over a stream that carries the fixture's record of them can
+ *   be waited for, which is the stream of a `createTestTerminal()`: a router over
+ *   any other stream is not asked, and this returns as though nothing were held.
+ *
+ * @param term - The terminal the keys were pressed on.
+ * @param timeout - How many milliseconds to wait for the router. Three thousand
+ *   unless given, or where it is not a positive number.
+ * @returns Settled, so the next assertion sees what the key did.
+ * @throws If a router still holds a key after that long.
+ */
+export async function settleKeys(
+  term: { readonly stdin: object },
+  timeout: number = SETTLE_TIMEOUT
+): Promise<void> {
+  // `tick()`'s rule: a deadline that is not a positive number is not an
+  // instruction, and `0` or `NaN` would throw without asking a router anything
+  const limit = Number.isFinite(timeout) && timeout > 0 ? timeout : SETTLE_TIMEOUT;
+  const watchers = (term.stdin as unknown as Record<symbol, unknown>)[HELD_KEYS];
+  if (watchers instanceof Set) {
+    // `realSetTimeout` and `realNow` are the ones this module was loaded with,
+    // ahead of any `useFakeTimers()`, which would otherwise stop the deadline
+    // from ever arriving
+    const deadline = realNow() + limit;
+    for (;;) {
+      if (![...(watchers as Set<HeldKeysProbe>)].some((probe) => probe())) {
+        await tick();
+        return;
+      }
+      if (realNow() > deadline) {
+        break;
+      }
+      await new Promise((resolve) => realSetTimeout(resolve, 1));
+    }
+    throw new Error(
+      `a router is still holding a key after ${limit} ms: settleKeys() waits on real timers, so advance the clock instead where the test fakes them`
+    );
+  }
+  await tick();
+}
+
+/**
+ * Presses a lone Escape and waits for the router to decide it is one.
+ *
+ * `press(KEYS.escape)` cannot: there is no byte that tells Escape from the start
+ * of an Alt chord, so the router holds it for `ESCAPE_TIMEOUT` before it is a key.
+ * This is that press followed by `settleKeys()`, which is what a test asserting on
+ * what the Escape did needs, and which -- unlike a sleep past the timeout -- cannot
+ * read the screen early on a slow machine, or pass over an Escape that was never
+ * applied. See `settleKeys()` for what it does not wait on.
+ *
+ * @param term - The terminal to press it on.
+ * @returns Settled, so the next assertion sees what the Escape did.
+ */
+export async function pressEscape(
+  term: Pick<TestTerminal, 'press'> & { readonly stdin: object }
+): Promise<void> {
+  await term.press(KEYS.escape);
+  await settleKeys(term);
+}
+
+/**
  * Makes a stream carry on after a `data` listener throws out of `write()`.
  *
  * A listener that throws unwinds through the stream's own `push()` and leaves the
@@ -470,6 +558,8 @@ export function createTestTerminal(opts: TestTerminalOptions = {}): TestTerminal
     return stdin;
   };
   survivesAThrow(stdin);
+  // the routers over this stream, which `settleKeys()` asks whether they hold a key
+  (stdin as unknown as Record<symbol, unknown>)[HELD_KEYS] = new Set<HeldKeysProbe>();
   const onTimerError = hearsTimerErrors(stdin);
 
   // a stub rather than `process`: see the note at the top of this file

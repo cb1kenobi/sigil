@@ -5,7 +5,7 @@ import {
   PASTE_TIMEOUT,
   SEQUENCE_TIMEOUT,
 } from '../../src/input/index.js';
-import { createTestTerminal, KEYS } from '../../src/testing/index.js';
+import { createTestTerminal, KEYS, pressEscape } from '../../src/testing/index.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -47,9 +47,8 @@ describe('a handler that throws over a test terminal', () => {
     });
 
     await expect(ui.press('x')).rejects.toThrow('boom');
-    await ui.press(KEYS.escape);
     // a lone Escape is held for the timeout in case an Alt chord follows
-    await new Promise((resolve) => setTimeout(resolve, ESCAPE_TIMEOUT + 50));
+    await pressEscape(ui);
 
     expect(seen).toEqual(['x', KEYS.escape]);
     input.stop();

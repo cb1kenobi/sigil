@@ -3,7 +3,7 @@ import type { ControlCondition } from '../../src/components/control.js';
 import { box, type Element, renderToLines, renderToString } from '../../src/element/index.js';
 import { createInput, type DescribeOptions, type MouseEvent } from '../../src/input/index.js';
 import { Computed, flush, type State } from '../../src/signals/index.js';
-import { createTestTerminal } from '../../src/testing/index.js';
+import { createTestTerminal, type TestTerminal } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 
 /**
@@ -29,6 +29,8 @@ export interface Form {
   seen: string[];
   /** Takes the router off. */
   stop(): void;
+  /** The terminal it reads keys from, for a wait the router has to decide. */
+  term: TestTerminal;
 }
 
 const stops: Array<() => void> = [];
@@ -80,6 +82,7 @@ export function form(...controls: Element[]): Form {
     root,
     seen,
     stop,
+    term,
   };
 }
 

@@ -1484,18 +1484,18 @@ below with the measurements.
   it pins the interval itself. The same runs afterwards: 0 failures of 144, and
   planting a redraw on every key, or a timer of `PAUSE + 1`, each fails it.
 
-  The helper's lone Escape was the same shape and is the same fix: `press()` slept
+  The helper's lone Escape was the same shape: `press()` slept
   `ESCAPE_TIMEOUT + 30` of real time for the router's own timer, which orders two
-  timers 30 ms apart and loses on a loaded runner. `pressEscape()` fakes the timer
-  functions for the length of the key and advances exactly `ESCAPE_TIMEOUT`, and
-  keeps fake timers a test already holds. What it cannot keep is a timer the app
-  arms during that window and which is due after it, because putting the real
-  clock back discards the fake ones: the renderer's frame timer is one, and is
-  safe only because `press()` ends in `frame()`. The preview test paints through
-  that timer too, advancing a tenth of a second rather than calling `frame()`,
-  so that drawing the preview not asking for a frame fails it. The other
-  examples' tests spell the Escape the old way and are left to SIG-695, which is
-  the repository-wide sweep.
+  timers 30 ms apart and loses on a loaded runner. It faked the timer functions for
+  the length of the key and advanced exactly `ESCAPE_TIMEOUT`, which had a limit
+  of its own -- a timer the app armed during that window and which was due after
+  it was discarded when the real ones were put back -- and SIG-695 replaced it
+  with `pressEscape()` from `@ttylabs/sigil/testing`, which asks the router
+  whether it still holds a key and fakes nothing, so the limit went with the
+  workaround. The preview test still paints through the renderer's frame timer,
+  advancing a tenth of a second rather than calling `frame()`, so that drawing the
+  preview not asking for a frame fails it. The other examples' tests, which spelled
+  the Escape the old way, use the same helper now.
 
 - **Not done:** undo, which the area does not have; a new file, a rename and a
   delete from the tree; a search; reading a file changed on disk again; and

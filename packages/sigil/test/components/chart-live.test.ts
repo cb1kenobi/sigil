@@ -13,10 +13,10 @@ import {
 } from '../../src/components/chart.js';
 import { attachTooltip } from '../../src/components/tooltip.js';
 import { box, type Element, renderToLines, text } from '../../src/element/index.js';
-import { ESCAPE_TIMEOUT, type DescribeOptions, type InputRouter } from '../../src/input/index.js';
+import { type DescribeOptions, type InputRouter } from '../../src/input/index.js';
 import { runApp, useApp } from '../../src/renderer/app.js';
 import { effect, flush, State } from '../../src/signals/index.js';
-import { createTestTerminal, ctrl, frame, KEYS } from '../../src/testing/index.js';
+import { createTestTerminal, ctrl, frame, KEYS, pressEscape } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -1390,10 +1390,11 @@ describe('LineChart, with a crosshair from the keyboard (SIG-516)', () => {
       const m = await mount();
       await m.key(KEYS.tab, KEYS.left, KEYS.enter);
       await m.blur();
-      await m.key(KEYS.escape);
-      // a lone Escape is held back until nothing can follow it
-      await new Promise((resolve) => setTimeout(resolve, ESCAPE_TIMEOUT + 20));
-      await m.key();
+      // a lone Escape is held back until nothing can follow it, so this waits for
+      // the router to have decided it: asserting the pin is still there before that
+      // would pass over an Escape that had not been applied yet
+      await pressEscape(m.term);
+      await m.settle();
       expect(m.screen().join('\n')).toContain('│ API 3 │');
       await m.move(12, 2);
       expect(m.screen().join('\n')).toContain('│ API 5 │');
@@ -1405,14 +1406,12 @@ describe('LineChart, with a crosshair from the keyboard (SIG-516)', () => {
       expect(m.screen().join('\n')).toContain('│ API 3 │');
       // Escape while nothing holds the bubble dismisses it, as Escape does. A lone
       // Escape is held back for ESCAPE_TIMEOUT on a real timer, which a loaded
-      // runner can fire late, so this waits for the dismissal rather than for a
-      // fixed span past the timeout: a fixed 20 ms margin read the bubble before
-      // the timer had fired on a Windows CI runner.
-      await m.key(KEYS.escape);
-      await vi.waitFor(async () => {
-        await m.key();
-        expect(m.screen().join('\n')).not.toContain('│ API 3 │');
-      });
+      // runner can fire late, so this waits for the router to have decided it
+      // rather than for a fixed span past the timeout: a fixed 20 ms margin read
+      // the bubble before the timer had fired on a Windows CI runner.
+      await pressEscape(m.term);
+      await m.settle();
+      expect(m.screen().join('\n')).not.toContain('│ API 3 │');
       // and the pin that follows is a new reason to show it, which the Escape before
       // it does not outlast
       await m.key(KEYS.enter);

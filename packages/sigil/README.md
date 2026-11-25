@@ -1848,6 +1848,8 @@ the repository's own suite.
 - `createTestTerminal()`, with `KEYS`, `ctrl()`, `alt()` and `tick()`, is a
   terminal and a keyboard in-process, for driving a prompt or a full-screen app,
   and `frame()` paints an app's next frame now instead of waiting for it.
+  `pressEscape()` presses a lone Escape and waits for the router to have decided
+  it is one, and `settleKeys()` is that wait on its own.
 - `Screen` and `screenStream()` replay what was written into a model of the
   screen, because a frame is a diff and its bytes do not say what is showing.
   `screen.mouse` is which mouse reporting modes the program has on

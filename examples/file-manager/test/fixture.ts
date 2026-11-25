@@ -17,7 +17,7 @@ import { type App, runApp } from '@ttylabs/sigil/app';
 import type { Element } from '@ttylabs/sigil/element';
 import { encodePng } from '@ttylabs/sigil/png';
 import { provideContext } from '@ttylabs/sigil/renderer';
-import { createTestTerminal, frame, KEYS, type TestTerminal } from '@ttylabs/sigil/testing';
+import { createTestTerminal, frame, pressEscape, type TestTerminal } from '@ttylabs/sigil/testing';
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { rename } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -213,8 +213,7 @@ export async function mount(
   return {
     app,
     escape: async () => {
-      await term.press(KEYS.escape);
-      await new Promise((resolve) => setTimeout(resolve, 80));
+      await pressEscape(term);
       await settle();
     },
     press,

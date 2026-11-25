@@ -1,9 +1,8 @@
 import { Button, describeButton } from '../../src/components/button.js';
 import { text } from '../../src/element/index.js';
-import { ESCAPE_TIMEOUT } from '../../src/input/index.js';
 import { flush, State } from '../../src/signals/index.js';
 import { ui } from '../../src/template/index.js';
-import { KEYS } from '../../src/testing/index.js';
+import { KEYS, settleKeys } from '../../src/testing/index.js';
 import {
   clickOn,
   colored,
@@ -129,7 +128,7 @@ describe('pressing a button', () => {
     f.input.focus.focus(button);
     await f.press(KEYS.left, KEYS.down, 'x', KEYS.escape);
     // a lone Escape is held until nothing follows it
-    await new Promise((resolve) => setTimeout(resolve, ESCAPE_TIMEOUT + 30));
+    await settleKeys(f.term);
     expect(f.seen).toEqual(['left', 'down', 'x', 'escape']);
     // Tab is the ring's: it moves on, and pressed nothing on its way
     await f.press(KEYS.tab);

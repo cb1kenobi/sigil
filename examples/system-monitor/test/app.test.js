@@ -1,9 +1,8 @@
 import { App, stylesheet } from '../src/root.js';
 import { SystemContext } from '../src/system.js';
 import { runApp } from '@ttylabs/sigil/app';
-import { ESCAPE_TIMEOUT } from '@ttylabs/sigil/input';
 import { provideContext } from '@ttylabs/sigil/renderer';
-import { createTestTerminal, ctrl, frame, KEYS } from '@ttylabs/sigil/testing';
+import { createTestTerminal, ctrl, frame, KEYS, pressEscape } from '@ttylabs/sigil/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -108,8 +107,7 @@ function mount({
     }
   };
   const escape = async () => {
-    await term.press(KEYS.escape);
-    await new Promise((resolve) => setTimeout(resolve, ESCAPE_TIMEOUT + 30));
+    await pressEscape(term);
     await settle();
   };
   const step = async () => {
