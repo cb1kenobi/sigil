@@ -430,6 +430,31 @@ describe('BarChart', () => {
     expect(picture(column(3, chart), 9, 3)).toEqual(['▂ ▃ ▅ ▆ █', '█ █ █ █ █', '5 6 7 8 9']);
   });
 
+  // SIG-684: a horizontal chart asked for a row a bar and drew a row a bar, so
+  // 200,000 of them were 200,000 rows before the layout clipped them
+  it('should show the latest bars that fit the height the layout gave it', () => {
+    const data = Array.from({ length: 200_000 }, (_, i) => ({
+      label: String(i % 10),
+      value: (i % 10) + 1,
+    }));
+    const chart = BarChart({ ascii: false, data, showValues: false });
+
+    expect(picture(column(3, chart), 9, 3).map((line) => line.slice(0, 1))).toEqual([
+      '7',
+      '8',
+      '9',
+    ]);
+  });
+
+  it('should ask for no more rows than it will draw before the layout has said', () => {
+    const data = Array.from({ length: 200_000 }, (_, i) => ({ label: 'x', value: i % 7 }));
+    const chart = BarChart({ ascii: false, data, showValues: false });
+    const body = chart.children[1] as Element;
+
+    // the first drawing is made at the size asked for, since no layout has been done
+    expect(body.children.length).toBe(1000);
+  });
+
   it('should ask for a bounded width before the layout has said, whatever the terminal', () => {
     vi.stubEnv('COLUMNS', '999999');
     try {

@@ -5417,6 +5417,8 @@ not a view built again every tick.
   terminal's, by default): the columns narrow to fit, cutting a label or a value to
   the column, and past a column each it shows the **latest** bars, with the scale
   over the bars shown.
+  A horizontal chart is a row a bar, and at most `height` rows (1,000 by default):
+  past that it shows the **latest** bars, with the scale over the bars shown too.
 - **`lineChart(values, { width, height, min, max, axis, format, xLabels, legend, step, fill })`**
   is braille, two dots across and four down a cell, from the same `Dots` grid the
   canvas draws with. `values` is a list of numbers, or several series as
@@ -5551,7 +5553,8 @@ picture.
   `pin`, and `h` and `l` after the arrows where the chart takes them.
 
 - **`BarChart({ data, direction, ... })`** gives horizontal bars the width the
-  labels and the values leave; vertical bars share the width out between them
+  labels and the values leave, and a row each up to the height the layout gave
+  them, the latest bars being the ones drawn; vertical bars share the width out between them
   and take the rows the values and the labels leave, and the latest bars that
   fit are the ones drawn.
 - **`Gauge({ value, label, detail, thresholds, ... })`** gives the bar the width
