@@ -1,0 +1,7 @@
+{
+  "name": "bad-aliases",
+  "type": "module",
+  "devDependencies": {
+    "@ttylabs/sigil": "*"
+  }
+}

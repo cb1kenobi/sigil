@@ -184,7 +184,10 @@ async function announceLoaded(
   const replaced = await initCommand(
     replacement.name === undefined ? { ...(replacement as Command), name: cmd.name } : replacement,
     undefined,
-    parent[Internal].baseDir
+    parent[Internal].baseDir,
+    // a spread of the loaded command carries its aliases in `alias`, name-string ones
+    // among them, and they were accepted when it loaded (SIG-688)
+    cmd[Internal].aliases
   );
 
   // a replacement may bring aliases of its own, and it stands in the slot the
@@ -308,7 +311,7 @@ export async function loadCommand(
     // every path still left in `merged` is the module's own, so the module is
     // what they are relative to -- which is also the base a hook of the
     // module's reads off the command it is handed
-    const loaded = await initCommand(merged, entryFile);
+    const loaded = await initCommand(merged, entryFile, undefined, internal.aliases);
 
     // ...and the same goes for the help label, **whether or not the module
     // renamed the command**. The label is what a listing publishes, and a

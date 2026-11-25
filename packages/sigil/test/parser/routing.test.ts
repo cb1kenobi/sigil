@@ -481,7 +481,8 @@ describe('filesystem routing', () => {
             readRoutes(dir);
             return undefined;
           } catch (err) {
-            return /: it (.*)$/s.exec((err as Error).message)?.[1];
+            // the reason ends where the advice begins, at the first full stop
+            return /: it ([^.]*)\./s.exec((err as Error).message)?.[1];
           }
         };
 
@@ -558,8 +559,24 @@ describe('filesystem routing', () => {
           );
           expect(error?.message).toMatch(message);
           // one refusal: the leading `!` or `@` is not said a second time
-          expect(error?.message).not.toContain('plain name');
+          expect(error?.message.match(/Invalid alias/g)).toHaveLength(1);
           expect(error?.message).not.toMatch(/[\p{Cc}\p{Cf}]/u);
+        }
+      );
+
+      it.each([
+        ['a b', 'list each spelling as an entry of its own'],
+        ['a/b', 'has no "/" in it'],
+        ['[x]', 'without the brackets'],
+        ['!x', 'set "hidden" to true'],
+        ['@x', 'write it without the "@"'],
+        ['', 'so remove it'],
+      ])(
+        'should say what to do instead of an alias "%s", in the words a hand-declared one gets (SIG-688)',
+        async (alias, advice) => {
+          const dir = app({ 'commands.json': JSON.stringify({ build: { alias } }) });
+
+          await expect(parse({ argv: [], schema: { commands: dir } })).rejects.toThrow(advice);
         }
       );
 

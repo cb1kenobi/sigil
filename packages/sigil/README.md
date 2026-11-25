@@ -595,7 +595,7 @@ hook already are that moment.
 | `desc`                        | what help prints; a function for a translated one                                |
 | `args`, `options`, `commands` | as above                                                                         |
 | `default`                     | dispatch when argv named no command                                              |
-| `alias`                       | extra names that stay out of help; a leading `!` or `@` throws                   |
+| `alias`                       | extra names that stay out of help; one a route name could not be throws          |
 | `hidden`                      | keep it out of help                                                              |
 | `help`                        | a string that replaces the screen, or a renderer that receives the generated one |
 | `hooks`                       | `init`, `parse`, `help`, `afterRun`, `beforeError`, `subcommandLoaded`           |

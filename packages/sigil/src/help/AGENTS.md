@@ -266,7 +266,9 @@ the entry it belongs to.
   chose, and the order `label` has always held.
 
   **A `!` or `@` at the start of an `alias` property entry is refused** by
-  `initCommand()`, which is the other half: it used to be registered literally,
+  `initCommand()` -- and, since SIG-688, so is anything else a route's name
+  could not be, with advice, see "A hand-declared `alias` is held to the same
+  rules" in `packages/sigil/src/parser`; this is the other half: it used to be registered literally,
   so `alias: '!ls'` answered to `!ls` and help printed `list, !ls`. Neither of
   the other readings holds. Hiding that one alias means nothing once the
   property never reaches help, and hiding the whole command -- what `!` means in
@@ -275,8 +277,8 @@ the entry it belongs to.
   `!ls` would publish a command its author tried to hide, which is the
   `'!build, b'` trap the root entry refuses. `@` would be harmless to strip, and
   is refused anyway so that the property has one rule -- it takes names, and
-  name-string syntax is a mistake to say out loud rather than to guess at. Only
-  the first character is checked: `l!` is a name, if an odd one. Covered by
+  name-string syntax is a mistake to say out loud rather than to guess at. `l!`
+  is a name, if an odd one. Covered by
   `test/help/help.test.ts` and `test/parser/regressions.test.ts`.
 
   **The label is read by one function, and help is one of three readers.**

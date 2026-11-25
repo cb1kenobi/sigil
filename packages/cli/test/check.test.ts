@@ -765,6 +765,18 @@ describe('sigil check', () => {
       expect(process.exitCode).toBe(1);
     });
 
+    it('should fail on a hand-declared alias a route name could not be, with what to do instead (SIG-688)', async () => {
+      // the runtime refuses it on every start, so a check that passed it would pass an app
+      // that cannot run
+      const { err } = await sigil('check', join(fixtures, 'discover', 'bad-aliases'));
+
+      expect(err).toContain(
+        'src/index.ts:8:24: error: Invalid alias "a b" in the "spaced" command: it contains whitespace'
+      );
+      expect(err).toContain('and list each spelling as an entry of its own');
+      expect(process.exitCode).toBe(1);
+    });
+
     it('should list what the file describes in the tree', async () => {
       const { out } = await sigil('check', manifest, '--tree');
 

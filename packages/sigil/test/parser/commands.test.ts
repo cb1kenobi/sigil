@@ -652,7 +652,7 @@ describe('commands', () => {
         schema: {
           commands: {
             foo: {
-              alias: ['bar', 'baz', ''],
+              alias: ['bar', 'baz', 'qux'],
             },
           },
         },

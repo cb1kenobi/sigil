@@ -1110,6 +1110,24 @@ export default {
       expect(at(list, 'text').default).toBeUndefined();
     });
 
+    it('should refuse an alias a route name could not be, in the runtime’s words and with its advice (SIG-688)', () => {
+      // from source `initCommand()` refuses each of these on every start, so a build
+      // that baked one is an app that cannot run. One function says it for both
+      const app = discoverApp(join(apps, 'bad-aliases'));
+      const { commands, diagnostics } = readAppCommands(app);
+      const list = commands?.kind === 'inline' ? commands.commands : [];
+
+      expect(diagnostics.filter((d) => d.severity === 'error').map((d) => d.message)).toStrictEqual(
+        [
+          'Invalid alias "a b" in the "spaced" command: it contains whitespace, which a command name string reads as a separator between aliases. An alias is one name typed on the command line, so write it without whitespace or a ",", and list each spelling as an entry of its own.',
+          'Invalid alias "!ls" in the "hidden" command: it starts with "!", which a command name string reads as hiding the command. An alias is a plain name, so write it without the "!" -- to hide the command, set "hidden" to true.',
+          'Invalid alias "a,b" in the "comma" command: it contains a ",", which a command name string reads as a separator between aliases. An alias is one name typed on the command line, so write it without whitespace or a ",", and list each spelling as an entry of its own.',
+          'Invalid alias "" in the "empty" command: it is empty. An alias is a name typed on the command line, so remove it.',
+        ]
+      );
+      expect(at(list, 'fine').alias).toEqual(['f', 'a!b', 'a@b']);
+    });
+
     it('should read `undefined` as the runtime does, which is as not declared', () => {
       const app = discoverApp(join(apps, 'wrong-types'));
       const { commands, diagnostics } = readAppCommands(app);

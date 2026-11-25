@@ -1142,6 +1142,15 @@ describe('sigil build', () => {
     expect(existsSync(join(out, 'wrong-types.mjs'))).toBe(false);
   }, 60_000);
 
+  it('should refuse an alias a route name could not be, as the app does from source (SIG-688)', async () => {
+    const { err } = await sigil('build', join(fixtures, 'discover', 'bad-aliases'), '--out', out);
+
+    expect(err).toContain('Invalid alias "a b" in the "spaced" command: it contains whitespace');
+    expect(err).toContain('to hide the command, set "hidden" to true');
+    expect(process.exitCode).toBe(1);
+    expect(existsSync(join(out, 'bad-aliases.mjs'))).toBe(false);
+  }, 60_000);
+
   it('should build despite a placeholder property it cannot carry, and say which', async () => {
     // an inline `run`, `options`, `args` and the rest apply from source and not
     // after a build (SIG-320); until they are baked the build says so rather than

@@ -98,7 +98,8 @@ every app, and a built app gets `--version`. Do not declare them by hand.
   `default` in a `commands.json` beside the modules, keyed by file name without
   the extension. An alias there is held to the rules of a route's name: one that is
   empty, holds whitespace, a `,` or a `/`, starts with `<`, `[`, `!` or `@`, or
-  holds a control or format character, is refused. See [A `commands.json`](../../docs/parser.md#a-commandsjson)
+  holds a control or format character, is refused, as is one in a command's own
+  `alias` property, and the error says what to write instead. See [A `commands.json`](../../docs/parser.md#a-commandsjson)
   and [A module's own name does not route](../../docs/parser.md#a-modules-own-name-does-not-route).
 - **A route's name is taken literally.** A file named `!x.ts`, `@x.ts` or
   `my cmd.ts`, or one holding a control or format character, is refused rather than read as hidden, aliased or two names.
@@ -109,7 +110,8 @@ every app, and a built app gets `--version`. Do not declare them by hand.
   of them throws. See
   [`path`, `load`, and `run` are one choice](../../docs/parser.md#path-load-and-run-are-one-choice).
 - **Names in an inline map:** `'build, b'` is `build` aliased `b`, a leading `!`
-  hides a command, and the `alias` property adds names that stay out of help.
+  hides a command, and the `alias` property adds names that stay out of help --
+  plain names, held to the rules of a route's name.
 - **A single-command app puts `run` on the schema.** The schema is the root
   command, and its `run` runs when argv names no command, even if `commands`
   is added later. A command marked `default: true` runs when argv names none,

@@ -1,5 +1,6 @@
 import { completionSpec } from '../../src/completion/spec.js';
 import { createConfig, object } from '../../src/config/index.js';
+import { escapeControls } from '../../src/error-handler.js';
 import { createSections, renderHelp, resolveHelp } from '../../src/help/index.js';
 import { main } from '../../src/index.js';
 import type { CommandRegistry } from '../../src/parser/command/command-registry.js';
@@ -883,18 +884,105 @@ describe('regressions', () => {
 
     // SIG-225: the property takes names, and `!` and `@` are name-string
     // syntax. `!` used to be registered literally, as a command called `!ls`
-    // that help then printed with its `!` on
+    // that help then printed with its `!` on. SIG-688 re-worded both messages: the
+    // reason is now the route-name rule's, and the advice follows it
     it('should refuse a "!" or "@" prefixed alias property', async () => {
       await expect(
         parse({ argv: [], schema: { commands: { list: { alias: '!ls' } } } })
       ).rejects.toThrow(
-        'Invalid alias "!ls" in the "list" command: "!" is name-string syntax and the alias property takes plain names, so hide the command with "hidden: true" or a "!" in its name'
+        'Invalid alias "!ls" in the "list" command: it starts with "!", which a command name string reads as hiding the command. An alias is a plain name, so write it without the "!" -- to hide the command, set "hidden" to true.'
       );
       await expect(
         parse({ argv: [], schema: { commands: { list: { alias: ['l', '@ls'] } } } })
       ).rejects.toThrow(
-        'Invalid alias "@ls" in the "list" command: "@" is name-string syntax and the alias property takes plain names, so write "ls"'
+        'Invalid alias "@ls" in the "list" command: it starts with "@", which a command name string reads as an alias. An alias is a plain name, so write it without the "@".'
       );
+    });
+
+    // SIG-688: the property is held to every rule a route's name and a commands.json
+    // alias are, by the same function, so the three cannot disagree about a spelling
+    it.each([
+      ['whitespace', 'a b', 'it contains whitespace', 'list each spelling as an entry of its own'],
+      ['a tab', 'a\tb', 'it contains whitespace', 'list each spelling as an entry of its own'],
+      ['a comma', 'a,b', 'it contains a ","', 'list each spelling as an entry of its own'],
+      ['a slash', 'a/b', 'it contains a "/"', 'has no "/" in it'],
+      ['a leading <', '<x>', 'it starts with "<"', 'without the brackets'],
+      ['a leading [', '[x]', 'it starts with "["', 'without the brackets'],
+      ['an empty string', '', 'it is empty', 'so remove it'],
+    ])(
+      'should refuse an alias property holding %s, with what to do instead (SIG-688)',
+      async (_what, alias, reason, advice) => {
+        for (const declared of [alias, ['ok', alias]]) {
+          const message = await parse({
+            argv: [],
+            schema: { commands: { list: { alias: declared } } },
+          }).then(
+            () => '',
+            (err: unknown) => (err as Error).message
+          );
+
+          expect(message).toContain(
+            `Invalid alias "${escapeControls(alias)}" in the "list" command`
+          );
+          expect(message).toContain(reason);
+          expect(message).toContain(advice);
+          expect(message).not.toMatch(/[\p{Cc}\p{Cf}]/u);
+        }
+      }
+    );
+
+    it('should refuse a control or format character in an alias property, escaped in the message (SIG-688)', async () => {
+      const alias = `a${String.fromCharCode(0x1b)}${String.fromCodePoint(0x202e)}b`;
+
+      await expect(
+        parse({ argv: [], schema: { commands: { list: { alias: [alias] } } } })
+      ).rejects.toThrow(
+        'Invalid alias "a\\x1B\\u{202E}b" in the "list" command: it contains a control or format character'
+      );
+    });
+
+    it('should refuse the alias a loaded module declares, as one declared by hand (SIG-688)', async () => {
+      await expect(
+        parse({
+          argv: ['list'],
+          schema: {
+            commands: { list: { path: path.join(__dirname, 'fixtures/aliases/spaced.js') } },
+          },
+        })
+      ).rejects.toThrow(/Invalid alias "a b" in the "list" command: it contains whitespace/);
+    });
+
+    it("should not hold a name string's own aliases to the property's rule when the command loads (SIG-688)", async () => {
+      // the placeholder's aliases come across to the loaded command as an explicit
+      // list, which is not the `alias` property and was never validated as one
+      const schema = {
+        commands: { 'build, b/c': { path: path.join(__dirname, 'fixtures/aliases/build.js') } },
+      };
+
+      const { contexts } = await parse({ argv: ['build'], schema });
+      expect(contexts[0].name).to.equal('build');
+      expect(contexts[0][Internal].aliases.has('b/c')).to.equal(true);
+    });
+
+    it('should not ask a spread replacement of a loaded command for the aliases it already held (SIG-688)', async () => {
+      // `{ ...cmd }` carries the merged alias list in `alias` and drops the internal state
+      const schema = {
+        commands: { 'build, b/c': { path: path.join(__dirname, 'fixtures/aliases/build.js') } },
+        hooks: { subcommandLoaded: ({ cmd }: { cmd: object }) => ({ ...cmd, desc: 'wrapped' }) },
+      } as unknown as Schema;
+
+      const { contexts } = await parse({ argv: ['build'], schema });
+      expect(contexts[0].name).to.equal('build');
+    });
+
+    it('should still accept an alias property with a "!" or "@" inside it, or a joiner', async () => {
+      const alias = `a${String.fromCodePoint(0x200d)}b`;
+      const { contexts } = await parse({
+        argv: [alias],
+        schema: { commands: { list: { alias: ['ok', alias] } } },
+      });
+
+      expect(contexts[0].name).to.equal('list');
     });
 
     it('should still take a "!" or "@" inside an alias property', async () => {
