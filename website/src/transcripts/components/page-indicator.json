@@ -3,7 +3,7 @@
     "interface": "PageIndicatorOptions",
     "options": [
       {
-        "description": "The dot for the current page. Defaults to `●`, or `*` where `ascii` is on.",
+        "description": "The dot for the current page. Defaults to `●`, or `*` where `ascii` is on. One holding a control character is refused with a `TypeError`.",
         "default": "`●`",
         "name": "active",
         "optional": true,
@@ -31,7 +31,7 @@
         "type": "(page: number, pages: number) => string"
       },
       {
-        "description": "The dot for every other page. Defaults to `○`, or `.` where `ascii` is on.",
+        "description": "The dot for every other page. Defaults to `○`, or `.` where `ascii` is on. One holding a control character is refused with a `TypeError`.",
         "default": "`○`",
         "name": "inactive",
         "optional": true,
