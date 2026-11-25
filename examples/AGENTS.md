@@ -1438,6 +1438,32 @@ below with the measurements.
   Highlighting every file rather than only the ones the lexer reads survived and
   the conditional was deleted, above.
 
+- **The editor's timing is the test's, because a timer the app arms is a timer a
+  loaded machine fires late (SIG-690).** `should wait for a pause before drawing
+  the preview of a long document again` failed in three builders' full runs on
+  2026-11-24 and 25, while other worktrees ran their suites, and passed alone. It
+  asserted that the preview was **not** redrawn after a key and then waited for it
+  to be, and the first half read a real 200 ms: `press()` returns after two
+  `setImmediate` turns, and on a starved process that is more than `PAUSE`, so the
+  preview's own `setTimeout` had already drawn it -- `expected ... not to contain
+  'LXong'`, which is the assertion saying the pause had passed, not that anything
+  was wrong. Reproduced by running the test alone, 12 to 24 copies at a time,
+  against 12 to 30 busy loops: 19 failures of 144 runs, every one that assertion.
+  The fix holds the clock rather than racing it: `vi.useFakeTimers()` over
+  `setTimeout` and `clearTimeout` only, since a frame is waited for with
+  `setImmediate` and faking that would stall `frame()`, then `PAUSE - 1` is
+  advanced and the preview is still the old one, and one more makes it the new --
+  which is a stronger statement than "not at once, and by three seconds", because
+  it pins the interval itself. The same runs afterwards: 0 failures of 144, and
+  planting a redraw on every key, or a timer of `PAUSE + 1`, each fails it.
+
+  The helper's lone Escape was the same shape and is the same fix: `press()` slept
+  `ESCAPE_TIMEOUT + 30` of real time for the router's own timer, which orders two
+  timers 30 ms apart and loses on a loaded runner. `pressEscape()` fakes the timer
+  functions for the length of the key and advances exactly `ESCAPE_TIMEOUT`, and
+  keeps fake timers a test already holds. The other examples' tests spell it the
+  old way and are left to SIG-695, which is the repository-wide sweep.
+
 - **Not done:** undo, which the area does not have; a new file, a rename and a
   delete from the tree; a search; reading a file changed on disk again; and
   a "go to line", which `caret` now makes a few lines of the palette's.
