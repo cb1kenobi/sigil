@@ -1,4 +1,4 @@
-import { createDecrypt } from '../../src/components/decrypt.js';
+import { createDecrypt, decrypt } from '../../src/components/decrypt.js';
 import { text } from '../../src/components/index.js';
 import { createSpinner } from '../../src/components/spinner.js';
 import { tasks } from '../../src/components/tasks.js';
@@ -19,6 +19,9 @@ import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } fr
  * `onError` runs from the tail of a promise chain, and the task list's resize
  * listener, which painted a frame from the terminal's dispatch.
  */
+
+/** Taken before any test fakes the timers, so that a wait can be a real one. */
+const realImmediate = setImmediate;
 
 let stderr: MockInstance<typeof process.stderr.write> | undefined;
 let exitCode: typeof process.exitCode;
@@ -178,5 +181,136 @@ describe('a prompt that was answered, whose onError throws', () => {
     } finally {
       process.off('unhandledRejection', onRejection);
     }
+  });
+});
+
+describe('a decrypt that finished over a screen that failed, whose onError throws', () => {
+  /**
+   * A decrypt started and run to its last frame, with the screen then breaking.
+   *
+   * The timers are advanced synchronously, so the run has settled and its
+   * teardown is still queued on a microtask when the writes start to fail: what
+   * the teardown then paints is the failure, and nothing is on the stack to
+   * catch what `onError` throws for it.
+   */
+  function broken(heard: unknown[]) {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const ui = setup({ columns: 40 });
+    const write = ui.stdout.write.bind(ui.stdout);
+    let failing = false;
+    ui.stdout.write = (chunk: string): boolean => {
+      if (failing) {
+        throw new Error('pipe broke');
+      }
+      return write(chunk);
+    };
+    const effect = createDecrypt({
+      onError: throwing(heard),
+      terminal: ui.terminal,
+      text: 'hello world, here',
+    }).start();
+    while (effect.decrypting) {
+      vi.advanceTimersByTime(50);
+    }
+    failing = true;
+    return { effect };
+  }
+
+  /** Collects what reaches `unhandledRejection` while `run` goes. */
+  async function rejecting(run: () => Promise<void>): Promise<unknown[]> {
+    const seen: unknown[] = [];
+    const onRejection = (reason: unknown): void => void seen.push(reason);
+    process.on('unhandledRejection', onRejection);
+    try {
+      await run();
+      // the runtime reports an unhandled rejection after the microtasks drain
+      await new Promise<void>((resolve) => realImmediate(resolve));
+    } finally {
+      process.off('unhandledRejection', onRejection);
+    }
+    return seen;
+  }
+
+  it('should write the default report rather than reject a done nobody holds (SIG-691)', async () => {
+    const heard: unknown[] = [];
+    const seen = await rejecting(async () => {
+      broken(heard);
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    expect(seen).toEqual([]);
+    expect(written()).toContain('Error in decrypt: onError broke\n');
+    expect(process.exitCode).toBe(1);
+  });
+
+  const listeners = {
+    'an await': async (done: Promise<void>) => {
+      await done;
+    },
+    'a catch()': (done: Promise<void>) => done.catch((error: unknown) => Promise.reject(error)),
+    'a finally()': (done: Promise<void>) => done.finally(() => undefined),
+    'a Promise.all()': async (done: Promise<void>) => {
+      await Promise.all([done, Promise.resolve()]);
+    },
+  };
+
+  for (const [name, listen] of Object.entries(listeners)) {
+    it(`should reject for a caller that waits with ${name}, and write nothing of its own (SIG-691)`, async () => {
+      const heard: unknown[] = [];
+      let rejection: unknown;
+      const seen = await rejecting(async () => {
+        const { effect } = broken(heard);
+        const waiting = listen(effect.done).catch((error: unknown) => void (rejection = error));
+        await vi.advanceTimersByTimeAsync(100);
+        await waiting;
+      });
+
+      expect(String(rejection)).toBe('Error: onError broke');
+      expect(seen).toEqual([]);
+      expect(written()).not.toContain('Error in decrypt');
+      expect(process.exitCode).toBeUndefined();
+    });
+  }
+
+  it('should still reject for a caller that looks after the failure, without a report of its own (SIG-691)', async () => {
+    const heard: unknown[] = [];
+    let rejection: unknown;
+    const seen = await rejecting(async () => {
+      const { effect } = broken(heard);
+      await vi.advanceTimersByTimeAsync(100);
+      await effect.done.catch((error: unknown) => void (rejection = error));
+    });
+
+    expect(String(rejection)).toBe('Error: onError broke');
+    expect(seen).toEqual([]);
+    // written once, for the moment nobody was listening
+    expect(written().match(/Error in decrypt: /g)).toHaveLength(1);
+  });
+
+  it('should write the default report for a decrypt() nobody awaits (SIG-691)', async () => {
+    const heard: unknown[] = [];
+    const seen = await rejecting(async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(0);
+      const ui = setup({ columns: 40 });
+      const write = ui.stdout.write.bind(ui.stdout);
+      let failing = false;
+      ui.stdout.write = (chunk: string): boolean => {
+        if (failing) {
+          throw new Error('pipe broke');
+        }
+        return write(chunk);
+      };
+      void decrypt('hello world, here', { onError: throwing(heard), terminal: ui.terminal });
+      await vi.advanceTimersByTimeAsync(0);
+      // the run has settled once its last timer has fired, and not before
+      vi.advanceTimersByTime(60_000);
+      failing = true;
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    expect(seen).toEqual([]);
+    expect(written()).toContain('Error in decrypt: onError broke\n');
   });
 });

@@ -3223,6 +3223,38 @@ it is a component rather than the frame effect SIG-103 is.
   **themselves and synchronously**, because a caller writing a line straight after
   either of them must not race a teardown -- and the chained one is idempotent
   through `mounted`, so it then finds nothing to do.
+- **A `done` nobody is waiting on hands its failure over rather than rejecting
+  (SIG-691).** The teardown chained onto `done` can fail -- a frame that could not
+  be written, whose `onError` threw, which is the only thing `frame()` or
+  `dispose()` raises -- and `start()` returns the decrypt, so awaiting is optional:
+  with nobody on the promise that was an unhandled rejection, which ends a
+  process. Measured before it was fixed, by fake timers and a terminal that breaks
+  after the last timer fires. The decision was Chris's: the rejection stays the
+  channel for a caller that waits, and for nobody else the failure goes to
+  `handOver()` like every other path with no caller.
+
+  **Unheard is told by what `done` is.** It is an instance of a `Promise` subclass
+  whose `then()` records that it was called, because everything that waits on a
+  promise goes through `then()` -- `await` included, but **only for a subclass**:
+  a native promise is awaited without it, which is why overriding `then` on an
+  instance would have detected `.then()` and missed `await`. Measured for `await`,
+  `catch()`, `finally()` and `Promise.all()`. The species is `Promise` so what a
+  caller derives is an ordinary one. Judged at the moment of failure: heard then,
+  it rejects and nothing is written; unheard, it is written and **still rejects**,
+  with a handler of its own attached through `Promise.prototype.then` -- which
+  does not count as listening -- so that the rejection is not also unhandled. A
+  caller that subscribes after that finds the rejection and no second report;
+  the failure was reported once, for the moment nobody was there.
+
+  The report is the default one and not a second call to `onError`: what `leave()`
+  raises is what `onError` threw for the failure, which it was already given, so
+  it is handed to `handOver()` with a handler that rethrows, which writes
+  `Error in decrypt: <message>` once. The same mechanism is not needed elsewhere:
+  the clock's `done` never rejects, and the rest of the components settle through
+  a promise whose rejection is its own result. Pinned in
+  `test/components/on-error-timer.test.ts`, with the awaiting shapes beside the
+  unheard one so that a change cannot satisfy one by breaking the other.
+
 - **A run has a generation, and both halves of that were measured as bugs rather
   than reasoned about.** `start()` after a settled run has to tear the old one down
   _eagerly_: `mount()` reuses whatever is mounted, so a second run over a finished
