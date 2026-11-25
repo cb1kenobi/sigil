@@ -731,10 +731,17 @@ the entry it belongs to.
   reflowed a running row raised what `onError` threw into the terminal's dispatch,
   where nothing catches it -- measured, `AggregateError: Errors thrown by onError`
   out of `emit('resize')`. It bumps the version and calls `invalidate()` now.
-  **Not fixed, and measured:** `decrypt.ts`'s `leave()` runs `frame()` and `done()`
-  in the tail of the `done` promise, whose rejection is the documented channel for
-  a caller that awaited it -- and an unhandled rejection for one that did not,
-  since `start()` returns the decrypt and awaiting is optional.
+  **`decrypt.ts`'s `leave()` was the other one, and is fixed (SIG-691).** It runs
+  `frame()` and `done()` in the tail of the `done` promise, whose rejection is the
+  documented channel for a caller that awaited it -- and was an unhandled rejection
+  for one that did not, since `start()` returns the decrypt and awaiting is
+  optional. Measured first, with fake timers over a terminal that fails once the
+  last timer has fired and an `onError` that throws: one `unhandledRejection`,
+  carrying what `onError` threw. Decided by Chris: **hand over if unheard**. `done`
+  rejects for whoever waits on it, and for nobody else the failure is written by
+  `handOver()` -- `Error in decrypt: ...`, the exit code set -- which is the rule
+  every other path with no caller already follows. See "A `done` nobody is waiting
+  on" in `src/components/AGENTS.md` for how unheard is told.
 
   **The input router is the fourth place the rule is written, and the one that sits
   below the renderer (SIG-693).** `createInput()`'s `failed()` called `opts.onError`

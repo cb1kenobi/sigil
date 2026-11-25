@@ -32,7 +32,14 @@
 import { strip } from '../ansi/index.js';
 import { cellWidth, type Random, seeded } from '../canvas/index.js';
 import { box, cellStyle, type Element, type RawPaint, toDisplayText } from '../element/index.js';
-import { createEffect, getOwner, onCleanup, timed, trackedRaw } from '../renderer/index.js';
+import {
+  createEffect,
+  getOwner,
+  handOver,
+  onCleanup,
+  timed,
+  trackedRaw,
+} from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
 import { graphemes } from '../width/index.js';
@@ -1178,6 +1185,20 @@ export interface Decrypt {
    *
    * A fresh one per run, so a `start()` after a settled animation is awaitable
    * again.
+   *
+   * It rejects if giving the screen back fails -- a frame that could not be
+   * written over a broken pipe, whose `onError` threw -- for a caller that is
+   * waiting on it, whether by `await`, `then()`, `catch()`, `finally()` or
+   * `Promise.all()`. A caller that is not is not handed an unhandled rejection:
+   * `start()` returns the decrypt and awaiting is optional, so the failure is
+   * written to stderr instead, led by `Error in decrypt:`, with the exit code set
+   * (SIG-691).
+   *
+   * Whether anything is waiting is asked at the moment of the failure, so a
+   * caller that has not subscribed yet then is not waiting: `start()`, a long
+   * `await` on something else, and only then `await done` gets the rejection
+   * **and** the report. Subscribe before the run can end -- `await` it, or call
+   * `done.catch()` on it -- to be the one that hears of it.
    */
   readonly done: Promise<void>;
   /** Starts, optionally replacing the text first. */
@@ -1195,6 +1216,38 @@ export interface Decrypt {
   text: string;
   /** Writes a line that stays, above the frame. */
   write(text: string): void;
+}
+
+/**
+ * A promise that knows whether anything ever subscribed to it (SIG-691).
+ *
+ * `await`, `then()`, `catch()`, `finally()` and everything that takes a promise
+ * go through `then()`, and a subclass is what makes `await` do so: a native
+ * promise is awaited without it. `species` is `Promise`, so what `then()` derives
+ * is an ordinary promise rather than another of these. It is built the way any
+ * promise is, by an executor, so that the controls stay with whoever built it.
+ */
+class Heard extends Promise<void> {
+  static override get [Symbol.species](): PromiseConstructor {
+    return Promise;
+  }
+
+  #heard = false;
+
+  /** Whether `then()` has been called on it, by whatever route. */
+  get heard(): boolean {
+    return this.#heard;
+  }
+
+  // a thenable on purpose: it is the whole of how a waiter is noticed
+  // eslint-disable-next-line unicorn/no-thenable
+  override then<A = void, B = never>(
+    onFulfilled?: ((value: void) => A | PromiseLike<A>) | null,
+    onRejected?: ((reason: unknown) => B | PromiseLike<B>) | null
+  ): Promise<A | B> {
+    this.#heard = true;
+    return super.then(onFulfilled, onRejected);
+  }
 }
 
 /**
@@ -1281,17 +1334,72 @@ export function createDecrypt(opts: DecryptOptions = {}): Decrypt {
    * a rejection here, which whoever awaited `done` sees, and would be an uncaught
    * exception out of a bare microtask -- which is the one thing a CLI must not do.
    *
+   * **A rejection nobody is listening for is written instead of raised**
+   * (SIG-691). `start()` returns the decrypt and awaiting `done` is optional, so
+   * the tail of this chain can fail with no caller at all -- a frame that failed
+   * over a pipe that broke, whose `onError` threw -- and a rejected promise nobody
+   * holds a handler for is an unhandled rejection, which ends a process. What it
+   * is asked is whether anything subscribed, which `Heard` answers by being the
+   * promise `done` is: every way of waiting on one (`await`, `then()`, `catch()`,
+   * `finally()`, `Promise.all()`) goes through its `then()`. Heard, the promise
+   * rejects as it always did and the awaiter has the failure; unheard, the failure
+   * goes to `handOver()` -- the rule the prompt and the renderer's timer follow --
+   * and the promise still rejects, with a handler of its own on it so that the
+   * rejection is not also unhandled. A caller that subscribes after the failure
+   * finds the same rejection and no second report of its own.
+   *
    * @returns The promise, with `settle` armed to resolve it.
    */
   function begin(): Promise<void> {
     const mine = ++run;
-    return new Promise<void>((resolve) => {
-      settle = resolve;
-    }).then(() => {
-      if (mine === run) {
-        leave();
-      }
+    let resolveOut!: () => void;
+    let rejectOut!: (reason: unknown) => void;
+    const out = new Heard((resolve, reject) => {
+      resolveOut = resolve;
+      rejectOut = reject;
     });
+    new Promise<void>((resolve) => {
+      settle = resolve;
+    })
+      .then(() => {
+        if (mine === run) {
+          leave();
+        }
+      })
+      .then(resolveOut, (error: unknown) => {
+        if (!out.heard) {
+          // what `leave()` raises is what `onError` threw for the failure,
+          // which it has already been given -- so it is written by the default
+          // report rather than handed to `onError` a second time. Rethrowing is
+          // how `handOver()` is asked for exactly that. Each of several is
+          // written, since the renderer raises more than one as an aggregate
+          // whose own message says only that they were several
+          for (const each of error instanceof AggregateError ? error.errors : [error]) {
+            try {
+              handOver(
+                (thrown) => {
+                  throw thrown;
+                },
+                each,
+                'Error in decrypt'
+              );
+            } catch {
+              // a stderr that throws is gone, and there is nowhere left to say
+              // so: what the write threw is dropped, here and per error, so the
+              // rest of an aggregate is still tried. Let out, it would reject
+              // the promise this handler returns, which nothing holds -- the
+              // unhandled rejection this branch exists to prevent
+            }
+          }
+        }
+        // whatever the report did, the promise is settled: a stderr that throws
+        // must not leave `done` pending for the caller that comes looking
+        rejectOut(error);
+      });
+    // through the prototype, which is not `Heard.then()`: this handler is ours and
+    // must not count as somebody listening
+    Promise.prototype.then.call(out, undefined, () => undefined);
+    return out;
   }
 
   let done = begin();
