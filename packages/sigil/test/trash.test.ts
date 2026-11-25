@@ -2,7 +2,7 @@ import { deletionDate, encodePath, trashFreedesktop, trashName } from '../src/tr
 import { trash } from '../src/trash/index.js';
 import { keyOf, recycle } from '../src/trash/windows.js';
 import { tempDir } from './temp.js';
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import {
   chmodSync,
@@ -19,7 +19,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { lstat, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { cpus, freemem, tmpdir } from 'node:os';
 import { basename, dirname, join, sep } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -37,6 +37,101 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const WINDOWS = process.platform === 'win32';
 // the freedesktop trash writes Unix ids and modes, and Windows has neither
 const FREEDESKTOP = !WINDOWS;
+
+/** How long a real-trash call may take before `watched()` starts saying so. */
+const SLOW_CALL = 10_000;
+
+function busyTimes(): { busy: number; total: number } {
+  let busy = 0;
+  let total = 0;
+  for (const { times } of cpus()) {
+    const idle = times.idle;
+    const used = times.user + times.nice + times.sys;
+    busy += used;
+    total += used + idle;
+  }
+  return { busy, total };
+}
+
+/** The names of the processes that could hold up a compile or a move, with how many of each. */
+function whatIsRunning(): Promise<string> {
+  return new Promise((done) => {
+    execFile(
+      'tasklist',
+      ['/fo', 'csv', '/nh'],
+      { encoding: 'utf8', timeout: 10_000, windowsHide: true },
+      (_err, out) => {
+        const counts = new Map<string, number>();
+        let all = 0;
+        for (const line of (out ?? '').split('\n')) {
+          const name = line.split('","')[0]?.replace('"', '').toLowerCase();
+          all += name ? 1 : 0;
+          if (
+            name &&
+            /powershell|csc|vbcscompiler|msmpeng|mpcmdrun|node|dotnet|msiexec|tiworker/.test(name)
+          ) {
+            counts.set(name, (counts.get(name) ?? 0) + 1);
+          }
+        }
+        done(`${all} processes, ${JSON.stringify(Object.fromEntries(counts))}`);
+      }
+    );
+  });
+}
+
+/**
+ * Runs one call of `trash()` on a real platform trash, and says where the time
+ * went when it is slow (SIG-704).
+ *
+ * A call on Windows that is not slow prints nothing. One that passes `SLOW_CALL`
+ * prints, every five seconds until it settles, how busy the whole machine was
+ * over the last five seconds and how much memory it had free, and once what was running --
+ * so that a call that stalls says whether the runner was starved or something
+ * else was holding it, which a bare `Test timed out in 60000ms` cannot. Each
+ * Windows call is one PowerShell start and may be a compile, and the figures in
+ * `src/trash/AGENTS.md` are what is normal.
+ *
+ * The heartbeat is not stopped by a test timing out, on purpose: the call it
+ * watches is still running then, and what it goes on printing is how long the
+ * stall lasted. It is `unref()`'d so that it never holds a worker open.
+ */
+async function watched<T>(label: string, call: () => Promise<T>): Promise<T> {
+  if (!WINDOWS) {
+    return call();
+  }
+  const started = performance.now();
+  let before = busyTimes();
+  let listed = false;
+  const beat = setInterval(() => {
+    const elapsed = performance.now() - started;
+    const now = busyTimes();
+    const busy = Math.round(
+      (100 * (now.busy - before.busy)) / Math.max(1, now.total - before.total)
+    );
+    before = now;
+    // a timer may fire a millisecond early, so the tick at ten seconds is not skipped
+    if (elapsed < SLOW_CALL - 100) {
+      return;
+    }
+    console.log(
+      `${label}: ${Math.round(elapsed / 1000)} s so far, machine ${busy}% busy, ${Math.round(freemem() / 1e6)} MB free`
+    );
+    if (!listed) {
+      listed = true;
+      void whatIsRunning().then((running) => console.log(`${label}: ${running}`));
+    }
+  }, 5000);
+  beat.unref();
+  try {
+    return await call();
+  } finally {
+    clearInterval(beat);
+    const took = performance.now() - started;
+    if (took >= SLOW_CALL) {
+      console.log(`${label}: took ${Math.round(took)} ms`);
+    }
+  }
+}
 
 /** A directory of its own, links resolved, since macOS's temp directory is behind `/var`. */
 function made(prefix: string): string {
@@ -432,13 +527,13 @@ describe('trash()', () => {
           writeFileSync(file, name);
           let where = '';
           try {
-            where = await trash(file);
+            where = await watched(`trash(${basename(file)})`, () => trash(file));
             expect(where).not.toBe('');
             expect(existsSync(file)).toBe(false);
             expect(readFileSync(where, 'utf8')).toBe(name);
             expect(where).toMatch(WINDOWS ? /\$Recycle\.Bin/i : /\.Trash/);
           } finally {
-            await takeOut(where);
+            await watched(`takeOut(${basename(file)})`, () => takeOut(where));
           }
           expect(existsSync(where)).toBe(false);
         }
@@ -455,11 +550,11 @@ describe('trash()', () => {
         writeFileSync(join(dir, 'deep', 'x'), 'x');
         let where = '';
         try {
-          where = await trash(dir);
+          where = await watched('trash(dir)', () => trash(dir));
           expect(existsSync(dir)).toBe(false);
           expect(readFileSync(join(where, 'deep', 'x'), 'utf8')).toBe('x');
         } finally {
-          await takeOut(where);
+          await watched('takeOut(dir)', () => takeOut(where));
         }
       },
       SLOW
