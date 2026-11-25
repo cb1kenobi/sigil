@@ -1,4 +1,5 @@
 import { createGit, type Git, GitContext } from '../src/git.ts';
+import { ToastTimeout } from '../src/model.ts';
 import { App as JsxApp, stylesheet } from '../src/root.tsx';
 import { App as UiApp } from '../src/root.ui.ts';
 import { type App, runApp } from '@ttylabs/sigil/app';
@@ -116,6 +117,8 @@ interface Mounted {
   screen(): string;
   /** Waits until git has finished and the frame after it is drawn. */
   settle(): Promise<void>;
+  /** Makes every git call from now on wait this many milliseconds before it runs. */
+  slow(ms: number): void;
   readonly term: TestTerminal;
 }
 
@@ -127,6 +130,10 @@ const ROWS = 32;
  * counted, so that `settle()` waits for what the client asked of it rather than
  * for a guess at how long git takes -- which on a Windows runner is a lot longer
  * than here. `mouse` is `--mouse`.
+ *
+ * A toast is mounted to stay until the app is disposed (`ToastTimeout`), because
+ * a test reads what an action said off the screen after the refresh the action
+ * queued, and a refresh can outlast the four seconds a toast has by default.
  */
 async function mount(
   App: () => Element,
@@ -135,6 +142,7 @@ async function mount(
 ): Promise<Mounted> {
   const real = createGit({ cwd: repo.dir, env: repo.env });
   let running = 0;
+  let delay = 0;
   const counted = <T>(work: Promise<T>): Promise<T> => {
     running++;
     return work.finally(() => {
@@ -144,15 +152,18 @@ async function mount(
   const git: Git = {
     cwd: real.cwd,
     readFile: (path, limit) => counted(real.readFile(path, limit)),
-    run: (args, opts) => counted(real.run(args, opts)),
+    run: (args, opts) =>
+      counted(
+        delay > 0
+          ? new Promise((resolve) => setTimeout(resolve, delay)).then(() => real.run(args, opts))
+          : real.run(args, opts)
+      ),
   };
   const term = createTestTerminal({ colorLevel: 0, columns: COLUMNS, rows: ROWS });
-  const app = runApp(() => provideContext(GitContext, git, App), {
-    detect: false,
-    mouse: opts.mouse ?? false,
-    sheets: [stylesheet],
-    terminal: term.terminal,
-  });
+  const app = runApp(
+    () => provideContext(GitContext, git, () => provideContext(ToastTimeout, Infinity, App)),
+    { detect: false, mouse: opts.mouse ?? false, sheets: [stylesheet], terminal: term.terminal }
+  );
 
   // idle for three frames running: a git that resolves queues the next one
   // within a turn, so one quiet frame is not yet quiet
@@ -177,7 +188,16 @@ async function mount(
     }
   };
   await settle();
-  return { app, press, screen: () => term.viewport.join('\n'), settle, term };
+  return {
+    app,
+    press,
+    screen: () => term.viewport.join('\n'),
+    settle,
+    slow: (ms) => {
+      delay = ms;
+    },
+    term,
+  };
 }
 
 /** Escape, which the router holds back a moment in case it starts a sequence. */
@@ -283,6 +303,32 @@ for (const [syntax, App] of [
         expect(repo.git('diff', '--cached', '--name-only')).toBe('');
         expect(client.screen()).toMatch(/ M a\.txt/);
 
+        await client.press('q');
+        expect(await client.app.exited).toBe(0);
+      },
+      LONG
+    );
+
+    it(
+      'should still show what an action said when the refresh after it outlasts the four seconds a toast has by default',
+      async () => {
+        const repo = repository();
+        repo.write('a.txt', TWO_HUNKS);
+        const client = await mount(App, repo);
+
+        // the stage is one git and the refresh after it is several more, so the
+        // toast is raised after the first 1.5s and the press is not settled
+        // until more than four seconds after that
+        client.slow(1500);
+        const started = Date.now();
+        await client.press(' ');
+        const took = Date.now() - started;
+        // the other half of the claim, so that a faster git cannot make this pass
+        // for the wrong reason: the refresh really did outlast a toast
+        expect(took).toBeGreaterThan(1500 + 4000);
+        expect(client.screen()).toMatch(/Staged a\.txt/);
+
+        client.slow(0);
         await client.press('q');
         expect(await client.app.exited).toBe(0);
       },
