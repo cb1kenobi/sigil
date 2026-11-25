@@ -667,8 +667,9 @@ the entry it belongs to.
   looks at a handler's return value, so an `async` `onSelect` fails as an unhandled
   rejection, and the handler's own `catch` is where that is dealt with; and
   `onEnd()`, which is called from the stream's `end` and `error` listeners and from
-  `stop()` and raises what its handlers threw, by the rule recorded under "A router
-  stopped over a failed stream". A failure `runApp()` was holding when its component
+  `stop()`: `stop()` raises what its handlers threw, by the rule recorded under "A
+  router stopped over a failed stream", and the listeners hand it to `handOver()`
+  (SIG-697, below). A failure `runApp()` was holding when its component
   body then threw is not reported either: the body's error is what the caller gets.
   `feed()` is not an entry of its own. It reaches
   `route()` and is guarded there, so a throw from a handler a handler fed is
@@ -692,12 +693,60 @@ the entry it belongs to.
   threw>`, then `Error in input error handler: <what onError threw>`, and the exit
   code is set to 1 if it was not already; an `onError` that rethrows what it was
   given is one line. The router goes on with the rest of the read, as it does for
-  an `onError` that returns. **Still outside the rule, and said so rather than left to be found:** `onEnd()` handlers called from the stream's `end` and `error` listeners raise what they threw (see above), without consulting `onError`. **Without `onError` it is unchanged**: the throw
-  escapes, for the reason above. Pinned in `test/input/input.test.ts`.
+  an `onError` that returns. **`onEnd()` was still outside the rule, and is inside it now (SIG-697),
+  below.** **Without `onError` it is unchanged**: the throw escapes, for the reason
+  above. Pinned in `test/input/input.test.ts`.
   What `runApp()` does with it is under "Running an app: `runApp()`" in
   `src/renderer`. Pinned in `test/input/input.test.ts` and
   `test/input/mouse-router.test.ts` for the router and `test/renderer/app.test.ts`
   for the terminal being given back.
+
+  **An `onEnd()` handler that throws, from the stream's own listener, is handed
+  over as well, and `stop()` still raises (SIG-697).** The sentence above left it
+  out, and it was the same hole: `ended()` ran every handler from `onStreamEnd` and
+  `onStreamError` and raised what they threw, which out of an event emitter is an
+  uncaught exception -- a CLI crashing on its own stdin closing, over whatever
+  screen it had. It is `endAll()` now, which runs the handlers and **returns** what
+  they threw, and its two callers differ in the one way that matters: the listeners
+  hand each error to `handOver()` (`reportEnded()`), because nothing called them,
+  and `stop()` raises, because somebody did. Each error is its own call rather than
+  one aggregate, as `failed()` makes it, so an `onError` hears them one at a time
+  and the default writes a line for each: an aggregate's message says only that
+  several threw. **The handler is `onError` where there is one, and a rethrow where
+  there is not** -- unlike `failed()`, which raises without one, because `failed()`
+  has an entry that may be a caller's (`feed()`) and these two do not. `handOver()`
+  over a rethrow is the default report, one line `Error in input: <what it threw>`
+  and the exit code set to 1, so a bare router no longer crashes on it. Through
+  `runApp()` that means an `onEnd()` handler of the app's that throws as stdin ends
+  is a failure of the app like any other handler's (its `onError` ends it with 1),
+  where it used to escape -- the first failure only, as for any handler: `runApp()`'s
+  own `onEnd()` is registered first, so for a stream that _errored_ it has already
+  recorded the stream's failure and an app handler's throw after it is dropped
+  with the other failures that follow the first, where for a clean end it is the
+  failure. Pinned in `test/input/input.test.ts` and, for `runApp()`, in
+  `test/renderer/app.test.ts`.
+
+  **`stop()` runs every step and raises what failed once the last has run
+  (SIG-699).** It ran them in a row with no protection, so a terminal write that
+  threw -- the bracketed-paste reset on a closed stream, which is the ordinary case
+  -- skipped everything after it: mouse tracking left on, hover highlights left
+  drawn, and the stream failure `stop()` was about to tell `onEnd()` about lost.
+  `stop()` is called from somebody's teardown, which a throw also cut short. The
+  order is unchanged and is the one the steps are written in -- the paste's end,
+  the sequence, raw mode off, the paste reset, the mouse reset, the hover states,
+  and `onEnd()` last, so that a handler writing the error writes it to a cooked
+  terminal -- and each is attempted whatever the one before it threw. What they
+  threw goes through `raise()` once, with what the `onEnd()` handlers threw in the
+  **same flat list**: a write that failed and a handler that threw both reach the
+  caller, once each, as one `AggregateError` where there are several, which
+  `runApp()`'s `finish()` opens up and reports one at a time as it already did for
+  the handlers alone. The aggregate's message is `Errors in onEnd() handlers` when
+  only handlers threw, which is what it always said, and `Errors while stopping the
+  input router` once a step did. Not guarded, and left alone: the listeners coming
+  off and the guard going on, which write nothing. Pinned in
+  `test/input/stop-fails.test.ts`. The mounted component's `stop()` is the same
+  rule in `src/components/mount.ts` and is recorded under "A prompt whose terminal
+  write fails" in `src/components`.
 
 ### Key sequences
 
@@ -911,7 +960,7 @@ the absence here is settled rather than pending.
   Escape here needs a clock.
 
 - **The stream _ending_ leaves the pending sequence alone, and `held` is the
-  precedent.** `ended()` deliberately does not tear the router down -- `onEnd()`
+  precedent.** `endAll()` deliberately does not tear the router down -- `onEnd()`
   exists so the app decides, and the ordinary thing it decides is `stop()`, which
   clears -- and it leaves the half-arrived **key** and its deadline exactly where
   they are too. So a pending sequence is treated the same way: an exact match that
