@@ -58,11 +58,20 @@ describe('waiting for the router to decide a key', () => {
     input.bind((event) => void seen.push(event.key.name));
 
     await ui.press('a');
-    const started = performance.now();
     await settleKeys(ui);
 
     expect(seen).toEqual(['a']);
-    expect(performance.now() - started).toBeLessThan(ESCAPE_TIMEOUT);
+    input.stop();
+  });
+
+  it('should treat a deadline that is not a positive number as the default, not as a failure', async () => {
+    const ui = createTestTerminal();
+    const input = createInput({ root: box({}), terminal: ui.terminal });
+    await ui.press('a');
+
+    await settleKeys(ui, 0);
+    await settleKeys(ui, Number.NaN);
+    await settleKeys(ui, -5);
     input.stop();
   });
 

@@ -548,7 +548,8 @@ waits for the prompt to act on each one, so the next assertion sees the result.
   `settleKeys(ui)` is the wait on its own, for an Escape that was one of several
   keys in a `press()`. Both ask the input router whether it still holds a key, so
   they return as soon as it has decided and not before, however slow the machine
-  is. The alternative, sleeping a fixed span past the 50 ms timeout, reads the
+  is, and they know only the routers built over the terminal `createTestTerminal()`
+  returned. The alternative, sleeping a fixed span past the 50 ms timeout, reads the
   screen early on a busy runner and fails there and nowhere else. They wait on
   real timers: if the test fakes them, advance the clock past `ESCAPE_TIMEOUT`
   instead, or press another key after the Escape.

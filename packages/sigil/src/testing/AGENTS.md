@@ -502,10 +502,14 @@ that knowledge was undiscoverable from outside this repository.
 
   **It waits on real timers, and says so rather than hanging.** It polls every
   millisecond with the `setTimeout` it was loaded with, ahead of any
-  `useFakeTimers()`, and counts turns rather than reading `Date`, because a test
-  holding fake timers has a fake `Date` too and a deadline read off it never
-  arrives. Under fake timers the hold never ends by itself, so after three seconds
-  (`settleKeys(term, ms)` takes another) it throws naming that, rather than the
+  `useFakeTimers()`, and reads its deadline off the `performance.now()` bound at
+  load: a fake `Date` stands still, so a deadline read off it never arrives, and
+  an earlier version that counted 3000 one-millisecond turns was found by review
+  to be 3.4 s on a Mac and potentially far more on Windows, where a 1 ms timer is
+  not 1 ms. Under fake timers the hold never ends by itself, so after three
+  seconds (`settleKeys(term, ms)` takes another, and a value that is not a
+  positive number is the default, as `tick()` treats a count) it throws naming
+  that, rather than the
   test's own timeout saying nothing. A test that fakes the clock advances it, as
   `group.test.ts` and `palette.test.ts` do; those were never the sleeping kind and
   are untouched. It ends on `tick()`, since the router decides synchronously but a

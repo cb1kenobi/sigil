@@ -180,6 +180,9 @@ const ESC = String.fromCharCode(0x1b);
 /** The timer `settleKeys()` polls with, read at load, ahead of any `useFakeTimers()`. */
 const realSetTimeout = globalThis.setTimeout;
 
+/** The clock its deadline is read off, bound at load for the same reason: a faked `Date` stands still. */
+const realNow = performance.now.bind(performance);
+
 /** How long `settleKeys()` waits for a router to decide, unless it is told otherwise. */
 const SETTLE_TIMEOUT = 3000;
 
@@ -369,10 +372,13 @@ export async function tick(times = 2): Promise<void> {
  * account of a handler's own asynchronous work, beyond the turns of the loop
  * `tick()` gives, and a terminal no router reads from returns at once.
  *
- * @param term - The terminal the keys were pressed on: anything with the `stdin` its
- *   routers read, so a test's own stand-in for one works as well.
- * @param timeout - How many milliseconds to wait for the router, at least. Three
- *   thousand unless given.
+ * Only a router built over a stream that carries the fixture's record of them can
+ *   be waited for, which is the stream of a `createTestTerminal()`: a router over
+ *   any other stream is not asked, and this returns as though nothing were held.
+ *
+ * @param term - The terminal the keys were pressed on.
+ * @param timeout - How many milliseconds to wait for the router. Three thousand
+ *   unless given, or where it is not a positive number.
  * @returns Settled, so the next assertion sees what the key did.
  * @throws If a router still holds a key after that long.
  */
@@ -380,20 +386,27 @@ export async function settleKeys(
   term: { readonly stdin: object },
   timeout: number = SETTLE_TIMEOUT
 ): Promise<void> {
+  // `tick()`'s rule: a deadline that is not a positive number is not an
+  // instruction, and `0` or `NaN` would throw without asking a router anything
+  const limit = Number.isFinite(timeout) && timeout > 0 ? timeout : SETTLE_TIMEOUT;
   const watchers = (term.stdin as unknown as Record<symbol, unknown>)[HELD_KEYS];
   if (watchers instanceof Set) {
-    // counted rather than timed, because a test holding fake timers has a fake
-    // `Date` too and a deadline read off it never arrives. `realSetTimeout` is the
-    // one this module was loaded with, ahead of any `useFakeTimers()`
-    for (let turn = 0; turn < timeout; turn++) {
+    // `realSetTimeout` and `realNow` are the ones this module was loaded with,
+    // ahead of any `useFakeTimers()`, which would otherwise stop the deadline
+    // from ever arriving
+    const deadline = realNow() + limit;
+    for (;;) {
       if (![...(watchers as Set<HeldKeysProbe>)].some((probe) => probe())) {
         await tick();
         return;
       }
+      if (realNow() > deadline) {
+        break;
+      }
       await new Promise((resolve) => realSetTimeout(resolve, 1));
     }
     throw new Error(
-      `a router is still holding a key after ${timeout} ms: settleKeys() waits on real timers, so advance the clock instead where the test fakes them`
+      `a router is still holding a key after ${limit} ms: settleKeys() waits on real timers, so advance the clock instead where the test fakes them`
     );
   }
   await tick();
