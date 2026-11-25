@@ -236,6 +236,8 @@ the entry it belongs to.
   It is exported from `@ttylabs/sigil/renderer`, beside `timed()`, because the
   prompt is a registry component and may import only what the package publishes
   (SIG-683): `report()` is where a prompt's `onError` runs with nothing to catch it.
+  The input router's `failed()` imports it from `effect.js` directly, since it is
+  not a registry component and sits below the renderer (SIG-693).
 - **An effect whose first run throws stays live when something will dispose it,
   and is torn down when nothing would (SIG-611).** The first run is the only one
   whose throw goes to the caller of `effect()` rather than to the error handler,

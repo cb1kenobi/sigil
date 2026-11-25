@@ -672,9 +672,28 @@ the entry it belongs to.
   body then threw is not reported either: the body's error is what the caller gets.
   `feed()` is not an entry of its own. It reaches
   `route()` and is guarded there, so a throw from a handler a handler fed is
-  reported at that event and is not rethrown through the `feed()` call. An
-  `onError` that throws is not caught again, which is the router's rule for every
-  callback it hands a failure to.
+  reported at that event and is not rethrown through the `feed()` call.
+
+  **An `onError` that throws is handed to `handOver()`, and does not escape
+  (SIG-693).** This used to say it "is not caught again, which is the router's rule
+  for every callback it hands a failure to" -- and it was not, so a standalone
+  `createInput({ onError })` whose handler threw raised from the stream's `data`
+  listener, a paste's flush, a sequence's deadline timer and a resize listener,
+  every one of them an entry with nobody on the stack. Reproduced with all four
+  before the change (the plain `Error` `onError` threw came
+  out of `feed()`, `vi.advanceTimersByTime()` and `term.resize()`), and `runApp()`
+  was never affected because its handler catches its own. `failed()` is the same
+  "no caller, no raise" rule the effect scope (SIG-660), the renderer's frame
+  (SIG-674) and the prompt (SIG-683) already follow, and it asks the one function
+  that writes it, `handOver()` in `src/signals/effect.ts` -- imported from there
+  rather than from `renderer/`, since `input` sits below the renderer and the
+  signals layer is where the function is defined and where this module already
+  imports `State` from. What reaches stderr is `Error in input: <what the handler
+  threw>`, then `Error in input error handler: <what onError threw>`, and the exit
+  code is set to 1 if it was not already; an `onError` that rethrows what it was
+  given is one line. The router goes on with the rest of the read, as it does for
+  an `onError` that returns. **Still outside the rule, and said so rather than left to be found:** `onEnd()` handlers called from the stream's `end` and `error` listeners raise what they threw (see above), without consulting `onError`. **Without `onError` it is unchanged**: the throw
+  escapes, for the reason above. Pinned in `test/input/input.test.ts`.
   What `runApp()` does with it is under "Running an app: `runApp()`" in
   `src/renderer`. Pinned in `test/input/input.test.ts` and
   `test/input/mouse-router.test.ts` for the router and `test/renderer/app.test.ts`

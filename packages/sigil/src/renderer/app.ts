@@ -1082,10 +1082,9 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
       inputFailed = true;
       handlerFailure = { error };
       app.exit(EXIT_FAILED);
-      // `stop()` runs the `onEnd()` handlers and raises what they threw, and an
-      // `onError` that throws is not caught again -- it would leave the data
-      // listener as an uncaught exception, on the alternate screen. Kept and
-      // reported once the screen is back, after the handler's own failure
+      // `stop()` runs the `onEnd()` handlers and raises what they threw, which would
+      // leave the data listener as an uncaught exception, on the alternate screen.
+      // Kept and reported once the screen is back, after the handler's own failure
       try {
         router.stop();
       } catch (error) {

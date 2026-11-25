@@ -736,6 +736,19 @@ the entry it belongs to.
   a caller that awaited it -- and an unhandled rejection for one that did not,
   since `start()` returns the decrypt and awaiting is optional.
 
+  **The input router is the fourth place the rule is written, and the one that sits
+  below the renderer (SIG-693).** `createInput()`'s `failed()` called `opts.onError`
+  bare from the stream's `data` listener, a paste's flush, a sequence's deadline
+  timer and a resize listener -- four entries with no caller -- so a standalone
+  router whose `onError` threw raised from each, measured with fake timers.
+  `runApp()` never had it: its handler catches its own. It asks `handOver()` now,
+  imported from `signals/effect.js` where it is defined, not from this module's
+  re-export: `input` is a layer under the renderer and would otherwise import
+  upward for a function the renderer itself takes from signals. One definition, two
+  paths to it. `runApp()`'s wrapper is unchanged and still the first thing to see
+  the throw; `handOver()` is what a router with no wrapper has. See "A handler that
+  throws is the router's to catch" in `src/input`.
+
 - **A frame that failed stops being a frame.** An effect that throws is
   _reported_ by the scope's error handler rather than thrown through it, so the
   flush returns normally and the rest of the frame ran over a renderer that had

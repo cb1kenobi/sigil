@@ -19,7 +19,7 @@ import { Cascade, parseStylesheet, Restyler } from '../../src/style/index.js';
 import { createTerminal, type Terminal } from '../../src/terminal/index.js';
 import { createTestTerminal, tick } from '../../src/testing/index.js';
 import { growthOf } from '../growth.js';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest';
 
 /**
  * The key router and the focus ring.
@@ -799,6 +799,130 @@ describe('a handler that throws', () => {
     // event and not rethrown through its `feed()`
     expect(errors.map(String)).toEqual(['Error: inner broke']);
     expect(outer).toEqual(['after feed']);
+    input.stop();
+  });
+});
+
+describe('an onError that throws, with nobody to catch it (SIG-693)', () => {
+  // `failed()` is called from the stream's `data` listener, a paste's flush, a
+  // sequence's deadline and a resize: four entries with no caller on the stack, so
+  // what a throwing `onError` raised there was an uncaught exception. `runApp()`
+  // wraps its own handler, which is why only a standalone router had the hole
+
+  let stderr: MockInstance<typeof process.stderr.write> | undefined;
+  let exitCode: typeof process.exitCode;
+
+  beforeEach(() => {
+    exitCode = process.exitCode;
+    process.exitCode = undefined;
+    stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    stderr?.mockRestore();
+    process.exitCode = exitCode;
+    vi.useRealTimers();
+  });
+
+  /** What the default report has written so far. */
+  const written = (): string => (stderr?.mock.calls ?? []).map((call) => String(call[0])).join('');
+
+  /** An `onError` that logs what it was handed and then throws something of its own. */
+  const throwing =
+    (heard: unknown[]) =>
+    (error: unknown): never => {
+      heard.push(error);
+      throw new Error('onError broke');
+    };
+
+  it('should write the default report rather than raise it from the data listener', () => {
+    const { feed, terminal } = harness();
+    const heard: unknown[] = [];
+    const input = createInput({ onError: throwing(heard), terminal });
+    input.bind('x', () => {
+      throw new Error('handler broke');
+    });
+    const after: string[] = [];
+    input.fallback('y', (key) => void after.push(key.name ?? ''));
+
+    expect(() => feed('xy')).not.toThrow();
+
+    expect(heard.map(String)).toEqual(['Error: handler broke']);
+    expect(written()).toContain('Error in input: handler broke');
+    expect(written()).toContain('Error in input error handler: onError broke');
+    expect(process.exitCode).toBe(1);
+    // and the router went on with the read, as it does for an onError that returns
+    expect(after).toEqual(['y']);
+    input.stop();
+  });
+
+  it('should write the default report rather than raise it from a paste', () => {
+    const { feed, terminal } = harness();
+    terminal.enableBracketedPaste();
+    const heard: unknown[] = [];
+    const input = createInput({ onError: throwing(heard), terminal });
+    input.onPaste(() => {
+      throw new Error('paste broke');
+    });
+
+    expect(() => feed(`${ESC}[200~hello${ESC}[201~`)).not.toThrow();
+
+    expect(heard.map(String)).toEqual(['Error: paste broke']);
+    expect(written()).toContain('Error in input error handler: onError broke');
+    input.stop();
+  });
+
+  it("should write the default report rather than raise it from a sequence's deadline", () => {
+    vi.useFakeTimers();
+    const { feed, terminal } = harness();
+    const heard: unknown[] = [];
+    const input = createInput({ onError: throwing(heard), sequenceTimeout: 50, terminal });
+    input.bind('g', () => {
+      throw new Error('deadline broke');
+    });
+    input.bind('g g', () => {});
+
+    feed('g');
+
+    expect(() => vi.advanceTimersByTime(60)).not.toThrow();
+    expect(heard.map(String)).toEqual(['Error: deadline broke']);
+    expect(written()).toContain('Error in input error handler: onError broke');
+    input.stop();
+  });
+
+  it('should write the default report rather than raise it from a resize', () => {
+    const term = createTestTerminal({ columns: 30, rows: 6 });
+    const heard: unknown[] = [];
+    const input = createInput({ onError: throwing(heard), terminal: term.terminal });
+    const sizes: number[] = [];
+    input.onResize(() => {
+      throw new Error('resize broke');
+    });
+    input.onResize((size) => void sizes.push(size.width));
+
+    expect(() => term.resize(20, 5)).not.toThrow();
+
+    expect(heard.map(String)).toEqual(['Error: resize broke']);
+    expect(written()).toContain('Error in input error handler: onError broke');
+    expect(sizes).toEqual([20]);
+    input.stop();
+  });
+
+  it('should say an onError that rethrows what it was given once', () => {
+    const { feed, terminal } = harness();
+    const input = createInput({
+      onError: (error) => {
+        throw error;
+      },
+      terminal,
+    });
+    input.bind('x', () => {
+      throw new Error('handler broke');
+    });
+
+    expect(() => feed('x')).not.toThrow();
+
+    expect(written()).toBe('Error in input: handler broke\n');
     input.stop();
   });
 });
