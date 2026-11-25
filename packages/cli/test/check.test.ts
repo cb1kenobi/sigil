@@ -748,6 +748,23 @@ describe('sigil check', () => {
       expect(err).not.toContain('src/commands/db/migrate.ts');
     });
 
+    it('should fail on an alias a route name could not be, naming the alias, the route and the file (SIG-679)', async () => {
+      // the same reader as the runtime and the build, so one verdict
+      const dir = linkedFixture(manifest, 'sigil-check-alias-');
+      writeFileSync(
+        join(dir, 'src', 'commands', 'commands.json'),
+        JSON.stringify({ list: { alias: ['ls', 'a b'] } })
+      );
+
+      const { err } = await sigil('check', dir);
+
+      expect(err).toMatch(
+        /Invalid alias "a b" for "list" in .*commands\.json: it contains whitespace/
+      );
+      expect(err).not.toContain('no problems found');
+      expect(process.exitCode).toBe(1);
+    });
+
     it('should list what the file describes in the tree', async () => {
       const { out } = await sigil('check', manifest, '--tree');
 

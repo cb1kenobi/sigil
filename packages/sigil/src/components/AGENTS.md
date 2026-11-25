@@ -1860,6 +1860,21 @@ decided once, for all of them. The runs and the sabotage passes are in
   timer. The visible consequence is up to one frame's latency on a tick, which at
   eighty milliseconds against thirty frames a second is nothing; the invisible one
   is that a test has to advance both clocks, which is why `frameMs` is an option.
+  That is also why a throwing `onError` cannot escape one of these timers
+  (SIG-683): the frame is the renderer's and falls back to the default report, so
+  no component carries a catch of its own -- see "No component has a timer of its
+  own that calls `frame()`" in `src/renderer/AGENTS.md`, which also records the
+  task list's resize listener, the one place a component called it with no caller. **The other one, whose
+  `onError` ran with nothing to catch it, was the prompt**, from `report()` once the
+  prompt is answered: it is the tail of a key's promise chain, so what the caller's
+  `onError` threw was handed to `.catch(report)` again -- measured, the answer
+  resolved and an unhandled rejection followed, with `onError` heard three times
+  for one failed frame. `report()` hands it to `handOver()` now, the signals
+  layer's rule that a handler's own throw goes no further, with `Error in prompt`
+  as the lead. The answer is still the answer. Not fixed by it, and measured while
+  looking: a write that fails inside `detach()` -- the router's `stop()` writes
+  the bracketed-paste reset -- throws out of `succeed()` before its `try`, so the
+  prompt never settles, and out of `.catch(report)` again as a rejection.
 - **A table's column widths are worked out and the rest is the box model.** A
   shared column width across rows is the one thing flexbox cannot do for itself:
   each row would size its own cells and no two rows would agree. So the widths are
@@ -5884,7 +5899,15 @@ added.
   is the cheapest reading of "items replaced" and needs no keyed diff of nested
   lists. A list has no frames to repaint in a log, and a line per `update()` would
   print the whole list each time, so a pipe gets the final list once from `done()`
-  and `stop()` writes nothing. A quiet run writes nothing, through `mountLevel()`
+  and `stop()` writes nothing. That write is a document (SIG-680): it is
+  `writeTo(terminal.stdout, ...)`, so a file that took only part of it makes
+  `done()` **throw** `The output was cut off` -- a throw rather than `page()`'s
+  rejection because `done()` returns `void`, and changing that is a breaking
+  change to a handle for one branch. What the terminal gave the write is kept
+  by hand: a closed terminal writes nothing, `isStreamGone()` is caught, and
+  `guardOutput()` is put on the stream first so an `EPIPE` event is not uncaught,
+  which is what keeps `mycli plan | head -1` silent outside `main()` too. Only this branch moved: a live outline's
+  frames are the terminal's. A quiet run writes nothing, through `mountLevel()`
   like every other mount. A malformed list is refused where it is handed over,
   including in `update()`, and the screen keeps what it was showing.
 - **String form ignores `--quiet`.** A list is a result, on `table()`'s side of the
@@ -7777,6 +7800,53 @@ and not the stack overflow that one fixed: no spread was involved.
   default is the terminal's width, clamped to `MOST_COLUMNS` for the same
   hostile `COLUMNS` -- nothing prints a vertical chart wider than that by default
   and a caller who wants one passes `width`.
+- **A horizontal chart fits its height the same way, which is SIG-684.** It is a row
+  a bar, so 200,000 bars were 200,000 rows, and the ask was `bars.length` rows too.
+  `height` is now the most rows a horizontal chart is drawn in, and past it the chart
+  keeps the **latest** bars, with the scale and the label and value widths over the
+  bars shown -- the vertical rule across the other axis, through the same `barsOf()`
+  handle, so a list is sliced and a record's entries are made for the rows shown
+  only. `fitBars()` was not generalized to it: it is the arithmetic of sharing a
+  width out between columns, and a row has nothing to share -- one row a bar -- so
+  what the two have in common is `Bars.last()` and no more. **What bounds it when
+  nothing says is `MOST_ROWS`, 1,000, a constant.** It mirrors `MOST_COLUMNS`
+  without reading the terminal, for a different reason than the live ask's: a
+  printed chart is not clipped to a screen's height, since it scrolls, and a chart
+  of 300 bars printed through a pipe has always been 300 rows. 1,000 changes no
+  chart anybody reads and bounds the one nobody can; a caller who wants more
+  passes `height`, which is not capped (a finite one: `Infinity` is not a number
+  of rows to `count()` and reads as none). The live `BarChart` asks for a row a bar up
+  to `MOST_ROWS`, and the layout's own height is what it draws at, so a host shorter
+  than its bars now shows the latest of them where it used to draw all and have the
+  rest clipped from the bottom. Two costs of that, taken knowingly: a
+  live chart of more than 1,000 bars in a scroll box asks for 1,000 rows, so the
+  oldest are not reachable by scrolling unless `height` is given, which is a number
+  and cannot follow live data; and "latest" drops the **first** bars, which in a top-N
+  list are the ones that matter -- an app that wants those slices its data itself,
+  as the vertical rule already says. Measured before the change, 2,000 bars drew in 871
+  ms, 8,000 in 2.6 s and 32,000 in 10 s -- about 0.3 ms a bar, so 200,000 ran past
+  100 s -- and 200,000 bars after it are 1,000 rows, in 0.4 s and 14 MB.
+  `should cost the same to draw 128,000 bars as 16,000` has a horizontal twin, and
+  `should not ask the caller to format a bar that is not drawn` counts the calls
+  to `format()`, which is what "nothing is built for a row that is not drawn"
+  looks like from outside.
+- **A chart's `format()` is measured as it is drawn, which is SIG-686.** A tab in
+  what `format()` wrote was drawn as a space and measured as nothing, so
+  `v => v + '\t%'` made a value column one cell narrower than the `5 %` in it and a
+  line chart's gutter one cell narrower than its `10 %`. Every value goes through
+  `written()`, which is `toDisplayLine()` of `format(value)`: the element layer's one
+  definition, and its single-line form because a value is a cell of one row and
+  a line break in it would push every row after it down by one, which is what
+  `toDisplayLine()` was written for. It reads `String()` of what `format()` answered, so a
+  `format` from JavaScript that returns the number itself still draws it, as it always
+  did. It is applied where the string is made, in
+  `horizontalBars()`, `naturalColumn()`, `verticalBars()` and the line chart's
+  ticks, so everything after -- `pad()`, `truncate()`, the widths -- reads a string
+  that is what is drawn. `segmentNode()`'s width and `viewOf()`'s are measured through
+  `toDisplayText()` as well, which changes nothing for what `written()` made and is
+  the two places a segment's text could still be something else. Left alone, since
+  the SIG-665 entry above lists it: the live line chart's crosshair readout, which
+  is `format()` output too and already goes through `toDisplayText()` in `follow()`.
 - **The four spreads SIG-417's review listed are `maxOf()`.** `chart.ts`'s axis
   label width and its readout bubble's, `large-text.ts`'s glyph width and `diff.ts`'s
   longest common tail were each `Math.max(...x.map())` over a line's worth, so
@@ -8141,8 +8211,10 @@ have.
   caller configures -- a spinner's frames, a bar's `filled` and `empty`, a page
   indicator's dots, an outline's enumerator -- was measured raw and a tab in one was
   the same column short, but a glyph holding a tab is a mistake and not content, so
-  it is refused where it is declared rather than measured. A chart's `format()` output is the same slip in `barChart()` and
-  `lineChart()` (`5\t%` draws as `5`) and was left alone with that file. A readout of only a control character other than
+  it is refused where it is declared rather than measured. A chart's `format()` output
+  was the same slip in `barChart()` and `lineChart()` (`5\t%` drew as `5`) and was left
+  alone with that file; SIG-686 swept it, in the SIG-664 section above. A readout of
+  only a control character other than
   a tab or a newline (a bell, a bare `ESC`) is empty by the same rule: the tree draws
   nothing for it, so it is no readout, though a standalone `attachTooltip()` strips
   sequences only and still shows a bubble for one.
@@ -12931,6 +13003,70 @@ there is the bars, which are drawn on every line.
   no deadline and no ratio tells them apart, and the message -- "more than the 2
   bytes" -- is what says the inflate stopped. Each was checked by planting the
   defect it names.
+
+- **A ratio over its bound is read again before it fails, because on the wall clock
+  a stall is added to a long read and never to a short one (SIG-681).** `](`
+  repeated, in the test that says it should not walk back over every token for a
+  `]` with no `[`, read **25.07** against 24 on an Ubuntu job (PR #684, node 22) that was
+  otherwise green and passed on a rerun. Nothing was quadratic: the file took
+  11.9 s on that runner where it takes 0.7 s idle, and Linux is where the CPU
+  clock is ticks, so `growthOf()` was on the wall clock -- which is what SIG-649
+  left it as. The measured shape of the failure, on this machine with other
+  builders running on it and the wall clock forced: the small side of that shape
+  is about 0.3 ms a read and the large side 2.4 ms, and one read of the small side
+  already fills the 1 ms span, so a sample is **one read on each side** --
+  `largeReads` is `smallReads / 8` rounded up to one -- and a large sample is eight
+  times as long as a small one and eight times as likely to be cut by the
+  scheduler. That asymmetry is a property of the clamp and not of the wall clock
+  alone: where a small read takes many reads to fill the span, both sides' samples
+  are the same work and a stall finds them alike. Best of
+  seven survives a stall on some of the large samples and not on all seven, and
+  all seven is what a runner with more work than cores gives a read longer than
+  its slice. It reproduces here without a loaded CI runner, because the other
+  builders on the machine are one: 60 trials of the old seven runs over `](` at
+  four times the test's size (the large side about 10 ms), wall clock forced, read
+  7.8 to 11.9 on 43 of them and **12.1 to 28.9 on 17**, with single large reads
+  of 12 ms to 290 ms for a read that costs ten. At the test's own size the same
+  trials stayed under 14. It was neither the bound nor the test's size: the small
+  side's best is its cost and the large side's was not.
+
+  The fix is that **noise only adds**, so more samples can only move the best
+  towards the cost, and a read that really grows has no clean sample to find.
+  `growthOf()` and `growthOfAsync()` take the `limit` the caller will accept, and
+  go on past seven runs for up to `EXTRA_MS` (2 s of wall clock, counted from the
+  first run, so a read that took longer than that for seven runs is not read an
+  eighth time) while the ratio is not under it. Another 60 trials of that loop, at a bound of 14: 4 of them were
+  over it after seven runs, each came under it in 1 to 14 more, and the worst
+  of the 60 read 12.5. (The first 60 were not replayed -- the load on the machine
+  is not the same twice -- so these are a second sample, not the first one fixed.)
+  A quiet machine is under its limit at seven and reads nothing more -- three
+  runs of the seven files that call it printed no extra run -- while a quadratic
+  is 64 whatever it samples, and spends the budget before it fails -- sabotaged, with the `]` branch of `closeBracket()` walking every token
+  back before pushing the character, the check fails at 62.9 against 24, in 103 s for the one test.
+  Without a `limit` the call is the seven runs it was, which is what
+  `growth.test.ts` uses to read a stall as growth, and what the caller that has no
+  bound to give gets.
+
+  Not done, and why. **Loosening 24** would have said a runner may read a linear
+  walk at three times the cost the check allows, which is the margin the quadratic
+  has over it too: 64 against 24 is 2.7 times. **A retry** is this made worse: it
+  reruns the whole measurement, calibration and cold code included, for the same
+  seven samples. **Fewer reads of the large side** was not an option, since the
+  sizes were chosen so that the old quadratic cost hundreds of milliseconds.
+  **Reading `/proc/thread-self/schedstat`**, which on Linux is a thread's time on a
+  CPU in nanoseconds, would be the CPU clock the runner lacks and was not taken: it
+  is billed at the kernel's own scheduling events for a thread that is running, so
+  it may be a tick clock as well, and it could not be tried here on anything but a
+  Mac.
+
+  Every caller outside `growth.test.ts` passes its own bound now, which is what makes
+  a sibling's weakness the same one: `markdown-malformed.test.ts` as `LIMIT`,
+  `markdown.test.ts`, `highlight.test.ts` (3 times the factor), `input.test.ts`,
+  `invalidate.test.ts`, `chart.test.ts` (4) and `choice-window.test.ts` (16). The
+  seven-stalled-runs control is `on a runner that stalls the large side in every one
+  of seven runs` in `growth.test.ts`: the stall is thirty milliseconds on the
+  clock being read, in the first seven runs and not after, so the call without a
+  `limit` reads it as growth and the call with one reads past it.
 
 - **The ticket's other lazy figure, 0.54 s for 128 KB, was the parser, and is
   left.** `parseMarkdown()` of 64,000 lazy lines took 8 ms unquoted and 493 ms

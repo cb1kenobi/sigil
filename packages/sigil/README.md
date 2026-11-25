@@ -539,9 +539,10 @@ Each key is a route's name, and each directory has its own file, so
 `commands/db/commands.json` describes `db migrate`. It is a **description of the
 walk, not a list of what exists**: the directory is still read, so a command with
 no entry still works and simply lists without a description, and an entry naming
-no command is ignored (and `sigil check` says so). An alias is a plain name: one
-starting `!` or `@`, or holding a control or format character, is refused naming
-the file, from source and from `sigil build` alike. Once a module is loaded, its
+no command is ignored (and `sigil check` says so). An alias is held to what a
+route's name is: one that is empty, holds whitespace, a `,` or a `/`, starts with
+`<`, `[`, `!` or `@`, or holds a control or format character is refused naming
+the alias, the route and the file, from source and from `sigil build` alike. Once a module is loaded, its
 own `desc` is what stands. `sigil build` reads the same file and bakes it into
 the executable, so an alias routes the same before and after a build;
 `commands.jsonc` is read too. It replaces the schema's `routeInfo`, which is a
@@ -5304,7 +5305,9 @@ form is `createOutline(items, opts)`, for a list that changes on screen -- a
 checklist whose items turn up as they are found: `update(items)` replaces the
 list, `done()` leaves it where it is and `stop()` erases it. Where there is no
 terminal nothing is written until `done()`, which writes the list once; a quiet
-run writes nothing.
+run writes nothing. That write is a document, so where the process's own output is a file that
+took only part of it, `done()` throws `The output was cut off`, as `page()`'s
+promise rejects.
 
 #### Tree
 
@@ -5427,6 +5430,8 @@ not a view built again every tick.
   terminal's, by default): the columns narrow to fit, cutting a label or a value to
   the column, and past a column each it shows the **latest** bars, with the scale
   over the bars shown.
+  A horizontal chart is a row a bar, and at most `height` rows (1,000 by default):
+  past that it shows the **latest** bars, with the scale over the bars shown too.
 - **`lineChart(values, { width, height, min, max, axis, format, xLabels, legend, step, fill })`**
   is braille, two dots across and four down a cell, from the same `Dots` grid the
   canvas draws with. `values` is a list of numbers, or several series as
@@ -5561,7 +5566,8 @@ picture.
   `pin`, and `h` and `l` after the arrows where the chart takes them.
 
 - **`BarChart({ data, direction, ... })`** gives horizontal bars the width the
-  labels and the values leave; vertical bars share the width out between them
+  labels and the values leave, and a row each up to the height the layout gave
+  them, the latest bars being the ones drawn; vertical bars share the width out between them
   and take the rows the values and the labels leave, and the latest bars that
   fit are the ones drawn.
 - **`Gauge({ value, label, detail, thresholds, ... })`** gives the bar the width
@@ -7344,6 +7350,13 @@ there for a component you write yourself too:
   be asked to wait, 2^31 - 1 milliseconds: past it the platform fires at once.
   The toast refuses a timeout past it and the clock waits in pieces no longer
   than it.
+- `handOver(handler, error, what)`, from `@ttylabs/sigil/renderer`, gives an error
+  to a handler and never lets the handler's own throw out: one that throws is
+  skipped, and what it was given and what it threw are written to stderr, each
+  led by `what` (`Error in prompt: ...` and `Error in prompt error handler: ...`),
+  with the exit code set. It is for a callback of yours that runs with nothing on
+  the stack to catch it, such as the tail of a promise chain, and it is what the
+  prompt uses for an `onError` that throws after the answer was given.
 - `timed(on, run)`, from `@ttylabs/sigil/renderer`, wraps what a timer runs so
   that a throw goes where a test terminal is listening for one, and is uncaught
   where nothing is, as it is in an app. `on` is the stream the hook would be on --

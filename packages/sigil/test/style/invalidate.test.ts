@@ -545,7 +545,7 @@ describe('the size of the naive answer', () => {
       expect(tree.restyler.update(as(tree.root)).restyled).toBe(tree.size);
     };
 
-    expect(growthOf(rematch, small, large, 8, 'rematch')).toBeLessThan(24);
+    expect(growthOf(rematch, small, large, 8, 'rematch', undefined, 24)).toBeLessThan(24);
   });
 });
 

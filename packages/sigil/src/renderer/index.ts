@@ -84,6 +84,7 @@ import { createHeldRoot, disposeOwner, drainMounts, getOwner, type Owner } from 
 
 export { For, type ForProps, Show, type ShowProps } from './control.js';
 export { timed } from '../util/timed.js';
+export { handOver } from '../signals/effect.js';
 export { MAX_TIMER_DELAY } from '../util/timer.js';
 export { trackedRaw } from './raw.js';
 export {
@@ -1010,12 +1011,15 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
   }
 
   /**
-   * What `onError` threw for the last error `tell()` handed it, and the error.
+   * What `onError` threw for each error `tell()` handed it this frame, and the error.
    *
    * Kept so that the frame it goes on to fail can say both: what was thrown is
-   * all `runFrame()` is handed, and the error it was reporting would be gone.
+   * all `runFrame()` is handed, and the error it was reporting would be gone. A
+   * list rather than the last one, because several errors in one frame are each
+   * handed to `onError` whatever it did with the one before (SIG-682), and each
+   * throw it made is owed a report.
    */
-  let told: { error: unknown; thrown: unknown } | undefined;
+  let told: { error: unknown; thrown: unknown }[] = [];
 
   /**
    * Ends the renderer over a failure, and reports it.
@@ -1024,8 +1028,12 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
    * @param onTimer - Whether the frame was run by its own timer, which has no call
    *   to raise what `onError` threw through: it is written by the default report
    *   instead (SIG-674), the way a handler that throws under an effect's flush is.
+   * @param fromTold - Whether `error` is what `onError` threw for the frame's own
+   *   errors, which `told` holds (SIG-682). Said by `runFrame()` alone: an effect
+   *   that fails mid-frame is `fail()`ed by the scope while `told` may already hold
+   *   something, and has nothing to do with it.
    */
-  function fail(error: unknown, onTimer = false): void {
+  function fail(error: unknown, onTimer = false, fromTold = false): void {
     if (failed) {
       return;
     }
@@ -1036,13 +1044,13 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     // teardown threw is said first, in the order it was thrown, then the failure
     const errors = release();
     if (!onTimer) {
-      raise(report([...errors, error]));
+      raise(report([...errors, ...thrownBy(error, fromTold)]));
       return;
     }
     for (const each of errors) {
       handOver(onError, each, 'Error in frame');
     }
-    reportOnTimer(error);
+    reportOnTimer(error, fromTold);
   }
 
   /**
@@ -1053,13 +1061,30 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
    * handed back a second time.
    *
    * @param error - What the frame failed with.
+   * @param fromTold - Whether `error` is the first of what `told` holds.
    */
-  function reportOnTimer(error: unknown): void {
-    if (told !== undefined && Object.is(told.thrown, error)) {
-      reportBoth('Error in frame', told.error, error);
-    } else {
+  function reportOnTimer(error: unknown, fromTold: boolean): void {
+    if (!fromTold) {
       handOver(onError, error, 'Error in frame');
+      return;
     }
+    for (const each of told) {
+      reportBoth('Error in frame', each.error, each.thrown);
+    }
+  }
+
+  /**
+   * What the frame failed with: all of what `onError` threw for this frame's errors
+   * when `error` is the first of them, and `error` alone when it is anything else.
+   *
+   * @param error - What the frame was failed with.
+   * @param fromTold - Whether it is, as `runFrame()` knows: `settle()` ends on the
+   *   first throw `told` holds whenever it holds one. Asked rather than inferred
+   *   from the value, which is `undefined` for a handler that throws nothing and
+   *   can equal an effect's failure when `onError` throws something shared.
+   */
+  function thrownBy(error: unknown, fromTold: boolean): unknown[] {
+    return fromTold ? told.map((each) => each.thrown) : [error];
   }
 
   /**
@@ -1068,6 +1093,9 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
    * A frame handler's or an `onMount` callback's throw is reported rather than
    * raised, and what `onError` throws for it goes on to fail the frame -- where
    * the failure is that throw, and the error it was given would be gone (SIG-674).
+   * It does not throw itself: the caller has more errors to hand over, and one
+   * that ended its loop is how the rest were lost (SIG-682). `failTold()` is what
+   * fails the frame, once they have all been heard.
    *
    * @param error - What a frame handler or a mount callback threw.
    */
@@ -1075,8 +1103,14 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     try {
       onError(error);
     } catch (thrown) {
-      told = { error, thrown };
-      throw thrown;
+      told.push({ error, thrown });
+    }
+  }
+
+  /** Fails the frame with what `onError` threw first, if it threw for anything. */
+  function failTold(): void {
+    if (told.length > 0) {
+      throw told[0]!.thrown;
     }
   }
 
@@ -1243,6 +1277,9 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
         tell(error);
       }
     }
+    // an `onError` that threw does not stop the handlers after it hearing the
+    // frame, which is what a throwing handler never did either (SIG-682)
+    failTold();
   }
 
   /**
@@ -1428,6 +1465,7 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
       for (const error of drainMounts(owner)) {
         tell(error);
       }
+      failTold();
     }
 
     // 3a. and what the frame did, if anybody asked. Recorded here rather than
@@ -1506,6 +1544,8 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
       // left it subscribed (SIG-321)
       untrack(settle);
     } catch (error) {
+      // `settle()` ends on the first throw `told` holds, whenever it holds one
+      const fromTold = told.length > 0;
       if (failed) {
         // what `onError` threw while `fail()` reported, on its way out of the
         // frame: the renderer has already failed, and handing this to `fail()`
@@ -1516,15 +1556,16 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
         // fails and `fail()` gives the screen back, and then the callback's own
         // throw, or the next one's, goes to an `onError` that throws
         if (!onTimer) {
-          throw error;
+          raise(thrownBy(error, fromTold));
+          return;
         }
-        reportOnTimer(error);
+        reportOnTimer(error, fromTold);
         return;
       }
-      fail(error, onTimer);
+      fail(error, onTimer, fromTold);
     } finally {
       settling = false;
-      told = undefined;
+      told = [];
     }
   }
 

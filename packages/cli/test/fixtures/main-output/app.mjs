@@ -51,6 +51,17 @@ await main({
           await page('a line of a document that is longer than one block\n'.repeat(60));
         },
       },
+      // an unmounted outline, which with no terminal writes its whole tree on
+      // `done()` (`output.test.ts`, SIG-680)
+      outline: {
+        desc: 'Write a long outline, which is written out when output is a file',
+        run: async () => {
+          const { createOutline } = await import('@ttylabs/sigil/components/outline');
+          const items = Array.from({ length: 120 }, (_, i) => `an item of a list, number ${i}`);
+          const list = createOutline(items);
+          list.done();
+        },
+      },
       lines: {
         desc: 'Write a long listing, a line at a time',
         run: () => {

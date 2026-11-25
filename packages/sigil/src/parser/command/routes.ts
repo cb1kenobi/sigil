@@ -479,8 +479,8 @@ export function readPackage(dir: string): PackageRoute | undefined {
  * @param entries - Its listing.
  * @returns What the file says, or `undefined` when there is none.
  * @throws If both spellings are there, if it is not JSON or JSONC, if it is not
- *   an object of objects, if a property is the wrong type, if an alias starts
- *   with `!` or `@` or holds a control or format character, or if two entries are
+ *   an object of objects, if a property is the wrong type, if an alias is one a
+ *   route's name could not be ({@link routeNameProblem}), or if two entries are
  *   both `default`.
  */
 export function readRouteManifest(dir: string, entries: Dirent[]): RouteManifest | undefined {
@@ -560,22 +560,18 @@ export function readRouteManifest(dir: string, entries: Dirent[]): RouteManifest
       );
     }
 
-    // the placeholder this becomes would refuse it too, but naming no file --
-    // and after a build it would be refused by the built app on every start
-    // rather than by the build, which is the one place it can still be fixed
+    // an alias is a name typed on the command line, so it is held to the whole of what
+    // a route's name is held to, by the same function (SIG-679): a manifest dropped
+    // into an installed app's commands directory is no more the app's own than a file
+    // dropped there (SIG-673). A leading `!` or `@` is one of the rules, so it is one
+    // refusal and not two. Refused here rather than by the placeholder this becomes,
+    // which would refuse some of it too but naming no file, and after a build on every
+    // start of the built app rather than in the build, the one place it can be fixed
     for (const each of (aliases ?? []) as string[]) {
-      if (each[0] === '!' || each[0] === '@') {
+      const problem = routeNameProblem(each);
+      if (problem !== undefined) {
         throw new Error(
-          `Invalid alias "${escapeControls(each)}" for "${escapeControls(name)}" in ${escapeControls(file)}: "${each[0]}" is name-string syntax and an alias is a plain name`
-        );
-      }
-
-      // a spelling argv can match, so held to what a route's name is held to, by the
-      // same test: a manifest dropped into an installed app's commands directory is
-      // no more the app's own than a file dropped there (SIG-673)
-      if (hasUnsafeCharacter(each)) {
-        throw new Error(
-          `Invalid alias "${escapeControls(each)}" for "${escapeControls(name)}" in ${escapeControls(file)}: it ${UNSAFE_REASON}`
+          `Invalid alias "${escapeControls(each)}" for "${escapeControls(name)}" in ${escapeControls(file)}: it ${problem}`
         );
       }
     }
@@ -644,10 +640,10 @@ function describeRoute(route: Route, entry: RouteEntry | undefined): Route {
 const UNSAFE_IN_NAME = /(?![\u200C\u200D])[\p{Cc}\p{Cf}]/u;
 
 /**
- * Whether a route's name or a `commands.json` alias holds what neither may.
+ * Whether a spelling holds a control or format character.
  *
- * One definition for both, because two tests of one rule is how a name comes to
- * be refused as a file and accepted as an alias (SIG-673).
+ * Asked by {@link routeNameProblem} alone, which a route's name and a
+ * `commands.json` alias are both held to (SIG-673, SIG-679).
  *
  * @param spelling - The name or alias.
  * @returns `true` if it holds a control or format character, less the joiners.
@@ -656,12 +652,15 @@ function hasUnsafeCharacter(spelling: string): boolean {
   return UNSAFE_IN_NAME.test(spelling);
 }
 
-/** Why {@link hasUnsafeCharacter} refuses what it does, finishing a sentence about the name or alias. */
+/** Why {@link hasUnsafeCharacter} refuses what it does, finishing a sentence about the name or, after "it", an alias. */
 const UNSAFE_REASON =
   'contains a control or format character, which a terminal would act on or draw as something else';
 
 /**
  * Why a name cannot be a route's, or `undefined` when it can.
+ *
+ * A `commands.json` alias is asked the same question, by this function and not a
+ * copy of it: an alias is a name typed on the command line as much as a route's is.
  *
  * A route is named by the file system -- a file's name, a directory's, a
  * package's manifest -- and that name is taken exactly as written. A command
@@ -675,7 +674,7 @@ const UNSAFE_REASON =
  * `unscoped()` has already taken off by then.
  *
  * @param name - The name, scope already removed.
- * @returns The reason, which finishes the sentence "the name ...".
+ * @returns The reason, which finishes the sentence "the name ..." or "it ...".
  */
 function routeNameProblem(name: string): string | undefined {
   if (!name) {

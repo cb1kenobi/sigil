@@ -163,8 +163,10 @@ function write(what: string, error: unknown): void {
  * and the renderer asks for a frame's (SIG-674). A handler that throws is skipped,
  * and the default report says both: what it was given, which it did not take, and
  * what it threw. A handler that rethrows what it was given is one error and says
- * so once. Not exported from the entry: it is the renderer's, for a failure that
- * arrives where nothing is on the stack to catch what its `onError` throws.
+ * so once. Not exported from the signals entry: it is the renderer's, for a
+ * failure that arrives where nothing is on the stack to catch what its `onError`
+ * throws, and it leaves by `@ttylabs/sigil/renderer` for a component an app can eject
+ * and for an app's own callback with nothing to catch it (SIG-683).
  *
  * @param handler - Where the error goes.
  * @param error - What there is to report.

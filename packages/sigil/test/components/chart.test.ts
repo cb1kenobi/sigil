@@ -439,9 +439,121 @@ describe('barChart()', () => {
 
       // linear in the number of bars is 8, which is what drawing every one was; a
       // chart that draws what fits reads the same at both, and 4 is half of linear
-      expect(growthOf(draw, make(16_000), make(128_000), 8, 'vertical barChart', 1)).to.be.lessThan(
-        4
+      expect(
+        growthOf(draw, make(16_000), make(128_000), 8, 'vertical barChart', 1, 4)
+      ).to.be.lessThan(4);
+    });
+  });
+
+  // SIG-684: a horizontal chart is a row a bar, and nothing said how many rows it
+  // had -- so 200,000 bars were 200,000 rows, as a vertical chart's were 400,000
+  // columns before SIG-664
+  describe('horizontal, fitted to its height', () => {
+    const digits = (n: number, from = 0): { label: string; value: number }[] =>
+      Array.from({ length: n }, (_, i) => ({ label: String(from + i), value: from + i + 1 }));
+
+    it('should show the latest bars that fit the height, and no more', () => {
+      const rows = bars(digits(10), { height: 3, showValues: false, width: 8 });
+
+      expect(rows.map((row) => row.slice(0, 1))).to.deep.equal(['7', '8', '9']);
+    });
+
+    it('should scale over the bars shown, as a vertical chart does', () => {
+      const rows = bars(
+        [100, 1, 2].map((value, i) => ({ label: String(i), value })),
+        { height: 2, min: 0, showValues: false, width: 6 }
       );
+
+      // the 100 is not shown, so the 2 is the longest
+      expect(rows).to.deep.equal(['1 ██', '2 ████']);
+    });
+
+    it('should take the latest keys of an object too', () => {
+      const data = Object.fromEntries(digits(10).map((d) => [d.label, d.value]));
+      const rows = bars(data, { height: 2, showValues: false, width: 5 });
+
+      expect(rows.map((row) => row.slice(0, 1))).to.deep.equal(['8', '9']);
+    });
+
+    it('should draw every bar it has the rows for, as it always did', () => {
+      expect(bars(digits(40), { showValues: false, width: 8 })).to.have.length(40);
+      expect(bars(digits(3), { height: 9, showValues: false, width: 8 })).to.have.length(3);
+    });
+
+    it('should read a height that is not a number of rows as none', () => {
+      for (const height of [0, -2, Number.NaN]) {
+        expect(bars(digits(5), { height, showValues: false, width: 8 })).to.have.length(5);
+      }
+    });
+
+    it('should draw no more than 1,000 rows when nothing says', () => {
+      expect(bars(digits(1500), { showValues: false, width: 8 })).to.have.length(1000);
+    });
+
+    // counted rather than timed, and then compared at two sizes
+    it('should build no more elements than the height has rows for, at any number of bars', () => {
+      const data = Array.from({ length: 200_000 }, (_, i) => ({ label: 'x', value: i % 7 }));
+      const { element } = barChartView(data, { ...plain, height: 5, width: 20 });
+
+      expect(element.children.length).to.equal(5);
+      expect(barChartView(data, { ...plain, width: 20 }).element.children.length).to.equal(1000);
+    });
+
+    it('should not ask the caller to format a bar that is not drawn', () => {
+      const data = Array.from({ length: 200_000 }, (_, i) => ({ label: 'x', value: i % 7 }));
+      let calls = 0;
+      barChart(data, {
+        ...plain,
+        format: (value) => {
+          calls++;
+          return String(value);
+        },
+        height: 3,
+        width: 20,
+      });
+
+      expect(calls).to.equal(3);
+    });
+
+    it('should cost the same to draw 128,000 bars as 16,000, which is what fitting is', () => {
+      const make = (length: number) =>
+        Array.from({ length }, (_, i) => ({ label: 'x', value: i % 7 }));
+      const draw = (data: ReturnType<typeof make>): unknown =>
+        barChartView(data, { ...plain, width: 40 });
+
+      expect(
+        growthOf(draw, make(16_000), make(128_000), 8, 'horizontal barChart', 1)
+      ).to.be.lessThan(4);
+    });
+  });
+
+  // SIG-686: a tab is drawn as a space and measured as nothing, so a `format()`
+  // that wrote one drew a column more than it had made room for
+  describe('a format() that returns a tab', () => {
+    const tabbed = (value: number): string => `${value}\t%`;
+
+    it('should draw a horizontal chart with the value as `5 %`, in the width it was given', () => {
+      const rows = bars({ a: 5, b: 10 }, { format: tabbed, width: 14 });
+
+      expect(rows).to.deep.equal(['a ███▌     5 %', 'b ███████ 10 %']);
+      expect(barChartView({ a: 5, b: 10 }, { ...plain, format: tabbed, width: 14 }).width).to.equal(
+        14
+      );
+    });
+
+    it('should make a vertical column as wide as `10 %`, so neither value is cut', () => {
+      const rows = bars(
+        { a: 5, b: 10 },
+        { direction: 'vertical', format: tabbed, height: 2, width: 14 }
+      );
+
+      expect(rows).to.deep.equal(['     ████', '████ ████', '5 %  10 %', ' a    b']);
+    });
+
+    it('should make the axis of a line chart as wide as `10 %`', () => {
+      const rows = line([0, 10], { format: tabbed, height: 3, width: 12 });
+
+      expect(rows).to.deep.equal(['10 % ┤    ⡠⠊', '     │  ⡠⠊', ' 0 % ┤⡠⠊', '     └──────']);
     });
   });
 

@@ -29,10 +29,21 @@ const CASES = {
     const { barChartView } = await import(dist + 'components/chart.mjs');
     const data = Array.from({ length: LONG }, (_, i) => ({ label: 'x', value: i === 1 ? 6 : -6 }));
     const { element, width } = barChartView(data, {
-      ascii: true, colorLevel: 0, env: {}, platform: 'linux', showValues: false, width: 13,
+      ascii: true, colorLevel: 0, env: {}, height: LONG, platform: 'linux', showValues: false,
+      width: 13,
     });
     const row = (i) => element.children[i].children.map((child) => child.text).join('').trimEnd();
     return { first: row(0), rows: element.children.length, second: row(1), width };
+  `,
+  // SIG-684: a row a bar is no longer the default past 1,000 of them, so the one
+  // above asks for every row by name and this is what nothing asking draws
+  horizontalBarChart: `
+    const { barChartView } = await import(dist + 'components/chart.mjs');
+    const data = Array.from({ length: LONG }, (_, i) => ({ label: 'x', value: i % 7 }));
+    const { element } = barChartView(data, {
+      ascii: true, colorLevel: 0, env: {}, platform: 'linux', showValues: false, width: 13,
+    });
+    return { rows: element.children.length };
   `,
   // SIG-664: this ran a main thread out of heap, at 200,000 bars of a vertical
   // chart, whatever `width` said -- it drew a column and a gap for every one
@@ -95,6 +106,10 @@ describe("a chart and a table as long as somebody's data, on a main thread", () 
     expect(outcomes.barChart).toEqual({
       value: { first: 'x', rows: LONG, second: 'x ###########', width: 13 },
     });
+  });
+
+  it('should draw a horizontal bar chart of many bars as the latest 1,000 rows', () => {
+    expect(outcomes.horizontalBarChart).toEqual({ value: { rows: 1000 } });
   });
 
   it('should draw a vertical bar chart of many bars as the latest that fit the width', () => {

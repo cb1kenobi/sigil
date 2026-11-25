@@ -644,14 +644,39 @@ the entry it belongs to.
   the frame, where it is the only thing `runFrame()` is handed, so on the timer it
   is written with the error it threw for and not handed back to `onError` a second
   time: `onError` hears each error once. (A frame handler's or mount callback's own
-  error is heard during the frame, before the teardown, as it always was, and when
-  `onError` throws for one the rest of that loop is abandoned -- a later mount
-  callback's error is never written. Unchanged from before SIG-674 and not fixed
-  by it.) An `AggregateError` carrying both was the
+  error is heard during the frame, before the teardown, as it always was.) An `AggregateError` carrying both was the
   first answer and was refused -- it changed what `frame()` raises in the `failed`
   case from what `onError` threw to a wrapper nobody threw, and it showed `onError`
   its own throw again. From `frame()` nothing changed: `fail()` still gives the
   throw to `onError` a second time, as before, and raises what that throws.
+
+  **And an `onError` that throws for one error does not end the hearing of the
+  rest of the frame's (SIG-682).** That parenthetical used to say that when
+  `onError` throws for one, "the rest of that loop is abandoned -- a later mount
+  callback's error is never written", as unfixed. `drainMounts()` has already run
+  every callback and spliced them out, so the errors after the first were in nobody's
+  hands once `settle()`'s loop exited on the throw, and a frame handler's throw ended
+  the dispatch so the handlers after it never heard the frame, against the documented
+  rule that a handler that throws is reported and the rest still run. Now `tell()`
+  records what `onError` threw (`told`, a list) and does not throw itself;
+  `dispatchFrame()` and the mount drain each hand over **every** error and then
+  `failTold()` fails the frame with the first throw. The order is `report()`'s rule
+  already: each error goes to `onError` whatever it did with the one before, so
+  `onError` hears each error once, in the order thrown. On the timer
+  `reportOnTimer()` writes one `Error in frame: ...` and `Error in frame error
+  handler: ...` pair per error, in that order. With a caller, `fail()` hands
+  `onError` each throw it made, as it always handed it the first, and what that
+  throws is raised: one throw as itself and several as an `AggregateError`, which
+  is the rule above and not a new one -- so `frame()` raises an aggregate when
+  `onError` throws for two errors and the error itself when it throws for one. A
+  `runFrame()` says whether what it caught is `told`'s (`fromTold`) rather than
+  `fail()` guessing from the value, which is `undefined` for a handler that throws
+  nothing and could equal an effect's failure when `onError` throws something shared.
+  In the `failed` branch, from `frame()`, what `onError` threw for several errors
+  is raised the same way -- an `AggregateError` for several -- without being handed
+  back to `onError`, as the single throw already was. frame handler that runs after an earlier one's `onError` threw runs on a frame
+  that is about to fail, which is the cost of the rule and was chosen over a
+  handler silently not hearing its frame.
 
   `runFrame()`'s `if (failed)` branch is not dead, which was the question SIG-660's
   builder left. SIG-660 made an effect's flush no way into it, and what remains is
@@ -684,6 +709,32 @@ the entry it belongs to.
   version of this change did exactly that and review caught it. The same catch
   covers `finish()`'s own reports and a rejected `detect()`, so a throwing
   `onError` under the runner is reported and the code stays what it was.
+
+  **No component has a timer of its own that calls `frame()`, and one had a resize
+  listener that did (SIG-683).** SIG-674's follow-up asked whether the components
+  that mount over `mountLive()` had a hole the renderer's timer does not, by calling
+  `mounted.frame()` from an interval. None does, and the four sites it named were
+  each read: `spinner.ts`'s is the `text` setter, `typewriter.ts`'s is `append()`,
+  `multi-progress.ts`'s is a bar's `stop()` and `prompt.ts`'s is the answer's own
+  frame -- calls a caller makes, which is the caller `frame()` raises to. What the
+  spinner, the task list and the typewriter's timers do is write a signal, and the
+  frame that write asks for is the one `requestFrame()` arms, which is
+  `runFrame(true)` already; the decrypt effect does the same through `timed()`.
+  Measured with fake timers over a terminal whose writes fail and an `onError` that
+  throws, for the spinner, the typewriter and the decrypt effect: nothing is
+  raised, `onError` hears the failure, and `Error in frame: ...` and `Error in
+  frame error handler: ...` are written (`test/components/on-error-timer.test.ts`);
+  changing `runFrame(true)` back fails all three. So there is no second entry on
+  `Mounted` for a timer to call: `Renderer.invalidate()` is already the way to ask
+  for a frame without a caller. **The task list's `terminal.onResize()` listener was
+  the one that did call `frame()`**, found by review round 1: a resize that
+  reflowed a running row raised what `onError` threw into the terminal's dispatch,
+  where nothing catches it -- measured, `AggregateError: Errors thrown by onError`
+  out of `emit('resize')`. It bumps the version and calls `invalidate()` now.
+  **Not fixed, and measured:** `decrypt.ts`'s `leave()` runs `frame()` and `done()`
+  in the tail of the `done` promise, whose rejection is the documented channel for
+  a caller that awaited it -- and an unhandled rejection for one that did not,
+  since `start()` returns the decrypt and awaiting is optional.
 
 - **A frame that failed stops being a frame.** An effect that throws is
   _reported_ by the scope's error handler rather than thrown through it, so the

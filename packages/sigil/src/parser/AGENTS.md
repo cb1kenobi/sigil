@@ -1935,7 +1935,7 @@ name alone, and a `name` or `alias` written in a module could never route
   `.json` is not one of the six route extensions.
 - **What is wrong with the file throws, naming it.** Not JSONC (`parseJsonc()`'s
   `Failed to parse <file>`), not an object of objects, a property of the wrong
-  type, an alias starting `!` or `@` or holding a control or format character, or two entries both `default: true` -- the
+  type, an alias a route's name could not be (SIG-679), or two entries both `default: true` -- the
   last whether or not both name a route, so it is said naming the file rather
   than by the registry naming neither. It throws when the level is walked, as an
   invalid placeholder declaration throws when it is built, and the build fails
@@ -2054,29 +2054,37 @@ read it by the new name.
   **U+200C and U+200D are let through**: Persian and several Indic scripts
   cannot spell some words without them, and an attack needs the bidi controls and
   the invisible spaces rather than a joiner. They are escaped wherever a name is
-  echoed, like U+3164. **A `commands.json` alias is held to the same control and
-  format rule since SIG-673**, by the same function -- and to that rule alone, not
-  to the rest of `routeNameProblem()`: an alias may still hold whitespace, a `,`, a
-  `/` or a leading `<` or `[`, which a route's name may not, because the ticket
-  was about what reaches a terminal and U+2028 and the rest are escaped where an
-  alias is echoed. Whether an alias should be held to the whole of a name's rules
-  is open. The reason it is held to this one: a dropped manifest is no more the
-  app's own than a dropped file, and an alias is a spelling argv can match, so it
-  had the one guard (the escaped suggestion) where a route name has two. `readRouteManifest()`'s
-  alias loop, beside the `!` and `@` check, refuses it with `hasUnsafeCharacter()`
-  and the one reason string `routeNameProblem()` uses, so the runtime and `sigil
-  build` and `sigil check` -- which all read the file through `readRouteManifest()`
-  -- cannot disagree, the two joiners included. It **throws and refuses the whole
-  file**, as an alias starting `!` or `@` already does, rather than skipping the
-  alias with a warning: a skipped alias is a spelling that silently stops routing
-  on a machine the file was dropped onto, which is the stale-entry shape that
-  entry's own warning exists for, and a refusal names the file. That is a change to
-  what `commands.json` accepts, and the only app it moves is one whose alias held
-  such a character. The forged-alias fixtures in
-  `packages/cli/test/diagnostic-escape.test.ts` could not stay as they were --
-  they forged a diagnostic line with a newline in an alias, which is now refused --
-  so the aliases there carry U+3164 and assert the echo is escaped, and a sibling
-  asserts the newline alias is refused in one line. The refusal is what stops a hostile file dropped into an installed
+  echoed, like U+3164. **A `commands.json` alias is held to the whole of a route's name's rules
+  since SIG-679**, by the same function and not a copy of it: `readRouteManifest()`'s
+  alias loop asks `routeNameProblem()`, so an alias that is empty, holds whitespace
+  (U+2028, U+2029 and `\p{Zs}` included), a `,` or a `/`, starts with `<`, `[`, `!`
+  or `@`, or holds a control or format character (the joiners excepted) is refused
+  for the reason a file of that name is. SIG-673 had held it to the control and
+  format rule alone, through `hasUnsafeCharacter()`, and left this open; it was
+  decided yes because an alias is a name typed on the command line exactly as a
+  route's name is, so one rule covers both and a spelling is no longer refused as a
+  file and accepted as an alias. What the check means for an alias specifically: the
+  leading `!` and `@` are rules of `routeNameProblem()`, so the loop's own
+  `!`/`@` refusal ("is name-string syntax and an alias is a plain name") is gone
+  and an alias gets **one** message, not two; the empty alias is refused where it
+  used to register a spelling nobody can type; and a reason's sentence reads the
+  same after "it" as after "the name". The error names the alias, the route and the
+  file, each escaped. It **throws and refuses the whole file**, as SIG-673 chose
+  and for its reason: a skipped alias is a spelling that silently stops routing on a
+  machine the file was dropped onto, which is the stale-entry shape that entry's own
+  warning exists for, and a refusal names the file. The runtime, `sigil build` and
+  `sigil check` all read the file through `readRouteManifest()`, so they cannot
+  disagree, and `tree.test.ts` asserts the runtime and the build agree over every
+  rule. This is **a breaking change** for an app whose `commands.json` held such an
+  alias: it now stops at the level that holds it, `--help` included, as a route file
+  of the same name does. The equivalence test in `routing.test.ts` no longer filters
+  out whitespace: it compares the reason a name and an alias are refused for, over
+  the code points of both classes, the whitespace ones, and the syntax characters.
+  What SIG-673 recorded stands: a dropped manifest is no more the app's own than a
+  dropped file, and the forged-alias fixtures in
+  `packages/cli/test/diagnostic-escape.test.ts` carry U+3164 and assert the echo is
+  escaped, with a sibling asserting the newline alias is refused in one line (now
+  as whitespace). The refusal is what stops a hostile file dropped into an installed
   app's commands directory from being a command at all, and it is the first of two
   guards: a suggestion escapes what it offers whatever the name was (see "A value
   an error echoes"). The rest of what `escapeControls()` names -- U+3164, U+034F,
@@ -2816,15 +2824,37 @@ app that had somebody looking. Chris decided on 2026-11-24 that both are
     `createTerminal()`, whose own guard and best-effort writes are decided in
     `terminal/AGENTS.md`. That includes the fallbacks that write a line where a
     frame cannot be drawn -- `tasks`, `multi-progress`, `mount`'s `writeLine()`,
-    each a progress line, which is a diagnostic by the rule -- and `outline`'s
-    `done()`, which writes the whole tree when it is not mounted. That last one is
-    the same shape as `page()` and is the borderline case: it is **left** because
-    it goes through the terminal wrapper, which owns ordering against a live
-    region and swallows errors on purpose, where `page()` has neither on its
-    non-terminal branch. Whether a tree written to a file is a document is the open
-    question, recorded as a follow-up rather than decided here. A `writeSync` loop
-    there could block against a full pty and reorder against the stream's queue,
-    which is the SIG-671 defect again on the one stream where it would be seen.
+    each a progress line, which is a diagnostic by the rule. They are left for
+    a reason that is the rule's rather than the wrapper's: a spinner, a bar or a
+    task list redirected to `out.txt` is progress nobody asked for as a file, so a
+    lost line costs nothing the exit code does not say, and a throw out of one
+    would fail a command that did its work over a line about it. `outline`'s
+    `done()` was left with them and was **decided separately** (SIG-680, Chris,
+    2026-11-25), below.
+  - **`outline`'s unmounted `done()` (`components/outline.ts`): changed**
+    (SIG-680). It writes the whole tree when there is no frame to draw, which is
+    the same shape as `page()`: `mycli plan > out.txt` is a document, and one
+    `write()` of it exited 0 over a cut-off file. It is
+    `writeTo(terminal.stdout, ...)` now, and a cut-off is a **throw** from
+    `done()`, where `page()` rejects, because `done()` returns `void` and the
+    promise was the only reason for the rejection. What the
+    wrapper gave this write is kept by hand, three things: a closed terminal
+    writes nothing, `isStreamGone()` is caught when the write throws, and
+    `guardOutput([terminal.stdout])` is called first, because an `EPIPE` on a
+    pipe arrives as an `error` event and the terminal's listener, which
+    `terminal.write()` attached, is not there any more -- measured by the
+    review of this change, `| head -1` outside `main()` was an uncaught
+    exception before it. That listener is `main()`'s: it rethrows anything but the
+    reader leaving and is never taken off, where the terminal's swallowed
+    everything. What it does not do is set `terminal.closed`, which the next
+    `terminal.write()` does for itself. The wrapper's ordering is against a live
+    region, and this write is taken when `createOutline()` did not mount one:
+    nothing of this outline's own is on screen to order against, and the write
+    was a plain `stream.write()` with no region coordination before it either.
+    `writeTo()` takes the descriptor only for the process's own stdout as a
+    regular file, so a full pty is still the stream's and the SIG-671 reorder
+    cannot happen. Spawned test `outline` in `packages/cli/test/output.test.ts`,
+    which fails with the terminal write put back.
   - **`debug/` and the console replay in `renderer/app.ts`: left.** A `DEBUG` line
     is a diagnostic by definition, and the replay is written once at exit by a loop
     of its own that gives up quietly on purpose, since an exit handler must not throw.

@@ -921,6 +921,33 @@ describe('resolving a tree whose names are the file system’s', () => {
     ).rejects.toThrow(message);
   });
 
+  it.each([
+    ['whitespace', 'a b', /it contains whitespace/],
+    ['a comma', 'a,b', /it contains a ","/],
+    ['a slash', 'a/b', /it contains a "\/"/],
+    ['a leading <', '<x>', /it starts with "<"/],
+    ['a leading [', '[x]', /it starts with "\["/],
+    ['a leading !', '!x', /it starts with "!"/],
+    ['a leading @', '@x', /it starts with "@"/],
+    ['an empty alias', '', /it is empty/],
+  ])(
+    'should refuse a commands.json alias holding %s as the runtime does (SIG-679)',
+    async (_what, alias, reason) => {
+      const dir = tree({
+        'build.mjs': mod,
+        'commands.json': JSON.stringify({ build: { alias: [alias] } }),
+      });
+      const message = new RegExp(
+        `Invalid alias "${alias.replace(/[[\]/]/g, '\\$&')}" for "build" in .*commands\\.json: ${reason.source}`
+      );
+
+      expect(() => resolveCommandTree(dir)).toThrow(message);
+      await expect(
+        main({ argv: [], schema: { commands: dir }, settings: { errorHandler: false } })
+      ).rejects.toThrow(message);
+    }
+  );
+
   it('should let a commands.json alias hold a joiner or a blank character, as the runtime does (SIG-673)', async () => {
     for (const code of [0x200c, 0x200d, 0x3164]) {
       const alias = `a${String.fromCodePoint(code)}b`;
