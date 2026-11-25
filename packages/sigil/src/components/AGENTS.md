@@ -8422,13 +8422,17 @@ have.
   cell and the data table's `format()` result reach; `paintTreemap()` for `label` and so
   `moreLabel`, which share the one call; and the clock's `words()`, so `text` and the
   view are one string -- which does mean `clock.text` no longer carries a style an app
-  could have put there. Chris decided the table: **strip** rather than parse the SGR
+  could have put there, and a tab or a newline in it is a space and any other control
+  character is gone, as `toDisplayLine()` does it. Chris decided the table: **strip** rather than parse the SGR
   into a styled cell or refuse it, and a cell that should be coloured is a
   `TableCellView` (SIG-212); the README and the `format`/`label` JSDoc say so. `tableCell()`
   takes arbitrary values, and `String()` of a number, a `Date`, a `bigint` or a boolean
-  has no escape, so what those draw is unchanged (a test pins it). A column **header**
+  has no escape, so what those draw is unchanged (a test pins it). `strip()` is what is applied, so a lone C1
+  character or a bare `ESC` in a cell is an introducer and takes the text after it
+  (`'caf\u009F rest'` draws `caf`) where `toDisplayLine()` alone dropped just the character;
+  the chart and the page indicator already work this way and nothing pins it here. A column **header**
   still goes through `toDisplayLine()` alone, in `tableCells()` and the data table, and
-  so draws a styled one's parameters -- not in either ticket, and left. A chart's four `format`
+  so draws a styled one's parameters, as does the treemap's `empty` message -- in none of the three tickets, and left. A chart's four `format`
   JSDoc comments now say a style in the result is dropped (SIG-707), as the page
   indicator's does. A readout of
   only a control character other than

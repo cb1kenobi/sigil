@@ -507,9 +507,9 @@ describe('table()', () => {
   it('should draw a value that is not a string as it always did', () => {
     const when = new Date(Date.UTC(2024, 0, 2, 3, 4, 5));
 
-    expect(table([[1.5, true, null, undefined, 10n, when, 'a b']])).to.equal(
-      `1.5  true      10  ${String(when)}  a b`
-    );
+    expect(
+      table([[1.5, true, null, undefined, 10n, when, 'a b', Symbol('s'), [1, 2], {}]])
+    ).to.equal(`1.5  true      10  ${String(when)}  a b  Symbol(s)  1,2  [object Object]`);
   });
 
   it('should align columns to their widest cell', () => {

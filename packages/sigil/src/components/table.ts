@@ -42,8 +42,8 @@ export interface TableOptions extends StyledOptions {
  * before the cell is measured and drawn (SIG-705), so a styled string put in one
  * draws as its plain words and the column is sized for them -- not for
  * `[31mx[39m`, which is what a `text` draws of one whose `ESC` byte alone was
- * dropped. A view is the one cell form that keeps its own styling, and its `width` is what the column is measured with --
- * the table cannot ask a tree how wide it is without laying it out, which is the
+ * dropped. A view is the one cell form that keeps its own styling, and its
+ * `width` is what the column is measured with -- the table cannot ask a tree how wide it is without laying it out, which is the
  * work the declared widths exist to avoid.
  *
  * `selectRow()` takes one in a cell as well, since its cells are these. It is
