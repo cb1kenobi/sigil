@@ -1919,11 +1919,19 @@ decided once, for all of them. The runs and the sabotage passes are in
   does it through this runner. A promise `first()` returned after ending the
   prompt is still held, and a throw after it ended the prompt is kept too, both going
   to `onError` by `lateError()`: without that the first is nobody's, and an unhandled
-  rejection kills the process. **Left as it was, found by round 2:** a loader still
-  pending when the prompt ends _later_ -- Ctrl-C while a directory read is out --
-  has its eventual rejection dropped by `fail()` being a no-op, so `onError` hears
-  that one only if the prompt ended inside `first()`. It is the promise branch's
-  own `.catch(fail)` and a different timing, so it is not changed here.
+  rejection kills the process. **And a loader still pending when the prompt ends
+  _later_ is the same rule (SIG-708),** found by SIG-700's round 2 and left there
+  because the timing differs: Ctrl-C or an abort while a directory read is out, and
+  the read then fails. The promise branch's `.catch(fail)` dropped that rejection,
+  because `fail()` is a no-op once the prompt has settled, so `onError` heard of a
+  failure only if the prompt ended inside `first()`. The line form's three promise
+  chains -- the loader, a key and a paste -- now end in `report()`, which sends a
+  rejection that arrives after the prompt settled to `lateError()` and one that
+  arrives before to `fail()`, as the drawn prompt's `report()` always did. The key
+  chain had the same hole by the same line: a `validate` that rejects after Ctrl-C
+  was dropped as well. A loader that _resolves_ after the end writes nothing and
+  reports nothing, which the `!settled` check in the `then` already did. Pinned in
+  `test/components/prompt-detach.test.ts`.
 - **A table's column widths are worked out and the rest is the box model.** A
   shared column width across rows is the one thing flexbox cannot do for itself:
   each row would size its own cells and no two rows would agree. So the widths are

@@ -3493,6 +3493,27 @@ function runLine<T>(
       reject(error);
     }
 
+    /**
+     * Where a throw from work that outlives the prompt goes (SIG-708).
+     *
+     * A key's step, a paste and the loader behind `first()` are all promise
+     * chains, and the prompt can end while one of them is out -- Ctrl-C, an abort
+     * -- and the chain then rejects. `fail()` is a no-op by then, so that
+     * rejection went nowhere, and `onError` heard nothing of a directory read or a
+     * `validate` that failed. The caller already has its outcome, so it is a late
+     * error, as `lateError()` records: `onError`, and nowhere if there is none.
+     * Before the prompt ends it is still the answer.
+     *
+     * @param error - What the chain rejected with.
+     */
+    function report(error: unknown): void {
+      if (settled) {
+        lateError(opts, error);
+        return;
+      }
+      fail(error);
+    }
+
     function ask(): void {
       say(form!.ask);
       if (form!.echo) {
@@ -3702,7 +3723,7 @@ function runLine<T>(
             return press(k, submitting);
           }
         })
-        .catch(fail);
+        .catch(report);
     });
     const offPaste = router.onPaste((event) => {
       event.stop();
@@ -3722,7 +3743,7 @@ function runLine<T>(
             type(form!.submit ? pastedBlock(block) : pastedLine(block));
           }
         })
-        .catch(fail);
+        .catch(report);
     });
     const onAbort = (): void => fail(opts.signal?.reason);
     opts.signal?.addEventListener('abort', onAbort, { once: true });
@@ -3781,7 +3802,7 @@ function runLine<T>(
               begin(next);
             }
           })
-          .catch(fail);
+          .catch(report);
       } else {
         begin(ready);
       }
