@@ -3741,9 +3741,28 @@ function runLine<T>(
     try {
       ready = typeof first === 'function' ? first() : first;
     } catch (error) {
+      if (settled) {
+        // it ended the prompt and then threw: the prompt has its outcome, and
+        // the throw is a late one (SIG-700)
+        lateError(opts, error);
+        return;
+      }
       // nothing has been written yet, so there is nothing to finish the line of
       end();
       reject(error);
+      return;
+    }
+    // `first()` may have ended the prompt before it returned -- an abort, say --
+    // and what is written after that is output for a prompt that is gone, the
+    // lead-in as much as the question (SIG-700). The promise below is asked the
+    // same when it resolves
+    if (settled) {
+      // a promise nothing waits on any more still has to be held, or its
+      // rejection is one nobody catches: it is the loader's, late, so `onError`
+      // hears it and the prompt's own outcome stands
+      if (ready instanceof Promise) {
+        ready.catch((error: unknown) => lateError(opts, error));
+      }
       return;
     }
     // the first write on a terminal that has gone throws from the executor, which

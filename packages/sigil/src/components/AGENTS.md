@@ -1897,7 +1897,23 @@ decided once, for all of them. The runs and the sabotage passes are in
   each step is reported on its own rather than de-duplicated; the prompt still
   settles once. The line form's first question was the same hole from the other
   side: a write that fails there threw from the executor, so the promise rejected
-  with the router still attached to a raw stdin, and it goes through `fail()` now.
+  with the router still attached to a raw stdin, and it goes through `fail()` now. **And its first question is asked only of a prompt that
+  is still there (SIG-700).** `first()` runs after the abort listener is attached,
+  so it can end the prompt before it returns -- aborting the signal is the shape --
+  and the synchronous branch wrote the lead-in and the question anyway, where the
+  promise branch had always asked `!settled` when it resolved. Nothing settled
+  twice, because `fail()` and `submit()` check; the cost was stray output after
+  the rejection. One check after `first()` covers both writes. `run()`, the drawn
+  prompt, already returns when its first frame settled it, and every component
+  that passes a function for its first question (`file-picker` and `tree`, the only two)
+  does it through this runner. A promise `first()` returned after ending the
+  prompt is still held, and a throw after it ended the prompt is kept too, both going
+  to `onError` by `lateError()`: without that the first is nobody's, and an unhandled
+  rejection kills the process. **Left as it was, found by round 2:** a loader still
+  pending when the prompt ends _later_ -- Ctrl-C while a directory read is out --
+  has its eventual rejection dropped by `fail()` being a no-op, so `onError` hears
+  that one only if the prompt ended inside `first()`. It is the promise branch's
+  own `.catch(fail)` and a different timing, so it is not changed here.
 - **A table's column widths are worked out and the rest is the box model.** A
   shared column width across rows is the one thing flexbox cannot do for itself:
   each row would size its own cells and no two rows would agree. So the widths are
