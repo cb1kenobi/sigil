@@ -40,7 +40,9 @@ describe('holdsControl() and refuseControl()', () => {
   });
 
   it('should leave a format character, a wide glyph and a space alone', () => {
-    for (const glyph of ['', ' ', '●', '█', '\u{1F600}', 'a‍b', ' ']) {
+    const joined = ['a', String.fromCharCode(0x200d), 'b'].join('');
+    const nbsp = String.fromCharCode(0xa0);
+    for (const glyph of ['', ' ', '●', '\u2588', '\u{1F600}', joined, nbsp]) {
       expect(holdsControl(glyph), JSON.stringify(glyph)).toBe(false);
     }
   });
