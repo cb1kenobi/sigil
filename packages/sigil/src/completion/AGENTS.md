@@ -858,6 +858,52 @@ command, wired beside `registerHelp()` and `registerVersion()`.
   costs it nothing, which is a thing worth knowing before somebody wonders why
   completion does not need it.
 
+- **The bash drivers run every case of a test in one bash, because the process
+  is what costs on Windows and the function is not (SIG-678).**
+  `should insert only what readline is replacing` timed out at 10 s on CI's
+  node 22 Windows job -- 12.7 s -- over a PR that touched a chart readout. It
+  spawned a `bash` per case, 25 of them, through `execFileSync()`, and the
+  sibling `should complete what the spec says, driven in a real bash` spawned
+  about two dozen and finished the same run at 9.6 s, 0.4 s inside the limit it
+  shares. What the logs of 12 other runs say, read from 36 Windows jobs: the
+  first test took 0.86 to 1.84 s and the second 0.85 to 1.85 s, about 35 to
+  70 ms a spawn. So the test was not slow; the runner was, for a moment --
+  that job's whole file took 24.9 s against 2.2 to 4.4 s elsewhere -- and the
+  same 25 spawns cost 0.5 s each. That is not something a test can hold down,
+  and a timeout raised to cover it is a bound on how slow a runner may get, so
+  the lever is the count. Locally a `bash` is 3 ms and both tests take 85 ms,
+  which is why this was never seen on a Mac: a stand-in `bash` on `PATH` that
+  sleeps 0.4 s before it execs the real one reproduced the failure on the old
+  file (10.5 s and 9.4 s) and ran the new one in 0.4 s each, with 17 `bash`
+  starts for the file against 62, each counted by the stand-in's own log.
+
+  `driveBash()` in `test/completion.test.ts` sources the script once and runs
+  every case in that shell, which starts no process. **Not a subshell per
+  case**, which was the first version: on MSYS2 -- Git Bash -- a `fork` is
+  emulated with a new Windows process, so 25 subshells would have been 25
+  process creations on the one platform that failed. What keeps the cases apart
+  is that the driver sets three things, `COMP_WORDS`, `COMP_CWORD` and
+  `COMPREPLY`, afresh for each, and puts `COMP_WORDBREAKS` back to the shell's
+  own before each, which is the one a case may change. What the script leaves
+  in globals is what a real session's next Tab meets too. The program is a
+  file and not a `-c` argument, because a Windows command line ends at 32,767
+  characters, and a failure names its case: the markers already printed say how
+  far it got. It replaced four copies of one driver, one in each of the four
+  tests that had one. Three tests hold it: forty cases are one spawn, which
+  is the number to hold because time is what varies; a case that removed `=`
+  and `:` leaves the next its defaults; and a failing case is named. The first
+  two fail when the helper is sabotaged -- a spawn per case, and the restore
+  removed. The spawn count is the helper's own, so a test going back to its own
+  `execFileSync(bash!)` loop is not caught by it.
+
+  What is **not** changed. `bash -n` stays its own spawn, since a syntax check
+  is a different process by definition, and so does `declare -F` in `should
+  define the function it tells bash to call`. The interactive-bash describe is
+  one `python3` per call and has its own 60 s timeout. The Windows figures are
+  CI's and the stand-in is a macOS measurement; nothing here was run on
+  Windows, and "a spawn is 35 to 70 ms there" is an average over 25 of them
+  rather than one timed.
+
 - **Seventy-six sabotages, seventy-five caught and one declared, after twelve
   survivors and one defect the pass found plus one it could not.** Counted
   against the shipped tree in one run rather than summed across rounds, which is

@@ -1232,6 +1232,169 @@ describe('the scripts as shell programs', () => {
     return path;
   }
 
+  /** One word list handed to the completion function, and how bash is set up for it. */
+  interface BashCase {
+    /**
+     * `'default'` asserts that this bash's `COMP_WORDBREAKS` holds `=` and `:`,
+     * so that a bash whose default differs fails rather than silently passing;
+     * `'none'` takes both out, which is a shell where readline replaces the
+     * whole word. Left out, the case is run with what the shell has.
+     */
+    breaks?: 'default' | 'none';
+    /** What bash would have split the line into. */
+    words: readonly string[];
+  }
+
+  /** How many bash processes `driveBash()` has started, which is what its test reads. */
+  let bashSpawns = 0;
+
+  const CASE_END = '@@sigil-case-end@@';
+  const SETUP_END = '@@sigil-setup-end@@';
+
+  /**
+   * Runs the generated bash function once per case, in **one** bash.
+   *
+   * What a case costs here is not the function, which is microseconds, but the
+   * process: a `bash` is a launcher and an MSYS2 runtime on Windows, and a
+   * case per `execFileSync()` was 25 of them in one test. They ran in about
+   * 1.5 s on CI until a loaded runner made each of them take half a second, and
+   * the test timed out at 12.7 s (SIG-678). The script is sourced once and the
+   * cases run one after another in that shell, which starts no process at all
+   * -- a subshell was the first answer and is refused, because on MSYS2 a
+   * `fork` is itself a new Windows process. What keeps the cases apart is that
+   * `COMP_WORDS`, `COMP_CWORD` and `COMPREPLY` are set afresh for each and
+   * `COMP_WORDBREAKS` is put back to the shell's own before each, which are
+   * the only things the driver sets that a case reads, and so the only ones
+   * that could carry from one to the next; what the script itself leaves behind is what a real
+   * session's second Tab meets too. `-u` is on, because a user's shell may have
+   * it and bash 3.2 errors on `"${empty[@]}"`; a case that trips it, or whose
+   * breaks assertion fails, ends the shell non-zero and fails the call, naming
+   * the case.
+   *
+   * The program is a file rather than a `-c` argument, because a Windows
+   * command line ends at 32,767 characters and a table of cases only grows.
+   *
+   * @param script - The path of the generated script.
+   * @param cases - The word lists to complete.
+   * @returns What `COMPREPLY` came back as, per case, in order.
+   */
+  function driveBash(script: string, cases: readonly BashCase[]): string[][] {
+    const assertBreaks = [
+      'case "$COMP_WORDBREAKS" in *=*) ;; *) echo "no = break" >&2; exit 1 ;; esac',
+      'case "$COMP_WORDBREAKS" in *:*) ;; *) echo "no : break" >&2; exit 1 ;; esac',
+    ];
+
+    const program = [
+      `source ${bashQuote(script)}`,
+      'shell_breaks=$COMP_WORDBREAKS',
+      `echo ${SETUP_END}`,
+      ...cases.flatMap(({ breaks, words }) => [
+        'COMP_WORDBREAKS=$shell_breaks',
+        ...(breaks === 'default' ? assertBreaks : []),
+        ...(breaks === 'none' ? ['COMP_WORDBREAKS="${COMP_WORDBREAKS//[=:]}"'] : []),
+        `COMP_WORDS=(${words.map(bashQuote).join(' ')})`,
+        `COMP_CWORD=${words.length - 1}`,
+        'COMPREPLY=()',
+        '_mycli',
+        'if [ ${#COMPREPLY[@]} -gt 0 ]; then printf \'%s\\n\' "${COMPREPLY[@]}"; fi',
+        `echo ${CASE_END}`,
+      ]),
+    ].join('\n');
+
+    const file = join(dir, `drive.${++bashSpawns}.bash`);
+    writeFileSync(file, program);
+
+    let out: string;
+    try {
+      // stderr is piped rather than inherited: a failure carries it in the
+      // message below, and one that is asserted on should not also print
+      out = execFileSync(bash!, ['-u', file], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } catch (error) {
+      // the markers already printed say how far it got, which is the case
+      // that failed -- one call for every case would otherwise say only that
+      // something did
+      const printed = String((error as { stdout?: unknown }).stdout ?? '');
+      const done = printed.split(CASE_END).length - 1;
+      const failed = cases[done];
+      const where = !printed.includes(SETUP_END)
+        ? 'before the first case'
+        : `on case ${done}${failed ? ` (${failed.words.join(' ')})` : ''}`;
+      throw new Error(
+        `bash failed ${where}: ${String((error as { stderr?: unknown }).stderr ?? error)}`,
+        { cause: error }
+      );
+    }
+
+    // a trailing newline leaves one empty piece after the last end marker
+    return out
+      .replace(`${SETUP_END}\n`, '')
+      .split(`${CASE_END}\n`)
+      .slice(0, cases.length)
+      .map((piece) => piece.split('\n').filter((line) => line !== ''));
+  }
+
+  it.skipIf(!bash)('should start one bash for however many cases it is given', async () => {
+    // SIG-678: the readline test drove its 25 cases through 25 bash processes
+    // and timed out on a loaded Windows runner, where a process is what costs.
+    // The number of processes is the thing to hold, because time cannot be
+    // held on a machine whose speed is the variable
+    const script = await write('bash');
+    const before = bashSpawns;
+
+    const got = driveBash(
+      script,
+      Array.from({ length: 40 }, () => ({ words: ['mycli', 'b'] }))
+    );
+
+    expect(bashSpawns - before).toBe(1);
+    expect(got).toHaveLength(40);
+    expect(got.every((reply) => reply.join() === 'build')).toBe(true);
+  });
+
+  it.skipIf(!bash)('should name the case that failed, though all of them are one bash', () => {
+    // one call for every case would otherwise say only that something failed;
+    // `-u` is on, so an unset variable is the failure a user's shell gives
+    const broken = join(dir, 'broken.bash');
+    writeFileSync(
+      broken,
+      '_mycli() { if [ "${COMP_WORDS[1]}" = boom ]; then echo "${never_set}"; fi; }\n'
+    );
+
+    expect(() =>
+      driveBash(broken, [
+        { words: ['mycli', 'a'] },
+        { words: ['mycli', 'b'] },
+        { words: ['mycli', 'boom'] },
+        { words: ['mycli', 'c'] },
+      ])
+    ).toThrow(/on case 2 \(mycli boom\).*never_set/su);
+
+    // and a script that dies while it is sourced is not blamed on a case
+    const dead = join(dir, 'dead.bash');
+    writeFileSync(dead, 'echo "${never_set}"\n');
+    expect(() => driveBash(dead, [{ words: ['mycli', 'a'] }])).toThrow(/before the first case/u);
+  });
+
+  it.skipIf(!bash)(
+    'should put COMP_WORDBREAKS back between cases, as a bash of its own would have it',
+    async () => {
+      const script = await write('bash');
+
+      // the second case would be answered `--mode=fast`, `--mode=slow` if the
+      // first one's change to `COMP_WORDBREAKS`, or the words it set, stayed
+      const got = driveBash(script, [
+        { breaks: 'none', words: ['mycli', 'build', '--mode='] },
+        { breaks: 'default', words: ['mycli', 'build', '--mode='] },
+        { words: ['mycli', 'build', '--mode=f'] },
+      ]);
+
+      expect(got).toEqual([['--mode=fast', '--mode=slow'], ['fast', 'slow'], ['fast']]);
+    }
+  );
+
   it.skipIf(!bash)('should parse as bash', async () => {
     // the check that says the generator produced a *program* rather than
     // plausible text, over a schema whose description holds a quote, a
@@ -1285,28 +1448,13 @@ describe('the scripts as shell programs', () => {
       const script = await writeUnlisted('bash');
       execFileSync(bash!, ['-n', script]);
 
-      const drive = (words: string[]): string[] =>
-        execFileSync(
-          bash!,
-          [
-            '-u',
-            '-c',
-            [
-              `source ${bashQuote(script)}`,
-              `COMP_WORDS=(${words.map(bashQuote).join(' ')})`,
-              `COMP_CWORD=${words.length - 1}`,
-              'COMPREPLY=()',
-              '_mycli',
-              'if [ ${#COMPREPLY[@]} -gt 0 ]; then printf \'%s\\n\' "${COMPREPLY[@]}"; fi',
-            ].join('\n'),
-          ],
-          { encoding: 'utf8' }
-        )
-          .split('\n')
-          .filter((line) => line !== '');
+      const [unknown, aliased] = driveBash(script, [
+        { words: ['mycli', 'g'] },
+        { words: ['mycli', 'go', '--f'] },
+      ]);
 
-      expect(drive(['mycli', 'g'])).toEqual([]);
-      expect(drive(['mycli', 'go', '--f'])).toEqual(['--force']);
+      expect(unknown).toEqual([]);
+      expect(aliased).toEqual(['--force']);
     });
 
     it.skipIf(!zsh)('should parse as zsh', async () => {
@@ -1341,32 +1489,18 @@ describe('the scripts as shell programs', () => {
       expect(readFileSync(script, 'utf8').replaceAll(/[\t\n]/gu, '')).not.toMatch(/\p{Cc}/u);
       execFileSync(bash!, ['-n', script]);
 
-      const drive = (words: string[]): string[] =>
-        execFileSync(
-          bash!,
-          [
-            '-u',
-            '-c',
-            [
-              `source ${bashQuote(script)}`,
-              `COMP_WORDS=(${words.map(bashQuote).join(' ')})`,
-              `COMP_CWORD=${words.length - 1}`,
-              'COMPREPLY=()',
-              '_mycli',
-              'if [ ${#COMPREPLY[@]} -gt 0 ]; then printf \'%s\\n\' "${COMPREPLY[@]}"; fi',
-            ].join('\n'),
-          ],
-          { encoding: 'utf8' }
-        )
-          .split('\n')
-          .filter((line) => line !== '');
+      const [all, prefix, options] = driveBash(script, [
+        { words: ['mycli', ''] },
+        { words: ['mycli', 'g'] },
+        { words: ['mycli', 'go', '--'] },
+      ]);
 
       // in the order the walk reads the registry, which is by name, so the
       // untypeable one sorts where its name does
-      expect(drive(['mycli', ''])).toEqual(['other', 'go']);
-      expect(drive(['mycli', 'g'])).toEqual(['go']);
+      expect(all).toEqual(['other', 'go']);
+      expect(prefix).toEqual(['go']);
       // `go`'s options rather than the root's, which is the path resolving
-      expect(drive(['mycli', 'go', '--'])).toEqual(['--force']);
+      expect(options).toEqual(['--force']);
     });
 
     it.skipIf(!zsh)('should complete go in zsh, with no raw control character', async () => {
@@ -1408,96 +1542,76 @@ describe('the scripts as shell programs', () => {
     // is inserted.
     const script = await write('bash');
 
-    /**
-     * @param regime - `'bash32'` is the whole word with the default breaks,
-     *   `'bash5'` is the same line split the way bash 4+ splits it, and
-     *   `'noBreaks'` is a shell whose `COMP_WORDBREAKS` has neither character.
-     * @param words - The words that regime hands over.
-     * @returns What `COMPREPLY` came back as.
-     */
-    const drive = (regime: 'bash32' | 'bash5' | 'noBreaks', words: string[]): string[] =>
-      execFileSync(
-        bash!,
-        [
-          // `-u` for the reason the driver above takes it: `"${empty[@]}"`
-          // is an error in the bash this has to run in, and this branch has
-          // an empty-array guard of its own
-          '-u',
-          '-c',
-          [
-            regime === 'noBreaks'
-              ? 'COMP_WORDBREAKS="${COMP_WORDBREAKS//[=:]}"'
-              : // both other regimes are the default, which really does
-                // hold `=` and `:` -- asserted, so that a bash whose
-                // default differs fails here rather than silently passing
-                'case "$COMP_WORDBREAKS" in *=*) ;; *) echo "no = break" >&2; exit 1 ;; esac\n' +
-                'case "$COMP_WORDBREAKS" in *:*) ;; *) echo "no : break" >&2; exit 1 ;; esac',
-            `source ${bashQuote(script)}`,
-            `COMP_WORDS=(${words.map(bashQuote).join(' ')})`,
-            `COMP_CWORD=${words.length - 1}`,
-            'COMPREPLY=()',
-            '_mycli',
-            'if [ ${#COMPREPLY[@]} -gt 0 ]; then printf \'%s\\n\' "${COMPREPLY[@]}"; fi',
-          ].join('\n'),
-        ],
-        { encoding: 'utf8' }
-      )
-        .split('\n')
-        .filter((line) => line !== '');
+    // every case is written down first and run in one bash after, so the
+    // count of processes is one whatever the table holds (SIG-678). `regime` is
+    // `'bash32'` for the whole word with the default breaks, `'bash5'` for the
+    // same line split the way bash 4+ splits it, and `'noBreaks'` for a shell
+    // whose `COMP_WORDBREAKS` has neither character
+    const cases: { expected: string[]; regime: string; words: string[] }[] = [];
+    const check = (
+      regime: 'bash32' | 'bash5' | 'noBreaks',
+      words: string[],
+      expected: string[]
+    ): void => {
+      cases.push({ expected, regime, words });
+    };
 
     // bash 3.2: one word, and the candidate is the part after the break
-    expect(drive('bash32', ['mycli', 'build', '--mode='])).toEqual(['fast', 'slow']);
-    expect(drive('bash32', ['mycli', 'build', '--mode=f'])).toEqual(['fast']);
+    check('bash32', ['mycli', 'build', '--mode='], ['fast', 'slow']);
+    check('bash32', ['mycli', 'build', '--mode=f'], ['fast']);
     // a *short* option takes an attached value too -- `-p=5` resolves
-    expect(drive('bash32', ['mycli', 'build', '-m='])).toEqual(['fast', 'slow']);
+    check('bash32', ['mycli', 'build', '-m='], ['fast', 'slow']);
     // an option whose values nothing declared offers none, in every regime
-    expect(drive('bash32', ['mycli', 'build', '--out='])).toEqual([]);
+    check('bash32', ['mycli', 'build', '--out='], []);
     // a `:` in the *value* rather than between an option and its value: the
     // candidate is filtered by the whole word and inserted from the colon on
-    expect(drive('bash32', ['mycli', 'build', '--tag', ''])).toEqual(['a:b', 'host:port', 'plain']);
-    expect(drive('bash32', ['mycli', 'build', '--tag', 'host:po'])).toEqual(['port']);
-    expect(drive('bash32', ['mycli', 'build', '--tag', 'a:'])).toEqual(['b']);
+    check('bash32', ['mycli', 'build', '--tag', ''], ['a:b', 'host:port', 'plain']);
+    check('bash32', ['mycli', 'build', '--tag', 'host:po'], ['port']);
+    check('bash32', ['mycli', 'build', '--tag', 'a:'], ['b']);
     // ...and a value that holds one does not take the walk with it
-    expect(drive('bash32', ['mycli', 'build', '--tag', 'host:port', ''])).toEqual([
-      'web',
-      'native',
-    ]);
+    check('bash32', ['mycli', 'build', '--tag', 'host:port', ''], ['web', 'native']);
     // a break character that is quoted is no break: readline replaces the
     // whole word, from just after a quote left open or from its start
-    expect(drive('bash32', ['mycli', 'build', '--tag', 'host\\:po'])).toEqual(['host:port']);
-    expect(drive('bash32', ['mycli', 'build', '--tag', "'host:po"])).toEqual(['host:port']);
-    expect(drive('bash32', ['mycli', 'build', '--tag', '"a:'])).toEqual(['a:b']);
+    check('bash32', ['mycli', 'build', '--tag', 'host\\:po'], ['host:port']);
+    check('bash32', ['mycli', 'build', '--tag', "'host:po"], ['host:port']);
+    check('bash32', ['mycli', 'build', '--tag', '"a:'], ['a:b']);
 
     // bash 4 and later, where the same lines arrive split
-    expect(drive('bash5', ['mycli', 'build', '--mode', '=', ''])).toEqual(['fast', 'slow']);
-    expect(drive('bash5', ['mycli', 'build', '--mode', '=', 'f'])).toEqual(['fast']);
+    check('bash5', ['mycli', 'build', '--mode', '=', ''], ['fast', 'slow']);
+    check('bash5', ['mycli', 'build', '--mode', '=', 'f'], ['fast']);
     // the line ending on the break itself, which is a word list of its own
-    expect(drive('bash5', ['mycli', 'build', '--mode', '='])).toEqual(['fast', 'slow']);
-    expect(drive('bash5', ['mycli', 'build', '-m', '=', ''])).toEqual(['fast', 'slow']);
-    expect(drive('bash5', ['mycli', 'build', '--out', '=', ''])).toEqual([]);
-    expect(drive('bash5', ['mycli', 'build', '--tag', 'host', ':', 'po'])).toEqual(['port']);
-    expect(drive('bash5', ['mycli', 'build', '--tag', 'a', ':'])).toEqual(['b']);
-    expect(drive('bash5', ['mycli', 'build', '--tag', ''])).toEqual(['a:b', 'host:port', 'plain']);
+    check('bash5', ['mycli', 'build', '--mode', '='], ['fast', 'slow']);
+    check('bash5', ['mycli', 'build', '-m', '=', ''], ['fast', 'slow']);
+    check('bash5', ['mycli', 'build', '--out', '=', ''], []);
+    check('bash5', ['mycli', 'build', '--tag', 'host', ':', 'po'], ['port']);
+    check('bash5', ['mycli', 'build', '--tag', 'a', ':'], ['b']);
+    check('bash5', ['mycli', 'build', '--tag', ''], ['a:b', 'host:port', 'plain']);
     // the `=` is a word of its own and must not be read as a path component:
     // what follows it is still `build`'s, and so is what follows a split value
-    expect(drive('bash5', ['mycli', 'build', '--mode', '=', 'fast', ''])).toEqual([
-      'web',
-      'native',
-    ]);
-    expect(drive('bash5', ['mycli', 'build', '--tag', 'host', ':', 'port', ''])).toEqual([
-      'web',
-      'native',
-    ]);
+    check('bash5', ['mycli', 'build', '--mode', '=', 'fast', ''], ['web', 'native']);
+    check('bash5', ['mycli', 'build', '--tag', 'host', ':', 'port', ''], ['web', 'native']);
 
     // and a shell whose `COMP_WORDBREAKS` holds neither, where readline
     // replaces the whole word and every candidate carries the prefix back
-    expect(drive('noBreaks', ['mycli', 'build', '--mode='])).toEqual([
-      '--mode=fast',
-      '--mode=slow',
-    ]);
-    expect(drive('noBreaks', ['mycli', 'build', '--mode=f'])).toEqual(['--mode=fast']);
-    expect(drive('noBreaks', ['mycli', 'build', '-m='])).toEqual(['-m=fast', '-m=slow']);
-    expect(drive('noBreaks', ['mycli', 'build', '--tag', 'host:po'])).toEqual(['host:port']);
+    check('noBreaks', ['mycli', 'build', '--mode='], ['--mode=fast', '--mode=slow']);
+    check('noBreaks', ['mycli', 'build', '--mode=f'], ['--mode=fast']);
+    check('noBreaks', ['mycli', 'build', '-m='], ['-m=fast', '-m=slow']);
+    check('noBreaks', ['mycli', 'build', '--tag', 'host:po'], ['host:port']);
+
+    const got = driveBash(
+      script,
+      cases.map(({ regime, words }) => ({
+        // both other regimes are the default, which really does hold `=` and
+        // `:` -- asserted, so that a bash whose default differs fails here
+        // rather than silently passing
+        breaks: regime === 'noBreaks' ? 'none' : 'default',
+        words,
+      }))
+    );
+
+    for (const [index, { expected, regime, words }] of cases.entries()) {
+      expect(got[index], `${regime}: ${words.join(' ')}`).toEqual(expected);
+    }
   });
 
   it.skipIf(!zsh)('should register itself for the program when it is sourced', async () => {
@@ -1874,20 +1988,13 @@ describe('the scripts as shell programs', () => {
       [['mycli', "'remove'", '--f'], ['--force']],
     ];
 
-    for (const [words, expected] of cases) {
-      const driver = [
-        `source ${bashQuote(script)}`,
-        `COMP_WORDS=(${words.map(bashQuote).join(' ')})`,
-        `COMP_CWORD=${words.length - 1}`,
-        'COMPREPLY=()',
-        '_mycli',
-        'if [ ${#COMPREPLY[@]} -gt 0 ]; then printf \'%s\\n\' "${COMPREPLY[@]}"; fi',
-      ].join('\n');
+    const got = driveBash(
+      script,
+      cases.map(([words]) => ({ words }))
+    );
 
-      const out = execFileSync(bash!, ['-u', '-c', driver], { encoding: 'utf8' });
-      const got = out.split('\n').filter((line) => line !== '');
-
-      expect(got, words.join(' ')).toEqual(expected);
+    for (const [index, [words, expected]] of cases.entries()) {
+      expect(got[index], words.join(' ')).toEqual(expected);
     }
   });
 });
