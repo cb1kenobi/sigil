@@ -115,6 +115,38 @@ export function withoutUnsafe(value: string): string {
 }
 
 /**
+ * Serialized JSON with every character `escapeControls()` would escape written as
+ * a JSON `\u` escape instead (SIG-717).
+ *
+ * The third answer to the same question, for a document that has to stay the
+ * same **value**: `JSON.stringify()` escapes C0 and leaves `DEL`, C1, U+202E and
+ * the rest of the class raw, so a choice holding one reached the terminal of
+ * whoever printed the schema. Neither of the other two will do -- removing a
+ * character changes the value, and `\u{202E}` is not JSON. A `\u` escape parses
+ * back to the same string, one per UTF-16 unit so that an astral format
+ * character is written as its two surrogates, which is the only spelling JSON
+ * has for one. Safe over a whole document because `JSON.stringify()` puts these
+ * characters nowhere but inside a string -- with the one exception of the line
+ * breaks its indentation writes, which are structure and are handed back as
+ * they are. A newline inside a string is already `\n` by then, so every raw one
+ * is structure. The first version escaped those too, and the document stopped
+ * being JSON at its second character.
+ *
+ * @param json - Text `JSON.stringify()` wrote.
+ * @returns The same JSON, with nothing in it a terminal acts on or hides.
+ */
+export function escapeUnsafeJson(json: string): string {
+  return json.replaceAll(UNSAFE, (char) =>
+    char === '\n'
+      ? char
+      : Array.from(
+          { length: char.length },
+          (_, i) => `\\u${char.charCodeAt(i).toString(16).padStart(4, '0')}`
+        ).join('')
+  );
+}
+
+/**
  * An error Node raised, with its message made inert and nothing else about it
  * changed (SIG-571).
  *

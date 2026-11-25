@@ -64,7 +64,7 @@
       "runs": [
         {
           "command": "sigil --help",
-          "output": "\u001b[1mUsage: \u001b[22msigil [options] <command>\n\n\u001b[1mCommands:\u001b[0m\n  add         Copy a component into your app, so you own it\n  build       Build an app into a bundle that depends on nothing\n  check       Check an app without building it\n  completion  Print a shell completion script\n  help        Show help for a command\n  new         Create a new app\n  package     Build an app and compile it into a single executable\n  reference   Write a markdown command reference, or a snapshot of\n              the command surface\n\n\u001b[1mOptions:\u001b[0m\n  -h, --help     Show help for a command\n  -v, --version  Print the version\n  -q, --quiet    Suppress progress, not results"
+          "output": "\u001b[1mUsage: \u001b[22msigil [options] <command>\n\n\u001b[1mCommands:\u001b[0m\n  add         Copy a component into your app, so you own it\n  build       Build an app into a bundle that depends on nothing\n  check       Check an app without building it\n  completion  Print a shell completion script\n  help        Show help for a command\n  new         Create a new app\n  package     Build an app and compile it into a single executable\n  reference   Write a markdown command reference, a snapshot of the\n              command surface, or its input schemas\n\n\u001b[1mOptions:\u001b[0m\n  -h, --help     Show help for a command\n  -v, --version  Print the version\n  -q, --quiet    Suppress progress, not results"
         }
       ]
     }

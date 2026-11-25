@@ -7575,6 +7575,59 @@ reading them here.
 that has tests, because a front matter the site cannot read is the failure mode a
 renderer alone would not catch.
 
+#### The input schemas: a third artifact, for a machine that calls the app (SIG-717)
+
+`sigil reference --json-schema` prints every runnable command's input as a JSON
+Schema object, which is what MCP and every agent framework's tool definitions
+describe a tool with. The mapping is `inputSchemas()` in
+`packages/sigil/src/reference/json-schema.ts`, and it is in the **runtime** rather
+than here, which is the one exception to "printing is toolchain work": the readers
+coming are an MCP server (SIG-721), which depends on `@ttylabs/sigil` and not on
+the toolchain, and the app skill `sigil build` writes (SIG-720). Two readers in
+two packages is one definition in the package both depend on.
+
+- **The typed form, judged by `checkValue()`.** A tool call arrives typed, so
+  `int` is `integer` and `bool` is `boolean`; `checkValue()` also takes a string
+  for every type, which is not advertised. Bounded to the safe integers, since
+  past them `checkValue()` refuses.
+- **Sound, not complete, and the gaps are listed in the module comment**: a day
+  that does not exist matches `DATE_PATTERN` and is refused after it, undeclared
+  options are `additionalProperties: false` although the parser takes them, and
+  hidden commands and options are left out unless asked for. The soundness test
+  in `packages/sigil/test/reference-json-schema.test.ts` sweeps every type with
+  awkward values against a validator of the emitted keywords and asserts that the
+  only refusals are those three dates. It found two defects on its first run,
+  both fixed: `json` accepted any string, but a string sent to `json` is parsed as
+  JSON text, so it is `not: { type: 'string' }`; and a date-only default came out
+  as its local-midnight instant, which differs by time zone, so a string default
+  of a `date` is stated as written.
+- **`DATE_PATTERN` is the parser's own pattern.** `dateRE` used `/i` for `T` and
+  `Z` alone, and a JSON Schema `pattern` takes no flags, so those two are classes
+  now and the parser builds its regex from the exported source. One pattern, two
+  readers.
+- **A property is named by `argv` destination, and one destination is one
+  property.** That is what lets a negated twin pair the way the parser pairs it:
+  `--cheese <type>` with `--no-cheese` is `anyOf` the type or `false`, and
+  `--no-color` alone is `color`, defaulting to `true`. The surface gained `dest`,
+  `choiceValues`, `selectsFormat` and an argument's `default` for it. None of them
+  is in the snapshot or the markdown, which pick their fields by name, so no
+  committed snapshot moved.
+- **The chain is flattened here, where the snapshot deliberately does not.** A
+  caller cannot know that a root `--config` reaches `db migrate`, so each
+  command's schema holds every ancestor's options, nearest winning, and none of an
+  ancestor's positionals.
+- **An `enum` holds a choice only if it reaches the command as itself.** Each
+  choice is put through `checkValue()` and kept only if it comes back
+  `Object.is` the same, so `'443'` on an `int` is dropped. The parser reads it as
+  `443` and refuses it against the string, so it was never a choice anyone could
+  give.
+- **The text form escapes the whole `escapeControls()` class**, through
+  `escapeUnsafeJson()`, because `JSON.stringify()` escapes C0 and leaves `DEL`,
+  C1 and U+202E raw. Structural newlines are spared. The first version escaped
+  those too and wrote a document that did not parse.
+- **No `sigil.json` key.** Nothing has asked to commit one yet, and a key is easier
+  to add than to take back, so `--check` needs `--out`.
+
 > Moved: _What the sabotage pass found, and the litter it left twice_, _What review round 1 found, and the two it was right about by the wrong reason_, _What review round 2 found, pointed at round 1's fixes and round 1's skipped list_, _What review round 3 found, pointed at round 2's fixes and round 2's skipped list_, _What review round 4 found, and the pattern across four of them_, _What CI found that four review rounds and five sabotage passes did not_, _What the PR review round found: the one string never cleaned_ — see [docs/history/a-markdown-command-reference-and-a-surface-snapshot.md](../../docs/history/a-markdown-command-reference-and-a-surface-snapshot.md).
 
 ### What the build tells an app's update check to look at

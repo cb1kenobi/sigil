@@ -18,6 +18,22 @@ export {
   type SurfaceOption,
 } from './surface.js';
 
+// a command's input as JSON Schema (SIG-717), which is a format and so the
+// exception to the paragraph above: what reads it is an MCP server or a tool
+// definition **at run time**, in a package that depends on this one and not on
+// the toolchain, and the agent skill `sigil build` writes reads it too -- two
+// readers in two packages, so one definition here rather than a copy in each
+export {
+  inputSchema,
+  inputSchemas,
+  inputSchemasJson,
+  JSON_SCHEMA_DIALECT,
+  type CommandInputSchema,
+  type InputSchemaDocument,
+  type InputSchemaOptions,
+  type JsonSchema,
+} from './json-schema.js';
+
 // the order the surface is written in, published so that the toolchain sorts
 // the reference it prints, and everything else it lists, with this function
 // rather than a copy of it -- a copy is how two orders come to disagree

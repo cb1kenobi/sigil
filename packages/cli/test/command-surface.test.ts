@@ -533,3 +533,52 @@ describe('the generated markdown reference', () => {
     expect(names).toStrictEqual(['index', ...routes()].sort());
   });
 });
+
+describe('the input schemas (SIG-717)', () => {
+  it("should print every runnable command's input as JSON Schema", () => {
+    const result = run(['reference', '--json-schema']);
+
+    expect(result.status, result.stderr).toBe(0);
+    const doc = JSON.parse(result.stdout);
+    expect(doc.program).toBe('sigil');
+    // every route is a runnable command, so every route is in it
+    expect(doc.commands.map((cmd: { path: string[] }) => cmd.path.join(' ')).sort()).toEqual(
+      routes()
+    );
+
+    const reference = doc.commands.find((cmd: { path: string[] }) => cmd.path[0] === 'reference');
+    expect(reference.inputSchema.type).toBe('object');
+    // keyed as `argv` is, which is what `run()` above reads
+    expect(reference.inputSchema.properties.jsonSchema).toMatchObject({
+      default: false,
+      type: 'boolean',
+    });
+  });
+
+  it('should refuse to be asked for two documents at once', () => {
+    const result = run(['reference', '--json', '--json-schema']);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Choose one of --json and --json-schema');
+  });
+
+  it('should write one file, and check it', () => {
+    const out = nowhere('schema.json');
+
+    expect(run(['reference', '--json-schema', '--out', out]).status).toBe(0);
+    expect(JSON.parse(readFileSync(out, 'utf-8')).program).toBe('sigil');
+    expect(run(['reference', '--json-schema', '--out', out, '--check']).status).toBe(0);
+
+    const stale = run(['reference', '--json-schema', '--out', nowhere('schema.json'), '--check']);
+    expect(stale.status).toBe(1);
+    // the command it tells the reader to run writes this artifact and no other
+    expect(stale.stderr).toContain('sigil reference --json-schema --out');
+  });
+
+  it('should need a destination to check, since sigil.json names none for it', () => {
+    const result = run(['reference', '--json-schema', '--check']);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Nothing to check: name a destination with --out.');
+  });
+});

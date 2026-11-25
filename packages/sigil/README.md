@@ -8715,6 +8715,42 @@ What it records is what the app declared. `help`, `completion`, `--help` and
 not have them — which is what keeps an app's snapshot moving when the app moves
 rather than when the framework does.
 
+```js
+import { commandSurface, inputSchema, inputSchemas } from '@ttylabs/sigil/reference';
+
+const surface = await commandSurface(schema);
+const doc = inputSchemas(surface);
+
+doc.commands[0];
+// { path: ['build'], description: 'Build the app',
+//   inputSchema: { $schema: '…/2020-12/schema', type: 'object',
+//                  properties: { entry: { type: 'string' }, minify: { type: 'boolean', default: false } },
+//                  required: ['entry'], additionalProperties: false } }
+```
+
+`inputSchemas(surface)` is every runnable command's input as a JSON Schema
+object, which is what MCP, the Anthropic and OpenAI tool definitions and the
+frameworks over them describe a tool with. `inputSchema(surface, command)` is
+one command's, and `inputSchemasJson(surface)` is the document as text, with
+every character `escapeControls()` would escape written as a `\u` escape so it is
+safe to print. A property is named after the `argv` destination, so what a
+caller sends and what `run()` reads are one vocabulary, and a command's schema
+holds the options of every command above it, since those resolve too.
+
+It describes the **typed** form, which `checkValue()` judges: `int` is an
+`integer` within the safe range, `bool` and `yesno` are `boolean`, `date` is a
+string matching the parser's own pattern, `choices` is an `enum` of the values
+the parser compares against, and `multiple` is an `array`. It is **sound rather
+than complete** — whatever it accepts, the parser takes — and the gaps are
+deliberate: a string where a type has a typed form, a `date` whose day does not
+exist (`2024-02-30` has the right shape), undeclared options
+(`additionalProperties` is `false`), and hidden commands and options unless
+`{ hidden: true }` is passed. `json` takes any value but a string, because a
+string sent to one is read as JSON text. The `--format` and `--json` a `format`
+declaration adds are left out, since they never reach `argv`.
+[`sigil reference --json-schema`](../cli#the-command-reference-and-the-surface-snapshot)
+prints the document.
+
 `byCodeUnit(a, b)` is the order the surface is written in: two strings compared
 by UTF-16 code unit, so `B` comes before `a` and the result is the same on every
 machine. Sort anything you print beside the surface with it, rather than with

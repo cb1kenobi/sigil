@@ -35,8 +35,19 @@ export const OPTION_DATA_TYPES: ReadonlySet<string> = new Set([...DATA_TYPES, 'c
 
 const boolFalseRE = /^(false|f|no|n|off|0)$/i;
 const boolTrueRE = /^(true|t|yes|y|on|1)$/i;
-const dateRE =
-  /^\d{4}-\d{2}-\d{2}(T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|([+-]\d{2}):(\d{2}))?)?$/i;
+/**
+ * The shape of a `date`, as a pattern with no flags.
+ *
+ * Exported as source because a JSON Schema `pattern` is a string and takes no
+ * flags (SIG-717): it was written with `/i` for the sake of `T` and `Z` alone,
+ * so those two are spelled as classes instead and the one pattern serves both
+ * the parser and a schema, which is how the two cannot come to disagree about
+ * what a date looks like. The capture groups are unchanged -- a class is not a
+ * group -- so `fromDateMatch()` reads the same indices.
+ */
+export const DATE_PATTERN =
+  '^\\d{4}-\\d{2}-\\d{2}([Tt](\\d{2}):(\\d{2}):(\\d{2})(?:\\.\\d+)?(?:[Zz]|([+-]\\d{2}):(\\d{2}))?)?$';
+const dateRE = new RegExp(DATE_PATTERN, 'u');
 const dateIntRE = /^\d{13}$/;
 const dateInvalid = /^Invalid Date$/i;
 const hexRE = /^0x[A-Fa-f0-9]+$/;
