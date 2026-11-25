@@ -644,14 +644,39 @@ the entry it belongs to.
   the frame, where it is the only thing `runFrame()` is handed, so on the timer it
   is written with the error it threw for and not handed back to `onError` a second
   time: `onError` hears each error once. (A frame handler's or mount callback's own
-  error is heard during the frame, before the teardown, as it always was, and when
-  `onError` throws for one the rest of that loop is abandoned -- a later mount
-  callback's error is never written. Unchanged from before SIG-674 and not fixed
-  by it.) An `AggregateError` carrying both was the
+  error is heard during the frame, before the teardown, as it always was.) An `AggregateError` carrying both was the
   first answer and was refused -- it changed what `frame()` raises in the `failed`
   case from what `onError` threw to a wrapper nobody threw, and it showed `onError`
   its own throw again. From `frame()` nothing changed: `fail()` still gives the
   throw to `onError` a second time, as before, and raises what that throws.
+
+  **And an `onError` that throws for one error does not end the hearing of the
+  rest of the frame's (SIG-682).** That parenthetical used to say that when
+  `onError` throws for one, "the rest of that loop is abandoned -- a later mount
+  callback's error is never written", as unfixed. `drainMounts()` has already run
+  every callback and spliced them out, so the errors after the first were in nobody's
+  hands once `settle()`'s loop exited on the throw, and a frame handler's throw ended
+  the dispatch so the handlers after it never heard the frame, against the documented
+  rule that a handler that throws is reported and the rest still run. Now `tell()`
+  records what `onError` threw (`told`, a list) and does not throw itself;
+  `dispatchFrame()` and the mount drain each hand over **every** error and then
+  `failTold()` fails the frame with the first throw. The order is `report()`'s rule
+  already: each error goes to `onError` whatever it did with the one before, so
+  `onError` hears each error once, in the order thrown. On the timer
+  `reportOnTimer()` writes one `Error in frame: ...` and `Error in frame error
+  handler: ...` pair per error, in that order. With a caller, `fail()` hands
+  `onError` each throw it made, as it always handed it the first, and what that
+  throws is raised: one throw as itself and several as an `AggregateError`, which
+  is the rule above and not a new one -- so `frame()` raises an aggregate when
+  `onError` throws for two errors and the error itself when it throws for one. A
+  `runFrame()` says whether what it caught is `told`'s (`fromTold`) rather than
+  `fail()` guessing from the value, which is `undefined` for a handler that throws
+  nothing and could equal an effect's failure when `onError` throws something shared.
+  In the `failed` branch, from `frame()`, what `onError` threw for several errors
+  is raised the same way -- an `AggregateError` for several -- without being handed
+  back to `onError`, as the single throw already was. frame handler that runs after an earlier one's `onError` threw runs on a frame
+  that is about to fail, which is the cost of the rule and was chosen over a
+  handler silently not hearing its frame.
 
   `runFrame()`'s `if (failed)` branch is not dead, which was the question SIG-660's
   builder left. SIG-660 made an effect's flush no way into it, and what remains is
