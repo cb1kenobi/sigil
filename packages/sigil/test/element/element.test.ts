@@ -724,10 +724,8 @@ describe('a mark callback that mutates the tree', () => {
 
     expect(raised).toBeInstanceOf(AggregateError);
     expect((raised as AggregateError).message).toBe('More than one tree callback threw');
-    expect((raised as AggregateError).errors.map((e: Error) => e.message).sort()).toEqual([
-      'from',
-      'to',
-    ]);
+    // the gaining tree's callback first, then the losing tree's, as they are called
+    expect((raised as AggregateError).errors.map((e: Error) => e.message)).toEqual(['to', 'from']);
   });
 
   it('should call a tree back once when a callback takes the parent out of it', () => {
