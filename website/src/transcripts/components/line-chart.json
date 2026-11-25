@@ -31,7 +31,7 @@
         "type": "boolean"
       },
       {
-        "description": "How a number is written. Defaults to at most two decimals.",
+        "description": "How a number is written. Defaults to at most two decimals. A style in what it returns is dropped, and the value is drawn as plain text: a chart is coloured by its role, not by a string.",
         "default": "at most two decimals",
         "name": "format",
         "optional": true,

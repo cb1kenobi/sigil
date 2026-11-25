@@ -113,7 +113,11 @@ export interface BarChartOptions extends ChartOptions, ScaleOptions {
    * than `width`, when it is narrowed until they are not.
    */
   barWidth?: number;
-  /** How a number is written. Defaults to at most two decimals. */
+  /**
+   * How a number is written. Defaults to at most two decimals. A style in what it
+   * returns is dropped, and the value is drawn as plain text: a chart is coloured
+   * by its role, not by a string.
+   */
   format?: (value: number) => string;
   /** The columns between one vertical bar and the next. Defaults to 1. */
   gap?: number;
@@ -190,7 +194,11 @@ export interface LineChartOptions extends ChartOptions, ScaleOptions {
    * to false.
    */
   fill?: boolean;
-  /** How a number is written. Defaults to at most two decimals. */
+  /**
+   * How a number is written. Defaults to at most two decimals. A style in what it
+   * returns is dropped, and the value is drawn as plain text: a chart is coloured
+   * by its role, not by a string.
+   */
   format?: (value: number) => string;
   /** How tall the plot is, in rows. Defaults to 8. */
   height?: number;
@@ -2038,7 +2046,11 @@ interface LineChartBase extends ChartElementProps, ScaleOptions {
    * series' own `fill` overrides it. Defaults to false.
    */
   fill?: boolean;
-  /** How a number is written. Defaults to at most two decimals. */
+  /**
+   * How a number is written. Defaults to at most two decimals. A style in what it
+   * returns is dropped, and the value is drawn as plain text: a chart is coloured
+   * by its role, not by a string.
+   */
   format?: (value: number) => string;
   /** The plot rows asked for where the layout does not decide. Defaults to 8. */
   height?: number;
@@ -2116,7 +2128,11 @@ export interface BarChartProps extends ChartElementProps, ScaleOptions {
   data: ChartSource<BarData>;
   /** `horizontal` bars grow rightwards, `vertical` upwards. Defaults to `horizontal`. */
   direction?: 'horizontal' | 'vertical';
-  /** How a number is written. Defaults to at most two decimals. */
+  /**
+   * How a number is written. Defaults to at most two decimals. A style in what it
+   * returns is dropped, and the value is drawn as plain text: a chart is coloured
+   * by its role, not by a string.
+   */
   format?: (value: number) => string;
   /** The columns between one vertical bar and the next. Defaults to 1. */
   gap?: number;

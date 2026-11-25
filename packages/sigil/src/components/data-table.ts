@@ -79,8 +79,10 @@ export interface DataTableColumn<T = TableRow> extends SelectRowColumn {
   /**
    * What the cell draws, from the value it holds: a string, or a `TableCellView`
    * such as `badgeView()` returns. Defaults to the value itself -- a view drawn as
-   * one, anything else as text. The sort reads the value and never this, so a
-   * column can draw `1.2 GB` and order by the bytes.
+   * one, anything else as text. A string's escape sequences are removed whole, so
+   * a style in it is dropped and it is drawn, and sized for, as plain text; a cell
+   * that should be coloured returns a `TableCellView`. The sort reads the value
+   * and never this, so a column can draw `1.2 GB` and order by the bytes.
    */
   format?: (value: unknown, row: T) => string | TableCellView;
   /**

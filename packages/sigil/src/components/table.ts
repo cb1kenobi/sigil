@@ -9,6 +9,7 @@ import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { byCodeUnit } from '../util/by-code-unit.js';
 import { maxOf, stringWidth } from '../width/index.js';
 import { colorLevelOf } from './color-level.js';
+import { formatLine } from './note.js';
 
 export type Align = 'left' | 'right' | 'center';
 
@@ -37,11 +38,12 @@ export interface TableOptions extends StyledOptions {
 /**
  * A cell that is already a tree, such as what `badgeView()` returns.
  *
- * A string cell is text: its escape sequences are dropped, because a `text`
- * draws no control character, so a styled string put in one prints its `ESC`
- * removed and the rest as literal characters. A view is the one cell form that
- * keeps its own styling, and its `width` is what the column is measured with --
- * the table cannot ask a tree how wide it is without laying it out, which is the
+ * A string cell is text: its escape sequences are removed whole by `formatLine()`
+ * before the cell is measured and drawn (SIG-705), so a styled string put in one
+ * draws as its plain words and the column is sized for them -- not for
+ * `[31mx[39m`, which is what a `text` draws of one whose `ESC` byte alone was
+ * dropped. A view is the one cell form that keeps its own styling, and its
+ * `width` is what the column is measured with -- the table cannot ask a tree how wide it is without laying it out, which is the
  * work the declared widths exist to avoid.
  *
  * `selectRow()` takes one in a cell as well, since its cells are these. It is
@@ -137,8 +139,9 @@ export function tableCells(
 
 /**
  * One cell, from what it holds: a view is drawn as itself and measured by its
- * `width`, and anything else as one line of text -- `undefined` and `null` as
- * nothing at all.
+ * `width`, and anything else as one line of plain text -- `undefined` and `null` as
+ * nothing at all, and an escape sequence in a string removed, since a cell that
+ * should be coloured is a `TableCellView`.
  *
  * What `tableCells()` does to every value it reads, given a name so that the data
  * table, which reads its values one row at a time, builds a cell the same way.
@@ -150,7 +153,7 @@ export function tableCell(value: unknown): TableCell {
   if (isTableCellView(value)) {
     return { text: '', view: value, width: Math.max(0, Math.floor(value.width)) };
   }
-  const shown = value === undefined || value === null ? '' : toDisplayLine(String(value));
+  const shown = value === undefined || value === null ? '' : formatLine(String, value);
   return { text: shown, width: stringWidth(shown) };
 }
 

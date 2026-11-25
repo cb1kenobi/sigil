@@ -490,6 +490,28 @@ describe('table()', () => {
     expect(table([['a\nb', 'x']])).to.equal('a b  x');
   });
 
+  // `tableCell()` dropped the ESC byte and kept `[31m`, so a coloured cell drew its
+  // parameters as text and the column was sized for them (SIG-705)
+  it('should draw a styled cell as its plain text and size the column for it', () => {
+    const red = (word: string): string => `\u001B[31m${word}\u001B[39m`;
+
+    expect(
+      table([
+        [red('x'), 'one'],
+        ['bb', 'two'],
+      ])
+    ).to.equal('x   one\nbb  two');
+    expect(table([[`\u001B]8;;https://example.com\u0007link\u001B]8;;\u0007`]])).to.equal('link');
+  });
+
+  it('should draw a value that is not a string as it always did', () => {
+    const when = new Date(Date.UTC(2024, 0, 2, 3, 4, 5));
+
+    expect(
+      table([[1.5, true, null, undefined, 10n, when, 'a b', Symbol('s'), [1, 2], {}]])
+    ).to.equal(`1.5  true      10  ${String(when)}  a b  Symbol(s)  1,2  [object Object]`);
+  });
+
   it('should align columns to their widest cell', () => {
     const out = table([
       ['a', 'one'],

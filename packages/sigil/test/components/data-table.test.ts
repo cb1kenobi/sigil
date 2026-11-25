@@ -411,6 +411,22 @@ describe('DataTable()', () => {
     expect(picture(host)).toEqual(['❯ test  [FAIL]', '  lint  [PASS]']);
   });
 
+  // `format()` went through `tableCell()`, which dropped the ESC byte and kept the
+  // parameters: the cell drew `[31m...` and the column was as wide as that (SIG-705)
+  it('should draw what a format() styled as plain text, and size the column for it', () => {
+    const red = (word: string): string => `\u001B[31m${word}\u001B[39m`;
+    const columns = (format: (pid: unknown) => string): DataTableColumn<Proc>[] => [
+      { format, header: 'PID', key: 'pid' },
+      { header: 'NAME', key: 'name' },
+    ];
+    const styled = picture(procs({ columns: columns((pid) => red(String(pid))) }), 30);
+
+    // the column is as wide as the digits and the same table with no style in it
+    expect(styled).toEqual(picture(procs({ columns: columns(String) }), 30));
+    expect(styled.join('\n')).not.toContain('[31m');
+    expect(styled[1]).toBe('❯ 1      launchd');
+  });
+
   it('should never format a column whose width is declared in order to measure it', () => {
     let formatted = 0;
     const host = procs({
