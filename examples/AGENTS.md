@@ -1461,8 +1461,14 @@ below with the measurements.
   `ESCAPE_TIMEOUT + 30` of real time for the router's own timer, which orders two
   timers 30 ms apart and loses on a loaded runner. `pressEscape()` fakes the timer
   functions for the length of the key and advances exactly `ESCAPE_TIMEOUT`, and
-  keeps fake timers a test already holds. The other examples' tests spell it the
-  old way and are left to SIG-695, which is the repository-wide sweep.
+  keeps fake timers a test already holds. What it cannot keep is a timer the app
+  arms during that window and which is due after it, because putting the real
+  clock back discards the fake ones: the renderer's frame timer is one, and is
+  safe only because `press()` ends in `frame()`. The preview test paints through
+  that timer too, advancing a tenth of a second rather than calling `frame()`,
+  so that drawing the preview not asking for a frame fails it. The other
+  examples' tests spell the Escape the old way and are left to SIG-695, which is
+  the repository-wide sweep.
 
 - **Not done:** undo, which the area does not have; a new file, a rename and a
   delete from the tree; a search; reading a file changed on disk again; and

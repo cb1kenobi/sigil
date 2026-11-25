@@ -87,7 +87,15 @@ const CTRL_END = `${ESC}[1;5F`;
  * timer is the test's for the length of the key -- faked before the press, so
  * that the router arms a fake one, and advanced by exactly the timeout. Only the
  * timer functions are faked, since a frame is waited for with `setImmediate`, and
- * a test already holding fake timers keeps them.
+ * a test already holding fake timers keeps them, and has its clock advanced by
+ * the timeout.
+ *
+ * What it cannot keep is a timer the app arms **during** that window which is due
+ * after it: putting the real ones back discards every pending fake one, so such a
+ * timer would silently never fire. The renderer's frame timer is one, and is
+ * safe only because `press()` ends in `frame()`, which resets it. A key that
+ * armed a longer timer of its own, a toast or a debounce, wants a test that holds
+ * the clock for the whole of it instead.
  *
  * @param term - The terminal to press it on.
  */
@@ -757,7 +765,11 @@ describe('the editor', () => {
         await frame(it.app);
         expect(previewText(it)).not.toContain('LXong');
         await vi.advanceTimersByTimeAsync(1);
-        await frame(it.app);
+        // and the renderer's own frame timer, which is a `setTimeout` too, paints
+        // it: drawing the preview has to ask for a frame, and `frame()` would
+        // paint one whether it did or not. A frame is at most a thirtieth of a
+        // second off, so a tenth is a bound and not a wait
+        await vi.advanceTimersByTimeAsync(100);
         expect(previewText(it)).toContain('LXong');
       } finally {
         vi.useRealTimers();
