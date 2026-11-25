@@ -436,18 +436,11 @@ describe('filesystem routing', () => {
         );
       });
 
-      it('should refuse name-string syntax in an alias', async () => {
-        await refuses(
-          { 'commands.json': '{ "build": { "alias": "!b" } }' },
-          /Invalid alias "!b" for "build" in .*commands\.json/
-        );
-      });
-
       it('should refuse a control or format character in an alias, as it does in a route name (SIG-673)', async () => {
         // an alias is a spelling argv can match, and a `commands.json` dropped into an
         // installed app's commands directory is no more the app's own than a file
         // dropped there. The characters are the ones a route name refuses
-        for (const code of [0x07, 0x0a, 0x1b, 0x7f, 0x9b, 0xad, 0x200b, 0x202e, 0xfeff]) {
+        for (const code of [0x07, 0x1b, 0x7f, 0x9b, 0xad, 0x200b, 0x202e]) {
           const alias = `a${String.fromCodePoint(code)}b`;
           const dir = app({ 'commands.json': JSON.stringify({ build: { alias: [alias] } }) });
 
@@ -464,50 +457,120 @@ describe('filesystem routing', () => {
         }
       });
 
-      it('should refuse the same control and format characters in an alias as in a route name', () => {
-        // one definition: every code point of the two classes, plus the characters
-        // either one lets through, answers the same for a name and for an alias
+      it('should refuse in an alias what a route name is refused, for the same reason (SIG-679)', () => {
+        // one definition: every code point of the classes a name is refused for, the
+        // syntax a name string reads, and the characters either one lets through,
+        // answers the same for a name and for an alias -- and says the same thing
         const dir = app({});
-        const refusedAsName = (name: string) => {
+        const reasonAsName = (name: string) => {
           try {
             assertRouteName(name, 'the test');
-            return false;
+            return undefined;
           } catch (err) {
-            return /contains a control or format character/.test((err as Error).message);
+            return /the command name ".*?" (.*)\. A route is named exactly/s.exec(
+              (err as Error).message
+            )?.[1];
           }
         };
-        const refusedAsAlias = (alias: string) => {
+        const reasonAsAlias = (alias: string) => {
           writeFileSync(
             path.join(dir, 'commands.json'),
             JSON.stringify({ build: { alias: [alias] } })
           );
           try {
             readRoutes(dir);
-            return false;
+            return undefined;
           } catch (err) {
-            return /: it contains a control or format character/.test((err as Error).message);
+            return /: it (.*)$/s.exec((err as Error).message)?.[1];
           }
         };
 
-        for (const code of [
+        const codes = [
           ...Array.from({ length: 0xa0 }, (_, i) => i),
           0xad,
           0x600,
+          0x1680,
+          0x2000,
+          0x200a,
           0x200b,
           0x200c,
           0x200d,
           0x200e,
+          0x2028,
+          0x2029,
           0x202a,
+          0x202f,
+          0x205f,
           0x2060,
           0x2066,
+          0x3000,
           0x3164,
           0xfeff,
           0xe0001,
-        ].filter((code) => code !== 0x20 && !/\s/u.test(String.fromCodePoint(code)))) {
-          const spelling = `a${String.fromCodePoint(code)}b`;
+        ];
+        let refused = 0;
 
-          expect(refusedAsAlias(spelling), escapeControls(spelling)).toBe(refusedAsName(spelling));
+        for (const code of codes) {
+          const c = String.fromCodePoint(code);
+
+          // in the middle, and first, where `!`, `@`, `<` and `[` are what they are
+          for (const spelling of [`a${c}b`, `${c}b`]) {
+            const asName = reasonAsName(spelling);
+            expect(reasonAsAlias(spelling), escapeControls(spelling)).toBe(asName);
+            refused += asName === undefined ? 0 : 1;
+          }
         }
+
+        for (const spelling of ['', 'a,b', 'a/b', '<x>', '[x]', '!x', '@x', 'a b', 'ok', 'a-b']) {
+          const asName = reasonAsName(spelling);
+
+          expect(reasonAsAlias(spelling), escapeControls(spelling)).toBe(asName);
+          refused += asName === undefined ? 0 : 1;
+        }
+
+        // a loop that refused nothing would agree with itself trivially
+        expect(refused).toBeGreaterThan(100);
+      });
+
+      it.each([
+        ['whitespace', 'a b', /: it contains whitespace/],
+        ['a tab', 'a\tb', /: it contains whitespace/],
+        ['a no-break space', 'a\u00a0b', /: it contains whitespace/],
+        ['a line separator', 'a\u2028b', /: it contains whitespace/],
+        ['a comma', 'a,b', /: it contains a ","/],
+        ['a slash', 'a/b', /: it contains a "\/"/],
+        ['a leading <', '<x>', /: it starts with "<"/],
+        ['a leading [', '[x]', /: it starts with "\["/],
+        ['a leading !', '!x', /: it starts with "!"/],
+        ['a leading @', '@x', /: it starts with "@"/],
+        ['an empty alias', '', /: it is empty/],
+      ])(
+        'should refuse an alias holding %s, naming the alias, the route and the file (SIG-679)',
+        async (_what, alias, message) => {
+          const dir = app({ 'commands.json': JSON.stringify({ build: { alias } }) });
+          const error = await parse({ argv: [], schema: { commands: dir } }).then(
+            () => undefined,
+            (e: unknown) => e as Error
+          );
+
+          expect(error?.message).toContain(
+            `Invalid alias "${escapeControls(alias)}" for "build" in ${escapeControls(path.join(dir, 'commands.json'))}`
+          );
+          expect(error?.message).toMatch(message);
+          // one refusal: the leading `!` or `@` is not said a second time
+          expect(error?.message).not.toContain('plain name');
+          expect(error?.message).not.toMatch(/[\p{Cc}\p{Cf}]/u);
+        }
+      );
+
+      it('should refuse the whole file for one bad alias among good ones (SIG-679)', async () => {
+        // not skipped: a skipped alias silently stops routing on the machine the file
+        // was dropped onto
+        const dir = app({ 'commands.json': '{ "build": { "alias": ["b", "a b"] } }' });
+
+        await expect(parse({ argv: ['b'], schema: { commands: dir } })).rejects.toThrow(
+          /Invalid alias "a b" for "build" in .*commands\.json: it contains whitespace/
+        );
       });
 
       it('should let an alias hold the two joiners and a blank character, as a route name may', async () => {
