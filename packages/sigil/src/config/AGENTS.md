@@ -1880,6 +1880,49 @@ failed to close.
   splices over a string rather than `magic-string`, and the value grammar is still
   `JSON.parse`'s and `JSON.stringify`'s rather than a second one here.
 
+- **A rename Windows refuses is retried on Windows, for about a second, and that
+  was added without being reproduced (SIG-415).** A `rename()` over a file
+  another process holds open without `FILE_SHARE_DELETE` -- an antivirus
+  scanner, an indexer, some editors -- fails there with `EPERM`, `EBUSY` or
+  `EACCES`, and the hold is usually over in milliseconds. `graceful-fs`, which
+  npm writes through, retries the same three for the same reason. So
+  `renameInto()` and `renameIntoSync()` in `atomic.ts` retry them on `win32`
+  with a fixed backoff of 10, 20, 40, 80, 160, 320 and 370 ms -- seven retries,
+  summing to the 1,000 ms bound -- and every other errno and every other
+  platform fail on the first refusal, as before.
+
+  **It was not reproduced on Windows.** The ticket's own scope said to reproduce
+  first, and Chris decided to add it on the strength of the known behaviour and
+  the precedent instead; nobody has held a destination open on a Windows machine
+  and watched this fix it. What the suite pins is the staged shape, in
+  `test/config/atomic-busy.test.ts`: a mocked `rename` that answers with the code
+  a scripted number of times, with `setTimeout` and `Atomics.wait` stubbed to
+  record the delay they were asked for, so no assertion reads a clock. If a real
+  Windows run ever shows a different set of codes or a hold that outlasts the
+  second, the table and the schedule are the two constants to move.
+
+  Four things are decided, because each looks like something else:
+
+  - **The last attempt's own error is what is thrown**, code and all, so the temp
+    file is cleaned up by the same `catch` as before and `inertError()` sees what
+    Node said. A bound spent is not a new error.
+  - **The sync walk blocks**, with `Atomics.wait()` on a private
+    `SharedArrayBuffer` -- no spin and no dependency, and the idiom
+    `renderer/app.ts` already uses in its own synchronous exit path. `saveSync()`
+    is what an exit handler calls, and it has nowhere to yield to.
+  - **`EACCES` is retried although it can be permanent.** A read-only destination
+    answers it too, and the code cannot say which, so that save costs the whole
+    second before it fails with the same error it always did. The alternative is
+    not retrying the code a held file also gives on some Windows configurations.
+  - **The platform is read per call**, as `which()` and `paths.ts` read it, so
+    the Windows half is testable on the machine it is written on.
+
+  The completion installer's `.bashrc` and `.zshrc` writes and every store
+  go through `writeAtomic()`, so they have it without a line of their own; this is the only `rename()` into place in `@ttylabs/sigil`. A
+  retried save leaves its temp file in the directory for up to the second, which
+  the watcher below does not mind: it never reads an event, compares the file's
+  bytes, and the target does not change until the rename lands.
+
 ### A config watcher that survives our own atomic write
 
 SIG-148 refused watching, and what stood was the _reason_ it refused, because it
