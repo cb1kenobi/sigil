@@ -1890,9 +1890,16 @@ decided once, for all of them. The runs and the sabotage passes are in
   not skip the next: `done()` still hands the screen back when the input was not.
   Not guarded, and left deliberately: a write that fails _before_ the answer --
   the newline a line form writes when Enter is pressed -- is a prompt that was not
-  answered, so it rejects. What `router.stop()` skips when `disableBracketedPaste()`
-  throws -- the mouse and the hover states after it -- is the router's to order and
-  is not touched here. One dead pipe can reach `onError` more than once -- the
+  answered, so it rejects. What `router.stop()` skipped when `disableBracketedPaste()`
+  threw -- the mouse and the hover states after it -- is the router's to order and
+  was not touched here: it runs every step now and raises what failed afterwards
+  (SIG-699), which this prompt's `release()` guards like any other throw. **A
+  mounted component's `stop()` is the same rule (SIG-699):** it erases through
+  `renderer.backend.stop()` and then disposes the renderer, in that order because
+  the erase needs the anchor, and a write that threw in the first skipped the
+  second, leaving every effect and cleanup of the tree live. Each is attempted and
+  what failed is raised once through `raise()`; pinned in
+  `test/components/mount-stop.test.ts`. One dead pipe can reach `onError` more than once -- the
   input's `stop()`, then the screen's, then the write that ends a line -- because
   each step is reported on its own rather than de-duplicated; the prompt still
   settles once. The line form's first question was the same hole from the other

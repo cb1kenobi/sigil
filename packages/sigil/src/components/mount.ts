@@ -38,6 +38,7 @@
 import { type CanvasBackend, createSinkCanvas } from '../canvas/index.js';
 import type { Element } from '../element/index.js';
 import { render, type Renderer } from '../renderer/index.js';
+import { raise } from '../signals/raise.js';
 import { type OutputLevel, resolveOutput } from '../style/index.js';
 import type { Cascade } from '../style/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
@@ -265,8 +266,23 @@ export function mountLive(
       // region is what hands the rows back, and afterwards there is no anchor
       // for an erase to be relative to. The renderer's own teardown records the
       // same ordering from the other side
-      renderer.backend.stop();
-      renderer.dispose();
+      //
+      // and the renderer lets go whether or not the erase worked (SIG-699): a
+      // terminal that has gone fails the write, and a throw that skipped
+      // `dispose()` left every effect and cleanup of the tree live. What failed is
+      // raised once both have run, so the caller still hears of it
+      const thrown: unknown[] = [];
+      try {
+        renderer.backend.stop();
+      } catch (error) {
+        thrown.push(error);
+      }
+      try {
+        renderer.dispose();
+      } catch (error) {
+        thrown.push(error);
+      }
+      raise(thrown, 'Errors while stopping a mounted component');
     },
 
     write(text: string): void {

@@ -3389,11 +3389,26 @@ export function createInput(opts: InputOptions = {}): InputRouter {
         };
         stdin.on?.('error', guard);
       }
-      offResize();
+      // every step runs whatever the one before it threw, and what they threw is
+      // raised once the last has run (SIG-699): a terminal write that fails -- a
+      // closed stream is the ordinary case -- must not leave mouse tracking on, the
+      // hover highlights drawn and a stream error unreported, and `stop()` is called
+      // from somebody's teardown, which would be cut short with it. The order is
+      // the one it always had, so a step that failed is skipped by nothing and
+      // reordered by nothing
+      const thrown: unknown[] = [];
+      const attempt = (step: () => void): void => {
+        try {
+          step();
+        } catch (error) {
+          thrown.push(error);
+        }
+      };
+      attempt(offResize);
       clearTimeout(timer);
       timer = undefined;
       held = '';
-      endPaste();
+      attempt(endPaste);
 
       // and the pending sequence goes the way the hover states do, and for its
       // reason: nothing will ever clear it otherwise -- the keys have stopped --
@@ -3403,19 +3418,19 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       // is cleared here the way the key timeout is, so it cannot fire into a
       // router with no listeners left. The bindings themselves are deliberately
       // kept, which is what `stop()` already does with a function binding
-      clearSequence();
+      attempt(clearSequence);
 
       // left as it was found: paused, undestroyed, and readable by whatever
       // reads it next
-      stdin.pause?.();
+      attempt(() => stdin.pause?.());
       if (hadRaw) {
-        terminal.setRawMode(false);
+        attempt(() => terminal.setRawMode(false));
       }
       if (hadPaste) {
-        terminal.disableBracketedPaste();
+        attempt(() => terminal.disableBracketedPaste());
       }
       if (hadMouse) {
-        terminal.disableMouse();
+        attempt(() => terminal.disableMouse());
       }
 
       // and the hover states go, without dispatching the leave a moving pointer
@@ -3426,19 +3441,30 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       // the stream, while hover is the pointer's and the pointer has gone.
       // Silently, because dispatching into a component while the router is being
       // torn down is a worse rule than a state nobody is told about
-      for (const it of hovering) {
-        it.setState('hover', false);
-      }
+      const leaving = hovering;
       hovering = [];
       pressed.clear();
+      for (const it of leaving) {
+        attempt(() => it.setState('hover', false));
+      }
 
       // last, with everything put back -- raw mode included, so a handler that
       // writes the error writes it to a cooked terminal. The stream failed while
       // this was listening and only the event was due later, so the failure is
-      // this router's to report, as it would have been a tick sooner
+      // this router's to report, as it would have been a tick sooner. `stop()` has
+      // a caller, so what the handlers threw is raised to it with the rest of what
+      // went wrong, rather than being handed over the way the listener's is
+      const fromTeardown = thrown.length;
       if (failedWith !== undefined) {
-        raise(endAll(failedWith), 'Errors in onEnd() handlers');
+        thrown.push(...endAll(failedWith));
       }
+      // one aggregate of the lot, flat, so that a caller which opens one up
+      // (`runApp()`'s `finish()`) reports each error once as itself. Named for the
+      // handlers alone when only they threw, which is what it has always said
+      raise(
+        thrown,
+        fromTeardown === 0 ? 'Errors in onEnd() handlers' : 'Errors while stopping the input router'
+      );
     },
   };
 

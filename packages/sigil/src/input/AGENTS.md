@@ -721,6 +721,28 @@ the entry it belongs to.
   is a failure of the app like any other handler's (its `onError` ends it with 1),
   where it used to escape. Pinned in `test/input/input.test.ts`.
 
+  **`stop()` runs every step and raises what failed once the last has run
+  (SIG-699).** It ran them in a row with no protection, so a terminal write that
+  threw -- the bracketed-paste reset on a closed stream, which is the ordinary case
+  -- skipped everything after it: mouse tracking left on, hover highlights left
+  drawn, and the stream failure `stop()` was about to tell `onEnd()` about lost.
+  `stop()` is called from somebody's teardown, which a throw also cut short. The
+  order is unchanged and is the one the steps are written in -- the paste's end,
+  the sequence, raw mode off, the paste reset, the mouse reset, the hover states,
+  and `onEnd()` last, so that a handler writing the error writes it to a cooked
+  terminal -- and each is attempted whatever the one before it threw. What they
+  threw goes through `raise()` once, with what the `onEnd()` handlers threw in the
+  **same flat list**: a write that failed and a handler that threw both reach the
+  caller, once each, as one `AggregateError` where there are several, which
+  `runApp()`'s `finish()` opens up and reports one at a time as it already did for
+  the handlers alone. The aggregate's message is `Errors in onEnd() handlers` when
+  only handlers threw, which is what it always said, and `Errors while stopping the
+  input router` once a step did. Not guarded, and left alone: the listeners coming
+  off and the guard going on, which write nothing. Pinned in
+  `test/input/stop-fails.test.ts`. The mounted component's `stop()` is the same
+  rule in `src/components/mount.ts` and is recorded under "A prompt whose terminal
+  write fails" in `src/components`.
+
 ### Key sequences
 
 A binding was one key, so `g g`, `Ctrl-X Ctrl-S` and a leader key were all
