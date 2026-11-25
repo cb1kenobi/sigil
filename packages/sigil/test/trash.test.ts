@@ -1,12 +1,9 @@
-import { cache } from '../src/paths.js';
 import { deletionDate, encodePath, trashFreedesktop, trashName } from '../src/trash/freedesktop.js';
 import { trash } from '../src/trash/index.js';
 import { keyOf, recycle } from '../src/trash/windows.js';
 import { tempDir } from './temp.js';
-import { execFile } from 'node:child_process';
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { readdirSync } from 'node:fs';
 import {
   chmodSync,
   existsSync,
@@ -41,88 +38,91 @@ const WINDOWS = process.platform === 'win32';
 // the freedesktop trash writes Unix ids and modes, and Windows has neither
 const FREEDESKTOP = !WINDOWS;
 
-/* SIG-704 MEASUREMENT -- temporary */
-function cpuTimes() {
+/**
+ * Runs one call of `trash()` on a real platform trash, and says where the time
+ * went when it is slow (SIG-704).
+ *
+ * A call on Windows that is not slow prints nothing. One that passes `SLOW_CALL`
+ * prints, every five seconds until it settles, how busy the whole machine was
+ * over that span and how much memory it had free, and once what was running --
+ * so that a call that stalls says whether the runner was starved or something
+ * else was holding it, which a bare `Test timed out in 60000ms` cannot. Each
+ * Windows call is one PowerShell start and may be a compile, and the figures in
+ * `src/trash/AGENTS.md` are what is normal.
+ */
+const SLOW_CALL = 10_000;
+
+function busyTimes(): { busy: number; total: number } {
   let busy = 0;
   let total = 0;
   for (const { times } of cpus()) {
-    busy += times.user + times.sys + times.irq + times.nice;
-    total += times.user + times.sys + times.irq + times.nice + times.idle;
+    const idle = times.idle;
+    const used = times.user + times.nice + times.sys + times.irq;
+    busy += used;
+    total += used + idle;
   }
   return { busy, total };
 }
-function stamp(): string {
-  return new Date().toISOString().slice(11, 23);
-}
-function cacheFiles(): string {
-  try {
-    return readdirSync(join(cache() ?? '', 'sigil')).join(',') || '(empty)';
-  } catch {
-    return '(no dir)';
-  }
-}
-function snapshot(): Promise<string> {
-  return new Promise((resolveSnap) => {
+
+/** The names of the processes that could hold up a compile or a move, with how many of each. */
+function whatIsRunning(): Promise<string> {
+  return new Promise((done) => {
     execFile(
       'tasklist',
       ['/fo', 'csv', '/nh'],
       { encoding: 'utf8', windowsHide: true },
-      (_e, out) => {
-        const counts: Record<string, number> = {};
+      (_err, out) => {
+        const counts = new Map<string, number>();
         for (const line of (out ?? '').split('\n')) {
           const name = line.split('","')[0]?.replace('"', '').toLowerCase();
           if (
             name &&
-            /powershell|csc|vbcscompiler|msmpeng|node|conhost|cmd|mpcmdrun|defender|tiworker|msiexec|dotnet/.test(
-              name
-            )
+            /powershell|csc|vbcscompiler|msmpeng|mpcmdrun|node|dotnet|msiexec|tiworker/.test(name)
           ) {
-            counts[name] = (counts[name] ?? 0) + 1;
+            counts.set(name, (counts.get(name) ?? 0) + 1);
           }
         }
-        resolveSnap(JSON.stringify(counts));
+        done(JSON.stringify(Object.fromEntries(counts)));
       }
     );
   });
 }
-async function timed<T>(label: string, fn: () => Promise<T>): Promise<T> {
-  const t0 = performance.now();
-  let last = cpuTimes();
-  let snapped = false;
-  console.log(`[SIG-704 ${stamp()}] ${label} start; cache files: ${cacheFiles()}`);
+
+async function watched<T>(label: string, call: () => Promise<T>): Promise<T> {
+  if (!WINDOWS) {
+    return call();
+  }
+  const started = performance.now();
+  let before = busyTimes();
+  let listed = false;
   const beat = setInterval(() => {
-    const now = cpuTimes();
-    const pct = Math.round((100 * (now.busy - last.busy)) / Math.max(1, now.total - last.total));
-    last = now;
-    const secs = Math.round((performance.now() - t0) / 1000);
-    console.log(
-      `[SIG-704 ${stamp()}] ${label} +${secs}s machine cpu ${pct}% free ${Math.round(freemem() / 1e6)} MB`
+    const elapsed = performance.now() - started;
+    if (elapsed < SLOW_CALL) {
+      return;
+    }
+    const now = busyTimes();
+    const busy = Math.round(
+      (100 * (now.busy - before.busy)) / Math.max(1, now.total - before.total)
     );
-    if (secs >= 12 && !snapped) {
-      snapped = true;
-      void snapshot().then((s) => console.log(`[SIG-704 ${stamp()}] ${label} processes ${s}`));
+    before = now;
+    console.log(
+      `${label}: ${Math.round(elapsed / 1000)} s so far, machine ${busy}% busy, ${Math.round(freemem() / 1e6)} MB free`
+    );
+    if (!listed) {
+      listed = true;
+      void whatIsRunning().then((running) => console.log(`${label}: running ${running}`));
     }
   }, 5000);
   try {
-    return await fn();
+    return await call();
   } finally {
     clearInterval(beat);
-    console.log(
-      `[SIG-704 ${stamp()}] ${label} took ${Math.round(performance.now() - t0)} ms; cache files: ${cacheFiles()}`
-    );
+    const took = performance.now() - started;
+    if (took >= SLOW_CALL) {
+      console.log(`${label}: took ${Math.round(took)} ms`);
+    }
   }
 }
-function psStart(): Promise<void> {
-  return new Promise((resolveStart) => {
-    execFile(
-      `${process.env.SystemRoot ?? 'C:\\Windows'}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`,
-      ['-NoProfile', '-NonInteractive', '-STA', '-Command', 'exit 0'],
-      { windowsHide: true },
-      () => resolveStart()
-    );
-  });
-}
-/* end SIG-704 MEASUREMENT */
 
 /** A directory of its own, links resolved, since macOS's temp directory is behind `/var`. */
 function made(prefix: string): string {
@@ -511,10 +511,6 @@ describe('trash()', () => {
       'should move a file, and a name with spaces, quotes and more than ASCII',
       async () => {
         const root = made('sigil-trash-real-');
-        if (WINDOWS) {
-          await timed('powershell start A (nothing run)', psStart);
-          await timed('powershell start B (nothing run)', psStart);
-        }
         const names = ['plain.txt', `it's a "test" ü 日本.txt`];
         for (const name of names) {
           // a name with `"` is not a name Windows allows
@@ -522,9 +518,7 @@ describe('trash()', () => {
           writeFileSync(file, name);
           let where = '';
           try {
-            where = await timed(`trash(${name.length > 9 ? 'unicode' : 'plain'}) in test 1`, () =>
-              trash(file)
-            );
+            where = await watched(`trash(${basename(file)})`, () => trash(file));
             expect(where).not.toBe('');
             expect(existsSync(file)).toBe(false);
             expect(readFileSync(where, 'utf8')).toBe(name);
@@ -547,7 +541,7 @@ describe('trash()', () => {
         writeFileSync(join(dir, 'deep', 'x'), 'x');
         let where = '';
         try {
-          where = await timed('trash(dir) in test 2', () => trash(dir));
+          where = await watched('trash(dir)', () => trash(dir));
           expect(existsSync(dir)).toBe(false);
           expect(readFileSync(join(where, 'deep', 'x'), 'utf8')).toBe('x');
         } finally {

@@ -383,6 +383,46 @@ the cache is 60–150 ms faster than one that compiles, and 25–65 ms slower th
 PowerShell doing nothing. What is left is PowerShell's own start, which a cache
 cannot touch.
 
+**A first call on a cold runner costs far more than that table, and one run in
+about three hundred stalled for over a minute (SIG-704).** The table is a warm
+runner under the suite's load. `windows-latest` on a fresh job is not: the first
+PowerShell start of the file took 1.5 s, 2.2 s and 3.3 s against 0.15 to 0.28 s
+for the second, and the call that compiled took 1.4 s, 2.0 s and 9.2 s, with a
+call that loaded the cache after it at 0.3 to 1.4 s -- three Windows jobs on node
+22, 24 and 26, timed around each `trash()` call in the real-trash tests, as of
+this change. Over thirty-three Windows jobs in recent runs of `test.yml`, the
+first real-trash test (a compile and a cache hit) took 3.3 to 8.5 s in thirty
+of them and 12 s, 13 s and 17.8 s in the others, and the second (a hit) took
+0.35 to 0.7 s in every one. That one is the whole of the tail: the compile, and
+the cold start before it.
+
+One run was past it. `should move a file, and a name with spaces, quotes and
+more than ASCII` timed out at its 60 s limit on node 26, and `should move a
+directory and everything in it`, which is a cache hit at about half a second in
+every other run, took 40 s straight after. The rest of that job's tests, the
+cached-helper ones that compile into a cache of their own, ran at their usual
+1.5 to 4 s, and the job's whole duration (399 s) was inside the range of the
+thirty-three others (231 to 462 s). It passed on a rerun. **The cause was not
+found:** the run was gone before anything measured it. What the numbers weigh against is a retry that waited, since a retry is a second
+PowerShell start and the stall was twenty times that. In the three measured runs
+the cache was written by the first call, so a cache that never saved is not what
+the normal case looks like either. What they do not support is contention from the rest of the suite
+as the usual cause: a compile that took 9.2 s was measured at 36% busy across
+the machine, so what is slow is a cold start and the compiler's first run, not a
+starved CPU.
+
+So nothing in `src/` changed and the limit did not either: raising 60 s would
+have been a bet on a stall of unknown length, and a library-side timeout on
+PowerShell would change what `trash()` reports for every app, for a failure seen
+once. What changed is the test: `watched()` in `test/trash.test.ts` wraps each
+real-trash call on Windows and prints nothing for one that is not slow. For one
+past ten seconds it prints every five seconds how busy the machine was and how
+much memory it had free, and once the names of the processes running, so the next
+time a call stalls the log says whether the runner was starved or something
+held it -- which a bare `Test timed out in 60000ms` cannot. It is unproved by a
+run that was slow, since none was available to this change; if it never fires,
+it costs nothing.
+
 #### Linux and every other Unix: the freedesktop.org spec, written out
 
 `gio trash` would do it, and a server or a container does not have `gio`.
