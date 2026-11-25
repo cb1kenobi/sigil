@@ -775,12 +775,24 @@ function createRun(opts: TasksOptions): Run {
           });
         }, base);
 
-  const offResize = mounted ? terminal.onResize(() => changed()) : undefined;
+  // the terminal's resize dispatch has no caller to raise to, so this asks for the
+  // frame rather than painting it: a throwing `onError` is then the frame timer's,
+  // which writes it by the default report (SIG-683)
+  const offResize = mounted
+    ? terminal.onResize(() => {
+        bump();
+        mounted.renderer.invalidate();
+      })
+    : undefined;
 
-  function changed(): void {
+  function bump(): void {
     // untracked, so a task changed from inside an effect does not subscribe that
     // effect to the counter this write bumps
     version.set(untrack(() => version.get()) + 1);
+  }
+
+  function changed(): void {
+    bump();
     mounted?.frame();
   }
 

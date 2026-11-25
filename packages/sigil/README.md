@@ -7336,6 +7336,13 @@ there for a component you write yourself too:
   be asked to wait, 2^31 - 1 milliseconds: past it the platform fires at once.
   The toast refuses a timeout past it and the clock waits in pieces no longer
   than it.
+- `handOver(handler, error, what)`, from `@ttylabs/sigil/renderer`, gives an error
+  to a handler and never lets the handler's own throw out: one that throws is
+  skipped, and what it was given and what it threw are written to stderr, each
+  led by `what` (`Error in prompt: ...` and `Error in prompt error handler: ...`),
+  with the exit code set. It is for a callback of yours that runs with nothing on
+  the stack to catch it, such as the tail of a promise chain, and it is what the
+  prompt uses for an `onError` that throws after the answer was given.
 - `timed(on, run)`, from `@ttylabs/sigil/renderer`, wraps what a timer runs so
   that a throw goes where a test terminal is listening for one, and is uncaught
   where nothing is, as it is in an app. `on` is the stream the hook would be on --
