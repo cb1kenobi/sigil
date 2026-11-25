@@ -15,9 +15,9 @@ import {
   text,
 } from '../../src/element/index.js';
 import { selectableAt } from '../../src/element/selection.js';
-import { createInput, ESCAPE_TIMEOUT, type MouseEvent } from '../../src/input/index.js';
+import { createInput, type MouseEvent } from '../../src/input/index.js';
 import { flush, State } from '../../src/signals/index.js';
-import { alt, createTestTerminal, ctrl, KEYS } from '../../src/testing/index.js';
+import { alt, createTestTerminal, ctrl, KEYS, settleKeys } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 import { DERIVED } from './form-harness.js';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -713,7 +713,7 @@ describe('TextArea()', () => {
     it('should hand Escape, Tab, Shift-Tab and an unbound chord on to what holds it', async () => {
       const s = scene({ value: 'ab' });
       await s.term.press(KEYS.tab, KEYS.shiftTab, ctrl('g'), ctrl('x'), ctrl('y'), KEYS.escape);
-      await new Promise((resolve) => setTimeout(resolve, ESCAPE_TIMEOUT + 30));
+      await settleKeys(s.term);
       expect(s.seen).toEqual(['tab', 'shift+tab', 'ctrl+g', 'ctrl+x', 'ctrl+y', 'escape']);
     });
 

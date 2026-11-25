@@ -32,7 +32,7 @@ import { box, renderToString, text } from '@ttylabs/sigil/element';
 import { createInput, isAbort } from '@ttylabs/sigil/input';
 import { render } from '@ttylabs/sigil/renderer';
 import { State } from '@ttylabs/sigil/signals';
-import { createTestTerminal, KEYS } from '@ttylabs/sigil/testing';
+import { createTestTerminal, KEYS, pressEscape } from '@ttylabs/sigil/testing';
 import { themedCascade } from '@ttylabs/sigil/theme';
 
 const live = process.stdin.isTTY && process.stdout.isTTY;
@@ -203,9 +203,8 @@ if (live) {
   await show('Enter in the field: it was given onSubmit, so that is Rename');
 
   await term.press('r', 'x');
-  await term.press(KEYS.escape);
-  // a lone Escape is held until nothing follows it
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  // a lone Escape is held until nothing follows it, so this waits for it to be decided
+  await pressEscape(term);
   await show('r, x, Escape: the field did not keep Escape, so the dialog was dismissed');
 
   input.stop();

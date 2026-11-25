@@ -28,6 +28,7 @@ a CLI misses something:
 | `Screen` and `screenStream()`       | A frame is a diff, so its bytes do not say what is on the screen            |
 | `createTestTerminal()`              | A prompt refuses to run without a terminal and a keyboard                   |
 | `KEYS`, `ctrl()`, `alt()`, `tick()` | The bytes a key sends are not guessable, and drawing is not synchronous     |
+| `pressEscape()`, `settleKeys()`     | A lone Escape is not a key until a timer says nothing followed it           |
 | `frame()`                           | A full-screen app draws on a clock, not once per key                        |
 
 They ship inside `@ttylabs/sigil` rather than as a separate package. Your app
@@ -535,8 +536,22 @@ waits for the prompt to act on each one, so the next assertion sees the result.
   submits.
 - A lone `KEYS.escape` is not acted on straight away. A terminal sends Alt-x as
   Escape followed by `x`, so a prompt waits a moment to see whether anything
-  follows the Escape. `press()` does not wait that long, so press another key
-  after it, or advance the clock.
+  follows the Escape. `press()` does not wait that long. `pressEscape(ui)`
+  presses it and waits until nothing is still waiting, which is the call to
+  make before asserting on what the Escape did:
+
+  ```ts
+  await pressEscape(ui);
+  expect(ui.lines.join('\n')).not.toContain('Are you sure?');
+  ```
+
+  `settleKeys(ui)` is the wait on its own, for an Escape that was one of several
+  keys in a `press()`. Both ask the input router whether it still holds a key, so
+  they return as soon as it has decided and not before, however slow the machine
+  is. The alternative, sleeping a fixed span past the 50 ms timeout, reads the
+  screen early on a busy runner and fails there and nowhere else. They wait on
+  real timers: if the test fakes them, advance the clock past `ESCAPE_TIMEOUT`
+  instead, or press another key after the Escape.
 
 **When a handler throws.** A key handler that throws does not stop the session.
 `press()` rejects with the handler's own error, so `rejects.toThrow()` on the

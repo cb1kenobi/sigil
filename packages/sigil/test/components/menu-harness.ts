@@ -1,8 +1,8 @@
 import { strip } from '../../src/ansi/index.js';
 import { type Element, renderToLines } from '../../src/element/index.js';
-import { ESCAPE_TIMEOUT, type MouseSurface } from '../../src/input/index.js';
+import { type MouseSurface } from '../../src/input/index.js';
 import { flush } from '../../src/signals/index.js';
-import { KEYS } from '../../src/testing/index.js';
+import { pressEscape, type TestTerminal } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 
 /**
@@ -57,10 +57,9 @@ export async function settle(): Promise<void> {
   flush();
 }
 
-/** A lone Escape is held for the key deadline, so it needs the clock to pass. */
-export async function escape(term: { press(...chunks: string[]): Promise<void> }): Promise<void> {
-  await term.press(KEYS.escape);
-  await new Promise((resolve) => setTimeout(resolve, ESCAPE_TIMEOUT + 30));
+/** A lone Escape is held for the key deadline, so this waits for the router to have decided it. */
+export async function escape(term: Pick<TestTerminal, 'press' | 'stdin'>): Promise<void> {
+  await pressEscape(term);
   await settle();
 }
 

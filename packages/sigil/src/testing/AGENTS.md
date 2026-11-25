@@ -474,6 +474,59 @@ that knowledge was undiscoverable from outside this repository.
     frame timer; the unguarded drain fails the last two, and rethrowing from the
     default handler fails the rest through vitest's unhandled-error report.
 
+- **A lone Escape is waited for by asking the router, not by sleeping past its
+  timer (SIG-695).** The router holds an Escape for `ESCAPE_TIMEOUT` on a real
+  `setTimeout`, and a test that slept `ESCAPE_TIMEOUT + 30` was asking a loaded
+  runner to fire two timers in order within 30 ms: it did not on a Windows node 22
+  job, and the screen was read before the Escape had been applied. The ticket named
+  nine sleeps spelled `ESCAPE_TIMEOUT + 30`, and the sweep found the same wait
+  spelled `80` and `100` in four more tests, three example fixtures and four
+  demos, which a grep for the constant could not: all of them go through the
+  helper now. A larger margin only moves where the machine has to be busy for it to
+  fail. `pressEscape(term)` presses it
+  and `settleKeys(term)` waits for the router to have no key it is still holding,
+  and neither has a margin: they return when the router has decided and not
+  before, however late that was.
+
+  **The question is asked of the router itself, through a set on the stream.**
+  `createTestTerminal()` puts a `Set` on its stdin under
+  `Symbol.for('@ttylabs/sigil/input/held-keys')`, the way it puts `onTimerError()`'s
+  hook there and for the reason that one is a registry symbol: the testing entry
+  imports nothing of the router's. `createInput()` adds a probe to it where there is
+  one, `() => held !== ''`, and takes it out in `stop()`; a router over a real
+  stream finds nothing and does nothing, so no app carries a property or a branch
+  for this beyond one read. Asked of `held` and not of the timer, because a held
+  key waits on no timer while a query owns the wait, and "no key held" is the
+  condition that is true then too. A terminal with no router, or one that has
+  stopped, answers at once.
+
+  **It waits on real timers, and says so rather than hanging.** It polls every
+  millisecond with the `setTimeout` it was loaded with, ahead of any
+  `useFakeTimers()`, and counts turns rather than reading `Date`, because a test
+  holding fake timers has a fake `Date` too and a deadline read off it never
+  arrives. Under fake timers the hold never ends by itself, so after three seconds
+  (`settleKeys(term, ms)` takes another) it throws naming that, rather than the
+  test's own timeout saying nothing. A test that fakes the clock advances it, as
+  `group.test.ts` and `palette.test.ts` do; those were never the sleeping kind and
+  are untouched. It ends on `tick()`, since the router decides synchronously but a
+  prompt acts on a key through a promise chain.
+
+  **What it replaced in the editor was a limit, and the limit is gone.**
+  SIG-690's `pressEscape()` faked `setTimeout` for the length of the key, which
+  discarded any timer the app armed inside the window and was due after it. The
+  shared one fakes nothing, so a key that arms a toast or a debounce keeps it.
+
+  Pinned in `test/testing/settle-keys.test.ts`, which makes the defect
+  deterministic: every `ESCAPE_TIMEOUT` timer is armed six times late, a sleep of
+  `ESCAPE_TIMEOUT + 30` returns with nothing seen, and `settleKeys()` returns with
+  the Escape applied. The sabotage that was run, before the last sites were
+  converted: `settleKeys()` returning at once, which failed 37 tests in the package
+  (button, menu, menubar, dropdown, modal, both text controls, chart-live, the
+  throwing-handler test and three of its own) and 32 across five examples, every
+  converted site among them. A fake `stdin` of a test's own gets the same answer by
+  carrying the set (`test/components/helpers.ts` does), and a stand-in with none
+  returns at once, which is a wait that does nothing.
+
 > Moved: _What the sabotage pass found over the helpers_, _What the first review round found, and what it got wrong_, _What the second half of the first round found: the screen model_, _What the second review round found, and it was almost all the tests_, _Reading the prose against the code, which is where the rest of it was_, _Two of the tests were weaker than their names, found by reading them_, _What re-reading the code found that neither the pass nor a reviewer did_ — see [docs/history/testing-helpers-and-the-faked-tty-our-own-suite-proves-you-n.md](../../../../docs/history/testing-helpers-and-the-faked-tty-our-own-suite-proves-you-n.md).
 
 #### The screen model's wide-cluster defect is fixed, not documented

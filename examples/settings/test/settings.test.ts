@@ -4,9 +4,8 @@ import { createForm } from '../src/form.ts';
 import { LOGIN_HINT, LOGIN_REFUSED } from '../src/login.tsx';
 import { App, stylesheet } from '../src/root.tsx';
 import { runApp } from '@ttylabs/sigil/app';
-import { ESCAPE_TIMEOUT } from '@ttylabs/sigil/input';
 import { provideContext } from '@ttylabs/sigil/renderer';
-import { createTestTerminal, ctrl, frame, KEYS } from '@ttylabs/sigil/testing';
+import { createTestTerminal, ctrl, frame, KEYS, pressEscape } from '@ttylabs/sigil/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -198,8 +197,7 @@ function mount({ columns = 80, rows = 24 } = {}) {
     await press(`\x1b[<0;${column};${row}M`, `\x1b[<0;${column};${row}m`);
   };
   const escape = async () => {
-    await term.press(KEYS.escape);
-    await new Promise((resolve) => setTimeout(resolve, ESCAPE_TIMEOUT + 30));
+    await pressEscape(term);
     await settleFrames();
   };
   const answer = async (ok: boolean) => {

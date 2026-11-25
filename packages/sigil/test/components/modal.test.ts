@@ -13,7 +13,7 @@ import {
   resolveStyles,
   text,
 } from '../../src/element/index.js';
-import { createInput, ESCAPE_TIMEOUT, type MouseEvent } from '../../src/input/index.js';
+import { createInput, type MouseEvent } from '../../src/input/index.js';
 import {
   createEffect,
   createRoot,
@@ -23,7 +23,14 @@ import {
 } from '../../src/renderer/index.js';
 import { Computed, flush, sinkCount, State } from '../../src/signals/index.js';
 import { Restyler, setQuiet } from '../../src/style/index.js';
-import { alt, createTestTerminal, ctrl, KEYS } from '../../src/testing/index.js';
+import {
+  alt,
+  createTestTerminal,
+  ctrl,
+  KEYS,
+  pressEscape,
+  type TestTerminal,
+} from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 import { runsOf, sourcesOf } from '../runs-of.js';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -46,10 +53,9 @@ async function settle(): Promise<void> {
   flush();
 }
 
-/** A lone Escape is held for the key deadline, so it needs the clock to pass. */
-async function escape(term: { press(...chunks: string[]): Promise<void> }): Promise<void> {
-  await term.press(KEYS.escape);
-  await new Promise((resolve) => setTimeout(resolve, ESCAPE_TIMEOUT + 30));
+/** A lone Escape is held for the key deadline, so this waits for the router to have decided it. */
+async function escape(term: Pick<TestTerminal, 'press' | 'stdin'>): Promise<void> {
+  await pressEscape(term);
   await settle();
 }
 

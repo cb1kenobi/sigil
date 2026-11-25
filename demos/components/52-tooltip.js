@@ -29,7 +29,7 @@ import { box, renderToString, text } from '@ttylabs/sigil/element';
 import { createInput, isAbort } from '@ttylabs/sigil/input';
 import { render } from '@ttylabs/sigil/renderer';
 import { setQuiet } from '@ttylabs/sigil/style';
-import { createTestTerminal, KEYS } from '@ttylabs/sigil/testing';
+import { createTestTerminal, KEYS, pressEscape } from '@ttylabs/sigil/testing';
 import { themedCascade } from '@ttylabs/sigil/theme';
 
 const live = process.stdin.isTTY && process.stdout.isTTY;
@@ -181,9 +181,8 @@ if (live) {
   await sleep(DELAY * 2);
   show('no pointer, Tab to Save: the focus shows it, and keeps the focus');
 
-  await term.press(KEYS.escape);
-  // a lone Escape is held until nothing follows it
-  await sleep(100);
+  // a lone Escape is held until nothing follows it, so this waits for it to be decided
+  await pressEscape(term);
   show(`Escape: hidden, and the app's own binding still heard ${heard}`);
 
   await term.press(KEYS.tab);

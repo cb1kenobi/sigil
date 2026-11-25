@@ -21,7 +21,7 @@ import { confirmModal, openModal } from '@ttylabs/sigil/components';
 import { box, renderToString, text } from '@ttylabs/sigil/element';
 import { createInput, isAbort } from '@ttylabs/sigil/input';
 import { render } from '@ttylabs/sigil/renderer';
-import { createTestTerminal, KEYS } from '@ttylabs/sigil/testing';
+import { createTestTerminal, KEYS, pressEscape } from '@ttylabs/sigil/testing';
 import { themedCascade } from '@ttylabs/sigil/theme';
 
 const live = process.stdin.isTTY && process.stdout.isTTY;
@@ -135,9 +135,8 @@ if (live) {
   await show('Enter on Yes: it answers, and the focus returns to the row');
 
   await term.press('d');
-  await term.press(KEYS.escape);
-  // a lone Escape is held until nothing follows it
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  // a lone Escape is held until nothing follows it, so this waits for it to be decided
+  await pressEscape(term);
   await show('d, Escape: dismissed, which is a No, and the focus is back on the row');
 
   await term.press('d');
@@ -147,12 +146,10 @@ if (live) {
   await term.press(KEYS.tab, KEYS.tab);
   await show('Tab Tab: it cycles in the top dialog alone');
 
-  await term.press(KEYS.escape);
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  await pressEscape(term);
   await show('Escape: only the top dialog closes, and the confirm below has the keys again');
 
-  await term.press(KEYS.escape);
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  await pressEscape(term);
   await show('Escape: the confirm closes, and the row has the focus back');
 
   input.stop();

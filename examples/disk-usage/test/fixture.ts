@@ -15,7 +15,7 @@ import { createDisk, type Disk, DiskContext } from '../src/disk.ts';
 import { App, stylesheet } from '../src/root.tsx';
 import { type App as RunningApp, runApp } from '@ttylabs/sigil/app';
 import { provideContext } from '@ttylabs/sigil/renderer';
-import { createTestTerminal, frame, KEYS, type TestTerminal } from '@ttylabs/sigil/testing';
+import { createTestTerminal, frame, pressEscape, type TestTerminal } from '@ttylabs/sigil/testing';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { rename } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -196,8 +196,7 @@ export async function mount(
     app,
     calls,
     escape: async () => {
-      await term.press(KEYS.escape);
-      await new Promise((resolve) => setTimeout(resolve, 80));
+      await pressEscape(term);
       await settle();
     },
     press,

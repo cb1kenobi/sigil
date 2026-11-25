@@ -3,8 +3,7 @@ import { compact } from '../src/metrics.ts';
 import { App, stylesheet } from '../src/root.tsx';
 import { type App as RunningApp, runApp } from '@ttylabs/sigil/app';
 import type { Element } from '@ttylabs/sigil/element';
-import { ESCAPE_TIMEOUT } from '@ttylabs/sigil/input';
-import { createTestTerminal, ctrl, frame, KEYS } from '@ttylabs/sigil/testing';
+import { createTestTerminal, ctrl, frame, KEYS, pressEscape } from '@ttylabs/sigil/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -78,8 +77,7 @@ function mount({
       .map((each) => /[❯ ] [◯◉] ([★ ]*[a-z]+-[a-z]+)/.exec(each)?.[1]?.replace('★ ', ''))
       .filter((name): name is string => name !== undefined);
   const escape = async () => {
-    await term.press(KEYS.escape);
-    await new Promise((resolve) => setTimeout(resolve, ESCAPE_TIMEOUT + 30));
+    await pressEscape(term);
     await settle();
   };
   /** Tabs from the sidebar to the table: the search, the menu, the range, the chart, the table. */

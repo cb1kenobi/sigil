@@ -4,7 +4,14 @@ import { App as UiApp } from '../src/root.ui.ts';
 import { type App, runApp } from '@ttylabs/sigil/app';
 import type { Element } from '@ttylabs/sigil/element';
 import { provideContext } from '@ttylabs/sigil/renderer';
-import { createTestTerminal, ctrl, frame, KEYS, type TestTerminal } from '@ttylabs/sigil/testing';
+import {
+  createTestTerminal,
+  ctrl,
+  frame,
+  KEYS,
+  pressEscape,
+  type TestTerminal,
+} from '@ttylabs/sigil/testing';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -182,8 +189,7 @@ async function mount(
 
 /** Escape, which the router holds back a moment in case it starts a sequence. */
 async function escape(client: Mounted): Promise<void> {
-  await client.term.press(KEYS.escape);
-  await new Promise((resolve) => setTimeout(resolve, 80));
+  await pressEscape(client.term);
   await client.settle();
 }
 

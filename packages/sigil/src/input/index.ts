@@ -69,6 +69,7 @@ import {
   type Terminal,
   terminal as defaultTerminal,
 } from '../terminal/index.js';
+import { HELD_KEYS, type HeldKeysProbe } from '../util/held-keys.js';
 import { timed as timedOn } from '../util/timed.js';
 import { MAX_TIMER_DELAY } from '../util/timer.js';
 import {
@@ -2998,6 +2999,15 @@ export function createInput(opts: InputOptions = {}): InputRouter {
   // reading keys, and what it would get back is a cooked stream that echoes
   const hadRaw = terminal.setRawMode(true);
 
+  // a test terminal keeps a set of these on its stream, and a router over a real
+  // one finds nothing and does nothing (SIG-695). Asked of `held` and not of the
+  // timer, because a held key with a query outstanding waits on no timer at all
+  const watchers = (stdin as unknown as Record<symbol, unknown>)[HELD_KEYS];
+  const probe: HeldKeysProbe = () => held !== '';
+  if (watchers instanceof Set) {
+    watchers.add(probe);
+  }
+
   const hadPaste = opts.paste === false ? false : terminal.enableBracketedPaste();
 
   // and the tracking mode, which goes back on the way out for the same reason and
@@ -3298,6 +3308,9 @@ export function createInput(opts: InputOptions = {}): InputRouter {
         return;
       }
       stopped = true;
+      if (watchers instanceof Set) {
+        watchers.delete(probe);
+      }
 
       // every probe gets what it has, which for almost all of them is nothing.
       // A query left outstanding is a promise nobody will ever settle, and the

@@ -45,6 +45,8 @@ export {
   createTestTerminal,
   ctrl,
   KEYS,
+  pressEscape,
+  settleKeys,
   type TestInput,
   type TestKeyName,
   type TestTerminal,

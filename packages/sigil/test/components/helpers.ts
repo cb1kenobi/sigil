@@ -8,6 +8,7 @@ import {
 } from '../../src/terminal/index.js';
 import { createLiveRegion, type LiveRegion } from '../../src/terminal/live.js';
 import { Screen, screenStream } from '../../src/testing/screen.js';
+import { HELD_KEYS } from '../../src/util/held-keys.js';
 import { reading } from './reads.js';
 import { PassThrough } from 'node:stream';
 import { vi } from 'vitest';
@@ -125,6 +126,9 @@ export function createInput(opts: { isTTY?: boolean } = {}): FakeInput {
 
   input.isTTY = opts.isTTY ?? true;
   input.rawMode = false;
+  // where a router over this stream says it holds a key, which `settleKeys()` asks:
+  // `createTestTerminal()` does the same for the stream it builds
+  (input as unknown as Record<symbol, unknown>)[HELD_KEYS] = new Set();
 
   input.setRawMode = (mode: boolean): FakeInput => {
     input.rawMode = mode;
