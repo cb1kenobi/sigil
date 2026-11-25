@@ -308,7 +308,7 @@ export async function loadCommand(
     // every path still left in `merged` is the module's own, so the module is
     // what they are relative to -- which is also the base a hook of the
     // module's reads off the command it is handed
-    const loaded = await initCommand(merged, entryFile);
+    const loaded = await initCommand(merged, entryFile, undefined, internal.aliases);
 
     // ...and the same goes for the help label, **whether or not the module
     // renamed the command**. The label is what a listing publishes, and a

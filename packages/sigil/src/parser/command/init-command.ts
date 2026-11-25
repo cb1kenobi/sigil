@@ -67,12 +67,17 @@ type CommandsLike = Command | InternalCommand | Schema;
  * relative to, when that is not the directory `entryFile` sits in -- a command
  * declared inline inside a lazily loaded module came from that module's file
  * without being that file.
+ * @param carried - Aliases the `alias` property holds that are not the property's
+ * own, which are not asked again: the ones a placeholder's name string gave, which
+ * `loadCommand()` carries across because the module never saw the string. A name
+ * string is not the `alias` property and is not held to its rule (SIG-688).
  * @returns A new internal command.
  */
 export async function initCommand(
   it: CommandsLike,
   entryFile?: string,
-  baseDir?: string
+  baseDir?: string,
+  carried?: ReadonlySet<string>
 ): Promise<InternalCommand> {
   if (typeof it === 'object' && Internal in it && it[Internal].state === InternalState.OK) {
     return it as InternalCommand;
@@ -160,7 +165,9 @@ export async function initCommand(
         // registered `!ls`: a name a shell's history expansion eats before argv sees
         // it, printed in help. Whitespace or a `,` would have been one spelling nobody
         // can type as one word, and an empty one a spelling nobody can type at all
-        const message = invalidAlias(alias, `in the "${escapeControls(decl.name)}" command`);
+        const message = carried?.has(alias)
+          ? undefined
+          : invalidAlias(alias, `in the "${escapeControls(decl.name)}" command`);
         if (message !== undefined) {
           throw new Error(message);
         }

@@ -1119,9 +1119,9 @@ export default {
 
       expect(diagnostics.filter((d) => d.severity === 'error').map((d) => d.message)).toStrictEqual(
         [
-          'Invalid alias "a b" in the "spaced" command: it contains whitespace, which a command name string reads as a separator between aliases. An alias is one name typed on the command line, so list each spelling as an entry of its own.',
+          'Invalid alias "a b" in the "spaced" command: it contains whitespace, which a command name string reads as a separator between aliases. An alias is one name typed on the command line, so write it without whitespace or a ",", and list each spelling as an entry of its own.',
           'Invalid alias "!ls" in the "hidden" command: it starts with "!", which a command name string reads as hiding the command. An alias is a plain name, so write it without the "!" -- to hide the command, set "hidden" to true.',
-          'Invalid alias "a,b" in the "comma" command: it contains a ",", which a command name string reads as a separator between aliases. An alias is one name typed on the command line, so list each spelling as an entry of its own.',
+          'Invalid alias "a,b" in the "comma" command: it contains a ",", which a command name string reads as a separator between aliases. An alias is one name typed on the command line, so write it without whitespace or a ",", and list each spelling as an entry of its own.',
           'Invalid alias "" in the "empty" command: it is empty. An alias is a name typed on the command line, so remove it.',
         ]
       );

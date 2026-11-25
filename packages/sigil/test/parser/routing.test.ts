@@ -567,7 +567,7 @@ describe('filesystem routing', () => {
       it.each([
         ['a b', 'list each spelling as an entry of its own'],
         ['a/b', 'has no "/" in it'],
-        ['[x]', 'declared in "args"'],
+        ['[x]', 'without the brackets'],
         ['!x', 'set "hidden" to true'],
         ['@x', 'write it without the "@"'],
         ['', 'so remove it'],

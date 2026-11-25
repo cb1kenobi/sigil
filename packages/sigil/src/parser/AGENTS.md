@@ -2120,7 +2120,17 @@ read it by the new name.
   start. What this replaced: the old `!`/`@` message ("is name-string syntax and the
   alias property takes plain names, so hide the command with ...") and its
   computed `write "ls"`. A name string's own aliases (`'build, b'`) are not an
-  alias property and are untouched, as is an alias that is a sibling's name.
+  alias property and are untouched -- including when a lazy command's placeholder
+  carries them across to the module, which passes them to `initCommand()` as
+  `carried` so they are not asked again (a review found a `'build, b/c'`
+  placeholder throwing at dispatch for an alias its author never put in the
+  property) -- as is an alias that is a sibling's name. Limits, said once: a
+  module's own `alias` is read only when the module loads, so an invalid one
+  throws at dispatch and the build, which never reads a module's, cannot say so;
+  a spread or computed `alias` on a placeholder is warned about rather than
+  refused, as every routing key is (SIG-430); and a schema root's own `alias`
+  property, which nothing ever read, is now held to the rule too and names a
+  command called `global`.
   Pinned by `regressions.test.ts` ("alias property"), `routing.test.ts`,
   `init-errors-echo.test.ts`, and `discover.test.ts` and `check.test.ts` in
   `packages/cli`.

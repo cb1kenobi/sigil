@@ -773,7 +773,7 @@ describe('sigil check', () => {
       expect(err).toContain(
         'src/index.ts:8:24: error: Invalid alias "a b" in the "spaced" command: it contains whitespace'
       );
-      expect(err).toContain('so list each spelling as an entry of its own');
+      expect(err).toContain('and list each spelling as an entry of its own');
       expect(process.exitCode).toBe(1);
     });
 

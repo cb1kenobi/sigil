@@ -96,7 +96,11 @@ of something that already is one, and `!` hides the whole command in a name
 string, so it is not quietly stripped — hide the command with `hidden: true` or a
 `!` in its name, and list each spelling as an entry of its own rather than
 writing two in one string. The same rule holds an alias in a `commands.json`, in
-a placeholder, and in a module a placeholder loads.
+a placeholder, and in a module a placeholder loads -- though a module's own
+`alias` is only read once the module is imported, so that one throws when the
+command is matched, and `sigil build` and `sigil check` read the placeholder's
+literal list and not a module's, a spread or a computed one. An alias written in
+a command's name string (`'build, b'`) is not the property and is not held to it.
 
 An alias that is a sibling's **name** throws while the schema is built, because
 it would leave that sibling with no spelling at all — `mycli ship` would run the

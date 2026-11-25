@@ -906,8 +906,8 @@ describe('regressions', () => {
       ['a tab', 'a\tb', 'it contains whitespace', 'list each spelling as an entry of its own'],
       ['a comma', 'a,b', 'it contains a ","', 'list each spelling as an entry of its own'],
       ['a slash', 'a/b', 'it contains a "/"', 'has no "/" in it'],
-      ['a leading <', '<x>', 'it starts with "<"', 'declared in "args"'],
-      ['a leading [', '[x]', 'it starts with "["', 'declared in "args"'],
+      ['a leading <', '<x>', 'it starts with "<"', 'without the brackets'],
+      ['a leading [', '[x]', 'it starts with "["', 'without the brackets'],
       ['an empty string', '', 'it is empty', 'so remove it'],
     ])(
       'should refuse an alias property holding %s, with what to do instead (SIG-688)',
@@ -950,6 +950,18 @@ describe('regressions', () => {
           },
         })
       ).rejects.toThrow(/Invalid alias "a b" in the "list" command: it contains whitespace/);
+    });
+
+    it("should not hold a name string's own aliases to the property's rule when the command loads (SIG-688)", async () => {
+      // the placeholder's aliases come across to the loaded command as an explicit
+      // list, which is not the `alias` property and was never validated as one
+      const schema = {
+        commands: { 'build, b/c': { path: path.join(__dirname, 'fixtures/aliases/build.js') } },
+      };
+
+      const { contexts } = await parse({ argv: ['build'], schema });
+      expect(contexts[0].name).to.equal('build');
+      expect(contexts[0][Internal].aliases.has('b/c')).to.equal(true);
     });
 
     it('should still accept an alias property with a "!" or "@" inside it, or a joiner', async () => {

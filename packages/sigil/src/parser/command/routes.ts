@@ -840,11 +840,11 @@ function advice(name: string): string {
 /** What to do about an alias refused for each rule, which says nothing a reader could not type. */
 const ALIAS_ADVICE: Record<NameProblem['kind'], string> = {
   alias: 'An alias is a plain name, so write it without the "@".',
-  argument: 'An alias is a plain name and not an argument, which is declared in "args".',
+  argument: 'An alias is a plain name and not an argument, so write it without the brackets.',
   empty: 'An alias is a name typed on the command line, so remove it.',
   hide: 'An alias is a plain name, so write it without the "!" -- to hide the command, set "hidden" to true.',
   separator:
-    'An alias is one name typed on the command line, so list each spelling as an entry of its own.',
+    'An alias is one name typed on the command line, so write it without whitespace or a ",", and list each spelling as an entry of its own.',
   slash: 'An alias is one name typed on the command line, which has no "/" in it.',
   unsafe: 'An alias is a name typed on the command line, so write it without the character.',
 };
