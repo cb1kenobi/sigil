@@ -423,8 +423,8 @@ real-trash call on Windows and prints nothing for one that is not slow. For one
 past ten seconds it prints every five seconds how busy the machine was and how
 much memory it had free, and once the names of the processes running, so the next
 time a call stalls the log says whether the runner was starved or something
-held it, and the same for the cleanup that follows each move, which the test's
-limit also spans -- which a bare `Test timed out in 60000ms` cannot. It is unproved by a
+held it -- which a bare `Test timed out in 60000ms` cannot. The take-out that
+follows each move is watched the same way, since the test's limit spans it too. It is unproved by a
 run that was slow, since none was available to this change; if it never fires,
 it costs nothing.
 
