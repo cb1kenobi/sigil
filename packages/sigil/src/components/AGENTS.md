@@ -12923,6 +12923,70 @@ there is the bars, which are drawn on every line.
   bytes" -- is what says the inflate stopped. Each was checked by planting the
   defect it names.
 
+- **A ratio over its bound is read again before it fails, because on the wall clock
+  a stall is added to a long read and never to a short one (SIG-681).** `](`
+  repeated, in the test that says it should not walk back over every token for a
+  `]` with no `[`, read **25.07** against 24 on an Ubuntu job (PR #684, node 22) that was
+  otherwise green and passed on a rerun. Nothing was quadratic: the file took
+  11.9 s on that runner where it takes 0.7 s idle, and Linux is where the CPU
+  clock is ticks, so `growthOf()` was on the wall clock -- which is what SIG-649
+  left it as. The measured shape of the failure, on this machine with other
+  builders running on it and the wall clock forced: the small side of that shape
+  is about 0.3 ms a read and the large side 2.4 ms, and one read of the small side
+  already fills the 1 ms span, so a sample is **one read on each side** --
+  `largeReads` is `smallReads / 8` rounded up to one -- and a large sample is eight
+  times as long as a small one and eight times as likely to be cut by the
+  scheduler. That asymmetry is a property of the clamp and not of the wall clock
+  alone: where a small read takes many reads to fill the span, both sides' samples
+  are the same work and a stall finds them alike. Best of
+  seven survives a stall on some of the large samples and not on all seven, and
+  all seven is what a runner with more work than cores gives a read longer than
+  its slice. It reproduces here without a loaded CI runner, because the other
+  builders on the machine are one: 60 trials of the old seven runs over `](` at
+  four times the test's size (the large side about 10 ms), wall clock forced, read
+  7.8 to 11.9 on 43 of them and **12.1 to 28.9 on 17**, with single large reads
+  of 12 ms to 290 ms for a read that costs ten. At the test's own size the same
+  trials stayed under 14. It was neither the bound nor the test's size: the small
+  side's best is its cost and the large side's was not.
+
+  The fix is that **noise only adds**, so more samples can only move the best
+  towards the cost, and a read that really grows has no clean sample to find.
+  `growthOf()` and `growthOfAsync()` take the `limit` the caller will accept, and
+  go on past seven runs for up to `EXTRA_MS` (2 s of wall clock, counted from the
+  first run, so a read that took longer than that for seven runs is not read an
+  eighth time) while the ratio is not under it. Another 60 trials of that loop, at a bound of 14: 4 of them were
+  over it after seven runs, each came under it in 1 to 14 more, and the worst
+  of the 60 read 12.5. (The first 60 were not replayed -- the load on the machine
+  is not the same twice -- so these are a second sample, not the first one fixed.)
+  A quiet machine is under its limit at seven and reads nothing more -- three
+  runs of the seven files that call it printed no extra run -- while a quadratic
+  is 64 whatever it samples, and spends the budget before it fails -- sabotaged, with the `]` branch of `closeBracket()` walking every token
+  back before pushing the character, the check fails at 62.9 against 24, in 103 s for the one test.
+  Without a `limit` the call is the seven runs it was, which is what
+  `growth.test.ts` uses to read a stall as growth, and what the caller that has no
+  bound to give gets.
+
+  Not done, and why. **Loosening 24** would have said a runner may read a linear
+  walk at three times the cost the check allows, which is the margin the quadratic
+  has over it too: 64 against 24 is 2.7 times. **A retry** is this made worse: it
+  reruns the whole measurement, calibration and cold code included, for the same
+  seven samples. **Fewer reads of the large side** was not an option, since the
+  sizes were chosen so that the old quadratic cost hundreds of milliseconds.
+  **Reading `/proc/thread-self/schedstat`**, which on Linux is a thread's time on a
+  CPU in nanoseconds, would be the CPU clock the runner lacks and was not taken: it
+  is billed at the kernel's own scheduling events for a thread that is running, so
+  it may be a tick clock as well, and it could not be tried here on anything but a
+  Mac.
+
+  Every caller outside `growth.test.ts` passes its own bound now, which is what makes
+  a sibling's weakness the same one: `markdown-malformed.test.ts` as `LIMIT`,
+  `markdown.test.ts`, `highlight.test.ts` (3 times the factor), `input.test.ts`,
+  `invalidate.test.ts`, `chart.test.ts` (4) and `choice-window.test.ts` (16). The
+  seven-stalled-runs control is `on a runner that stalls the large side in every one
+  of seven runs` in `growth.test.ts`: the stall is thirty milliseconds on the
+  clock being read, in the first seven runs and not after, so the call without a
+  `limit` reads it as growth and the call with one reads past it.
+
 - **The ticket's other lazy figure, 0.54 s for 128 KB, was the parser, and is
   left.** `parseMarkdown()` of 64,000 lazy lines took 8 ms unquoted and 493 ms
   under 99 quotes, on both builds. Every level of quote asks `interrupts()` of
