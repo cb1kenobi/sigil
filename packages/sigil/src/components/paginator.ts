@@ -38,7 +38,8 @@ export interface PageIndicatorOptions extends StyledOptions {
   /**
    * How the numeric form is written, given the page **counting from one** and
    * how many there are. Defaults to `2/5`, which is not prose and so is not in
-   * the catalog; this is where `Page 2 of 5` in another language goes.
+   * the catalog; this is where `Page 2 of 5` in another language goes. A style in
+   * what it returns is dropped: the indicator is coloured by its role, not by a string.
    */
   format?: (page: number, pages: number) => string;
   /**
