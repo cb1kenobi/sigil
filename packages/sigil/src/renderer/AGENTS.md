@@ -685,6 +685,26 @@ the entry it belongs to.
   covers `finish()`'s own reports and a rejected `detect()`, so a throwing
   `onError` under the runner is reported and the code stays what it was.
 
+  **No component has a timer of its own that calls `frame()` (SIG-683).** SIG-674's
+  follow-up asked whether the components that mount over `mountLive()` had a hole
+  the renderer's timer does not, by calling `mounted.frame()` from an interval.
+  None does, and the four sites it named were each read: `spinner.ts`'s is the
+  `text` setter, `typewriter.ts`'s is `append()`, `multi-progress.ts`'s is a bar's
+  `stop()` and `prompt.ts`'s is the answer's own frame -- calls a caller makes,
+  which is the caller `frame()` raises to. What the spinner, the task list and the
+  typewriter's timers do is write a signal, and the frame that write asks for is
+  the one `requestFrame()` arms, which is `runFrame(true)` already; the decrypt
+  effect does the same through `timed()`. Measured with fake timers over a
+  terminal whose writes fail and an `onError` that throws, for the spinner, the
+  typewriter and the decrypt effect: nothing is raised, `onError` hears the
+  failure, and `Error in frame: ...` and `Error in frame error handler: ...` are
+  written (`test/components/on-error-timer.test.ts`); changing `runFrame(true)`
+  back fails all three. So there is no second entry on `Mounted` for a timer to
+  call, and one added would be a second spelling of a rule `requestFrame()`
+  already states: a component that ever does call `frame()` from a timer of its
+  own should be given a reason to, since a signal write gets the same frame
+  without a caller to lose.
+
 - **A frame that failed stops being a frame.** An effect that throws is
   _reported_ by the scope's error handler rather than thrown through it, so the
   flush returns normally and the rest of the frame ran over a renderer that had

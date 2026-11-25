@@ -84,6 +84,7 @@ import { createHeldRoot, disposeOwner, drainMounts, getOwner, type Owner } from 
 
 export { For, type ForProps, Show, type ShowProps } from './control.js';
 export { timed } from '../util/timed.js';
+export { handOver } from '../signals/effect.js';
 export { MAX_TIMER_DELAY } from '../util/timer.js';
 export { trackedRaw } from './raw.js';
 export {

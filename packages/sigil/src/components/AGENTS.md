@@ -1860,6 +1860,20 @@ decided once, for all of them. The runs and the sabotage passes are in
   timer. The visible consequence is up to one frame's latency on a tick, which at
   eighty milliseconds against thirty frames a second is nothing; the invisible one
   is that a test has to advance both clocks, which is why `frameMs` is an option.
+  That is also why a throwing `onError` cannot escape one of these timers
+  (SIG-683): the frame is the renderer's and falls back to the default report, so
+  no component carries a catch of its own -- see "No component has a timer of its
+  own that calls `frame()`" in `src/renderer/AGENTS.md`. **The one component whose
+  `onError` ran with nothing to catch it was the prompt**, from `report()` once the
+  prompt is answered: it is the tail of a key's promise chain, so what the caller's
+  `onError` threw was handed to `.catch(report)` again -- measured, the answer
+  resolved and an unhandled rejection followed, with `onError` heard three times
+  for one failed frame. `report()` hands it to `handOver()` now, the signals
+  layer's rule that a handler's own throw goes no further, with `Error in prompt`
+  as the lead. The answer is still the answer. Not fixed by it, and measured while
+  looking: a write that fails inside `detach()` -- the router's `stop()` writes
+  the bracketed-paste reset -- throws out of `succeed()` before its `try`, so the
+  prompt never settles, and out of `.catch(report)` again as a rejection.
 - **A table's column widths are worked out and the rest is the box model.** A
   shared column width across rows is the one thing flexbox cannot do for itself:
   each row would size its own cells and no two rows would agree. So the widths are

@@ -22,6 +22,7 @@ import {
   parseKeys,
 } from '../input/index.js';
 import { isAbort } from '../input/index.js';
+import { handOver } from '../renderer/index.js';
 import { State, untrack } from '../signals/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { TOKEN_ROLE } from '../theme/index.js';
@@ -548,11 +549,20 @@ function run<T>(opts: PromptOptions, make: () => Handlers<T>): Promise<T> {
      * way out is not a reason to take it back -- so it goes to `onError` if the
      * caller wanted to hear about one, and nowhere if it did not.
      *
+     * **What the caller's `onError` throws goes no further** (SIG-683). Nothing is
+     * on the stack to catch it: this is the tail of a key's promise chain, whose
+     * `.catch(report)` would otherwise hand it to itself and reject a promise no
+     * one holds, which is an unhandled rejection over an answer that was already
+     * given. So it is written by the default report, the way the renderer writes
+     * what a handler threw for a frame that failed on its own timer.
+     *
      * @param error - What was thrown.
      */
     function report(error: unknown): void {
       if (settled) {
-        opts.onError?.(error);
+        if (opts.onError !== undefined) {
+          handOver(opts.onError, error, 'Error in prompt');
+        }
         return;
       }
       fail(error);
