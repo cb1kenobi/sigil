@@ -40,7 +40,7 @@ import {
   rgb,
   rgbChannels,
 } from '../canvas/index.js';
-import { type Element, type ElementPropsWithout, toDisplayLine } from '../element/index.js';
+import { type Element, type ElementPropsWithout } from '../element/index.js';
 import { __, __n } from '../i18n/index.js';
 import {
   type DescribeOptions,
@@ -1229,7 +1229,7 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
       if (i >= box.height) {
         break;
       }
-      const cut = truncate(toDisplayLine(line), Math.max(0, box.width - 2));
+      const cut = truncate(formatLine(String, line), Math.max(0, box.width - 2));
       const left = box.x + Math.max(1, Math.floor((box.width - stringWidth(cut)) / 2));
       painter.text(left, top + i, cut, { fg: DEFAULT_COLOR });
     }

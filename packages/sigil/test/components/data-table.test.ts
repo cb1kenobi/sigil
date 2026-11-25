@@ -427,6 +427,24 @@ describe('DataTable()', () => {
     expect(styled[1]).toBe('❯ 1      launchd');
   });
 
+  // the heading went through `toDisplayLine()` alone, as the header of `table()` did, so
+  // it drew `[1m...` and the column was as wide as that (SIG-709)
+  it('should draw a styled heading as plain text, sorted or not, and size the column for it', () => {
+    const bold = (word: string): string => `\u001B[1m${word}\u001B[22m`;
+    const columns = (header: (word: string) => string): DataTableColumn<Proc>[] => [
+      { header: header('PID'), key: 'pid' },
+      { header: header('NAME'), key: 'name' },
+    ];
+
+    for (const sort of [undefined, { column: 'pid' }] as const) {
+      const styled = picture(procs({ columns: columns(bold), sort }), 30);
+
+      expect(styled).toEqual(picture(procs({ columns: columns((word) => word), sort }), 30));
+      expect(styled.join('\n')).not.toContain('[1m');
+    }
+    expect(picture(procs({ columns: columns(bold) }), 30)[0]).toMatch(/^ {2}PID {2,}NAME/u);
+  });
+
   it('should never format a column whose width is declared in order to measure it', () => {
     let formatted = 0;
     const host = procs({

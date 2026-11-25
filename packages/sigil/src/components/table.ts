@@ -1,10 +1,4 @@
-import {
-  box,
-  type Element,
-  renderToString,
-  text as textNode,
-  toDisplayLine,
-} from '../element/index.js';
+import { box, type Element, renderToString, text as textNode } from '../element/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { byCodeUnit } from '../util/by-code-unit.js';
 import { maxOf, stringWidth } from '../width/index.js';
@@ -134,7 +128,11 @@ export function tableCells(
     columns.map((column, i) => tableCell(tableValue(row, column, i)))
   );
 
-  return { cells, columns, headers: columns.map((column) => toDisplayLine(column.header ?? '')) };
+  return {
+    cells,
+    columns,
+    headers: columns.map((column) => formatLine(String, column.header ?? '')),
+  };
 }
 
 /**

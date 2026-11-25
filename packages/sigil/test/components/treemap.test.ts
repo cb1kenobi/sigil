@@ -936,6 +936,21 @@ describe('Treemap', () => {
     expect(m.screen()).not.toContain('Scanning');
   });
 
+  // the message went through `toDisplayLine()` alone, so a styled one was drawn as its
+  // parameters, centered by them (SIG-709)
+  it('should draw a styled empty message as plain text, centered for what shows', async () => {
+    const plain = await mount({ ...PAIR_PROPS, empty: 'Nothing here', root: undefined });
+    const styled = await mount({
+      ...PAIR_PROPS,
+      empty: '\u001B[1mNothing\u001B[22m \u001B[3mhere\u001B[23m',
+      root: undefined,
+    });
+
+    expect(styled.screen()).not.toContain('[1m');
+    expect(styled.screen()).toContain('Nothing here');
+    expect(styled.screen()).toBe(plain.screen());
+  });
+
   it('should say there is nothing to show for a root of no size', async () => {
     const m = await mount({ ...PAIR_PROPS, root: branch(ROOT, []) });
     expect(m.screen()).toContain('Nothing to show');
