@@ -89,6 +89,9 @@ export interface BarDatum {
   value: number;
 }
 
+/** Which end of a list of bars a chart keeps when it cannot show them all. */
+export type BarKeep = 'first' | 'last';
+
 /** Bars, as a list or as an object whose keys are the labels. */
 export type BarData = readonly BarDatum[] | Readonly<Record<string, number>>;
 
@@ -106,10 +109,19 @@ export interface BarChartOptions extends ChartOptions, ScaleOptions {
   /**
    * How tall a vertical chart is, in rows, which defaults to 8; and the most rows a
    * horizontal chart is drawn in, which defaults to 1,000. A horizontal chart that
-   * has more bars than this shows the latest of them, as a vertical one does when
-   * it has more bars than columns, and the scale is over the bars shown.
+   * has more bars than this shows some of them, as a vertical one does when it has
+   * more bars than columns -- the latest, unless `keep` says the first -- and the
+   * scale is over the bars shown.
    */
   height?: number;
+  /**
+   * Which end of the list is shown when the chart has more bars than it has room
+   * for: `last` keeps the latest bars and drops the first, as a sparkline keeps its
+   * latest samples; `first` keeps the first bars and drops the rest, which is what
+   * a list sorted largest first wants. The scale is over the bars shown either way.
+   * Defaults to `last`.
+   */
+  keep?: BarKeep;
   /** The widest a label may be before it is cut. Defaults to its own width. */
   labelWidth?: number;
   /** Whether to write each value. Defaults to true. */
@@ -120,8 +132,9 @@ export interface BarChartOptions extends ChartOptions, ScaleOptions {
    * The widest the chart may be. Defaults to `terminalWidth()` for a horizontal
    * chart, and to the terminal's own width for a vertical one. A vertical chart
    * that has more bars than this has columns for shows the latest of them, as a
-   * sparkline shows its latest samples: bars are narrowed to fit first, down to a
-   * column each, and only then dropped from the left.
+   * sparkline shows its latest samples -- or the first, with `keep: 'first'`: bars
+   * are narrowed to fit first, down to a column each, and only then dropped from
+   * the left, or from the right.
    */
   width?: number;
 }
@@ -650,15 +663,35 @@ export function sparkline(values: readonly number[], opts: SparklineOptions = {}
 /**
  * A chart's bars, with the ones it will not draw never built.
  *
- * A vertical chart shows the latest bars that fit, so what it needs from 200,000
- * of them is how many there are and the last few -- not an object per bar, which
- * an object's entries would be.
+ * A chart shows the bars that fit, from one end of the list, so what it needs from
+ * 200,000 of them is how many there are and a few from one end -- not an object per
+ * bar, which an object's entries would be.
  */
 interface Bars {
-  /** The latest `count` bars, oldest first: all of them where there are no more. */
-  last(count: number): readonly BarDatum[];
   /** How many bars there are. */
   readonly length: number;
+  /**
+   * `count` bars from one end, in the order they were written: all of them where
+   * there are no more.
+   */
+  take(count: number, keep: BarKeep): readonly BarDatum[];
+}
+
+/**
+ * Which end of the bars is kept, refused where it is not one.
+ *
+ * @param who - The component, for the message.
+ * @param keep - What was given.
+ * @returns The end, `last` where none was given.
+ */
+function keepOf(who: string, keep: unknown): BarKeep {
+  if (keep === undefined) {
+    return 'last';
+  }
+  if (keep !== 'first' && keep !== 'last') {
+    throw new TypeError(`Expected ${who} keep to be 'first' or 'last'`);
+  }
+  return keep;
 }
 
 /**
@@ -669,18 +702,23 @@ function barsOf(data: BarData): Bars {
   if (Array.isArray(data)) {
     const list = data as readonly BarDatum[];
     return {
-      last: (count) => (count >= list.length ? list : list.slice(list.length - count)),
       length: list.length,
+      take: (count, keep) =>
+        count >= list.length
+          ? list
+          : keep === 'first'
+            ? list.slice(0, count)
+            : list.slice(list.length - count),
     };
   }
   const record = data as Readonly<Record<string, number>>;
   const keys = Object.keys(record);
   return {
-    last: (count) =>
-      keys
-        .slice(Math.max(0, keys.length - count))
-        .map((label) => ({ label, value: record[label] as number })),
     length: keys.length,
+    take: (count, keep) =>
+      (keep === 'first' ? keys.slice(0, count) : keys.slice(Math.max(0, keys.length - count))).map(
+        (label) => ({ label, value: record[label] as number })
+      ),
   };
 }
 
@@ -751,9 +789,10 @@ function written(format: (value: number) => string, value: number): string {
 /**
  * Builds the rows of a horizontal bar chart.
  *
- * Shows the latest bars that fit `height` and draws no more -- the vertical
- * chart's rule across the other axis, for the same reason -- and the scale and
- * the widths are over the bars shown. What is not shown is never built.
+ * Shows the bars that fit `height`, the latest or the first as `keep` says, and
+ * draws no more -- the vertical chart's rule across the other axis, for the same
+ * reason -- and the scale and the widths are over the bars shown. What is not shown
+ * is never built.
  *
  * @param bars - The bars.
  * @param opts - The height, the width and the scale.
@@ -761,7 +800,7 @@ function written(format: (value: number) => string, value: number): string {
  */
 function horizontalBars(bars: Bars, opts: BarChartOptions): Row[] {
   const format = opts.format ?? formatNumber;
-  const data = bars.last(count(opts.height, MOST_ROWS));
+  const data = bars.take(count(opts.height, MOST_ROWS), keepOf('a bar chart', opts.keep));
   const [low, high] = barBounds(data, opts);
   const labels = data.map((d) => labelLine(d.label));
   const cap = count(opts.labelWidth, Infinity);
@@ -882,7 +921,8 @@ function terminalRoom(env?: Record<string, string | undefined>): number {
  * a value that no longer fits its column is cut to it. Where even a column of one
  * apiece does not fit, the chart shows the **latest** bars that do and draws no
  * more -- which is what a sparkline longer than its width does, and for the same
- * reason: a series is read from its end. A `barWidth` that was asked for is kept,
+ * reason: a series is read from its end -- or the first, where `keep` says a list
+ * is read from its start. A `barWidth` that was asked for is kept,
  * and it is the count that gives way, since a width somebody wrote down is a
  * width they meant. A chart is never wider than `room`, so a single bar is cut
  * to it too.
@@ -892,6 +932,7 @@ function terminalRoom(env?: Record<string, string | undefined>): number {
  * @param room - The widest the chart may be.
  * @param barWidth - The column the caller asked for.
  * @param natural - The widest label or value among the bars shown.
+ * @param keep - Which end of the bars is kept where they do not all fit.
  * @returns The bars shown, and the columns each one takes.
  */
 function fitBars(
@@ -899,17 +940,18 @@ function fitBars(
   gap: number,
   room: number,
   barWidth: number | undefined,
-  natural: (shown: readonly BarDatum[]) => number
+  natural: (shown: readonly BarDatum[]) => number,
+  keep: BarKeep
 ): { column: number; shown: readonly BarDatum[] } {
   const across = (column: number): number => Math.max(1, Math.floor((room + gap) / (column + gap)));
   if (barWidth !== undefined) {
     const column = Math.min(barWidth, room);
-    return { column, shown: bars.last(across(column)) };
+    return { column, shown: bars.take(across(column), keep) };
   }
   if (bars.length > across(1)) {
-    return { column: 1, shown: bars.last(across(1)) };
+    return { column: 1, shown: bars.take(across(1), keep) };
   }
-  const shown = bars.last(bars.length);
+  const shown = bars.take(bars.length, keep);
   const shared = Math.max(1, Math.floor((room - gap * (shown.length - 1)) / shown.length));
 
   return { column: Math.min(natural(shown), shared), shown };
@@ -930,7 +972,8 @@ function verticalBars(bars: Bars, opts: BarChartOptions): Row[] {
     gaps,
     count(opts.width, terminalRoom(opts.env)),
     count(opts.barWidth, 0) > 0 ? count(opts.barWidth, 0) : undefined,
-    (shown) => naturalColumn(shown, opts)
+    (shown) => naturalColumn(shown, opts),
+    keepOf('a bar chart', opts.keep)
   );
   // the scale is over the bars shown, as a sparkline's is over its samples
   const [low, high] = barBounds(data, opts);
@@ -988,6 +1031,7 @@ function verticalBars(bars: Bars, opts: BarChartOptions): Row[] {
  * @returns The drawing.
  */
 function barDrawing(bars: Bars, opts: BarChartOptions): Drawing {
+  keepOf('a bar chart', opts.keep);
   const rows =
     bars.length === 0
       ? []
@@ -2058,9 +2102,17 @@ export interface BarChartProps extends ChartElementProps, ScaleOptions {
    * The rows asked for where the layout does not decide: the bars' own for a
    * vertical chart, which defaults to 8, and a row a bar for a horizontal one, up
    * to 1,000 when this is not given. Bars that do not fit the rows the layout gave
-   * are dropped from the top, so a horizontal chart shows its latest bars too.
+   * are dropped, from the top or from the bottom as `keep` says. A chart in a scroll
+   * box that must show every bar of more than 1,000 needs a `height`, which is
+   * a number and does not follow live data.
    */
   height?: number;
+  /**
+   * Which end of the list is shown when the bars do not fit: `last` keeps the
+   * latest and drops the first, `first` keeps the first and drops the rest, which
+   * is what a list sorted largest first wants. Defaults to `last`.
+   */
+  keep?: BarKeep;
   /** The widest a label may be before it is cut. Defaults to its own width. */
   labelWidth?: number;
   /** Which role colours the bars. Defaults to `accent`. */
@@ -2071,7 +2123,8 @@ export interface BarChartProps extends ChartElementProps, ScaleOptions {
    * The columns asked for where the layout does not decide. Defaults to 40
    * across, and to the bars' own width upwards, which is never more than
    * 1,000. Bars that do not fit what the layout gave are narrowed to a
-   * column each and then dropped from the left, so a chart shows its latest bars.
+   * column each and then dropped, from the left unless `keep` is `first`, so a
+   * chart shows its latest bars by default.
    */
   width?: number;
 }
@@ -2767,6 +2820,7 @@ export function BarChart(props: BarChartProps): Element {
   checkCells('bar chart', 'width', props.width);
   checkCells('bar chart', 'height', props.height);
   checkCells('bar chart', 'barWidth', props.barWidth);
+  const keep = keepOf('a bar chart', props.keep);
   if (props.data === undefined || props.data === null) {
     throw new TypeError('Expected a bar chart to have data');
   }
@@ -2797,8 +2851,13 @@ export function BarChart(props: BarChartProps): Element {
       // rendered wider than the process's own terminal
       let width = props.width;
       if (width === undefined) {
-        const { shown } = fitBars(bars, gap, MOST_COLUMNS, props.barWidth, (some) =>
-          naturalColumn(some, props)
+        const { shown } = fitBars(
+          bars,
+          gap,
+          MOST_COLUMNS,
+          props.barWidth,
+          (some) => naturalColumn(some, props),
+          keep
         );
         width =
           shown.length < bars.length
@@ -2824,6 +2883,7 @@ export function BarChart(props: BarChartProps): Element {
         format: props.format,
         gap: props.gap,
         height: Math.max(1, vertical ? size.height - below : size.height),
+        keep,
         labelWidth: props.labelWidth,
         max: props.max,
         min: props.min,

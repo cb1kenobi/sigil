@@ -5420,7 +5420,7 @@ not a view built again every tick.
   **gap**, not the lowest block. A series wider than `width` keeps its **latest**
   values, and the scale is the shown values' unless `min` and `max` are given --
   give them when two sparklines have to mean the same height.
-- **`barChart(data, { direction, width, height, barWidth, gap, labelWidth, showValues, format })`**
+- **`barChart(data, { direction, width, height, keep, barWidth, gap, labelWidth, showValues, format })`**
   takes `{ label, value }` objects or an object of numbers. `horizontal` (the
   default) is a label, a bar and a value in aligned columns, and a bar is measured
   in eighths of a cell. `vertical` is columns with the values and the labels under
@@ -5432,6 +5432,9 @@ not a view built again every tick.
   over the bars shown.
   A horizontal chart is a row a bar, and at most `height` rows (1,000 by default):
   past that it shows the **latest** bars, with the scale over the bars shown too.
+  `keep: 'first'` keeps the **first** bars instead, in either direction, which is
+  what a list sorted largest first wants: `keep` is `'last'` by default, and an
+  unknown value throws a `TypeError`.
 - **`lineChart(values, { width, height, min, max, axis, format, xLabels, legend, step, fill })`**
   is braille, two dots across and four down a cell, from the same `Dots` grid the
   canvas draws with. `values` is a list of numbers, or several series as
@@ -5569,7 +5572,10 @@ picture.
   labels and the values leave, and a row each up to the height the layout gave
   them, the latest bars being the ones drawn; vertical bars share the width out between them
   and take the rows the values and the labels leave, and the latest bars that
-  fit are the ones drawn.
+  fit are the ones drawn. `keep: 'first'` draws the first bars instead, for a
+  top-N list. A horizontal chart asks for a row a bar up to 1,000, so one in a
+  scroll box that must show every bar of more is given an explicit `height`, which
+  is a number and does not follow live data.
 - **`Gauge({ value, label, detail, thresholds, ... })`** gives the bar the width
   its label and its figure leave, and pads the percentage to four columns so the
   bar does not move a cell as the reading gains a digit. `label` and `detail`
