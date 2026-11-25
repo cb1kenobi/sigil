@@ -8222,8 +8222,12 @@ have.
   rest of the callers' `format()` and label callbacks found nothing else raw: the data
   table's `format()` goes through `tableCell()`, the slider's through its `measure()`,
   a treemap's label through `toDisplayLine()` in `paintTreemap()`, a calendar's title
-  is a fixed-width cell it never measures, and a `short` or list `label` is an answer
-  or a typeahead key rather than something sized. A readout of
+  is a fixed-width cell it never measures, a list `label` is drawn and never measured,
+  a `short` is an answer, and the clock's `format`, the log's `timestamp`, the panel's
+  label, an outline's enumerator and a chart's crosshair `text` already go through
+  `labelLine()`, `refuseControl()` or `toDisplayText()`. A `format` that returns an
+  SGR-styled string draws its escapes as text, here and in a chart's, which is
+  unchanged by this and would be a `strip()` in both if it were ever wanted. A readout of
   only a control character other than
   a tab or a newline (a bell, a bare `ESC`) is empty by the same rule: the tree draws
   nothing for it, so it is no readout, though a standalone `attachTooltip()` strips
