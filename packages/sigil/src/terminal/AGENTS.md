@@ -306,6 +306,40 @@ is the vocabulary and the probe, the framing that makes a reply recognisable is
   mean something, and an open-ended grace period is Alt-] lost permanently. A
   _whole_ reply arriving after the probe is still dropped rather than typed, because
   `takeReply()` claims one whether or not anybody asked.
+- **A reply split _mid-payload_ after the probe settled waits on the query
+  deadline, for control strings only (SIG-403).** The entry above is a split at the
+  introducer; this is the one after it, which the framing cannot reach either and
+  which a slow link can produce: the query's 250 ms are spent, a reply starts to
+  arrive, and the read ends part way through `ESC ] 11 ; rgb:11`. With nothing
+  outstanding the tail was held on `ESCAPE_TIMEOUT`, flushed as `unknown` fifty
+  milliseconds on, and the rest arrived as `1 1 / 2 2 2 2 / 3 3 3 3 M-\` typed into
+  somebody's answer. Chris's decision was yes, narrowly: a held tail that is a
+  control string **on its face** -- `ESC ]` and a digit, or `ESC P` and `>` or a
+  digit, behind any run of `ESC`, which is exactly what the decoder claims with no
+  query open -- waits `QUERY_TIMEOUT`, even with no query outstanding. Everything
+  else keeps `ESCAPE_TIMEOUT`: a lone Escape, `ESC [`, Alt-] and `ESC ]` followed by
+  a letter, so the grace period refused above is still refused **for keys**, and the
+  two entries are one rule: the longer wait is for bytes nobody types, and no key is
+  ever held longer because a probe once ran. `isReplyOnItsFace()` asks it, from the
+  decoder's own `STRINGS` table, of the first bytes of the tail rather than by a
+  walk, since `armExpiry()` runs on every read of a payload that has not ended and a
+  walk would put back the quadratic cost SIG-550 took out. It applies at both places
+  that put a held tail on the key timer with nothing outstanding -- `armExpiry()`
+  and the settling of the last query -- because a reply the deadline caught half way
+  is the same tail. What a tail that never completes costs is one 250 ms hold
+  before it is flushed as it was, **counted from the first wait and not renewed by
+  each read** (review round 1): an unterminated string absorbs every byte after it
+  and is exempt from `HELD_LIMIT`, so a deadline that every read restarted was held
+  open by ordinary typing -- measured, 1,664 ms of `hello^Cworld` at 150 ms gaps
+  reached no handler, Ctrl-C included, until a 300 ms pause. At fifty milliseconds
+  nobody could sustain that, which is why the key deadline restarts safely and this
+  one does not. The clock is `performance.now()`, which cannot step back, and is
+  cleared by any read that decodes something, so a second reply starting as the
+  first ends (a probe for two colours) is waited on from its own start (review
+  round 2). What it does not close: `ESC ]` or `ESC P` then a digit (or `>`)
+  **typed** (Alt-] then `1` in one read) is held a quarter of a second rather than
+  a twentieth, which is as far as "nobody types it" goes. `settleKeys()` still sees such a tail as held -- its probe
+  asks `held`, not a timer -- and so waits out the longer deadline, on a real clock.
 - **A satisfied query is settled at the end of the chunk, not in the middle of
   it.** The sentinel is written last so its reply normally arrives last -- but a
   multiplexer that answers XTVersion for itself, or any terminal that reorders, can

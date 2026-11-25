@@ -197,9 +197,11 @@ describe('a handler that throws from a router timer over a test terminal', () =>
     });
 
     // a control string held for a query that is outstanding is on no timer; it
-    // goes on the key timeout when the query settles
+    // goes on the key timeout when the query settles. A bare introducer, because
+    // a payload already on its face is a reply and waits on the query deadline
+    // instead (SIG-403)
     void input.query({ timeout: 100, until: () => false, write: '?' });
-    ui.stdin.write(`${KEYS.escape}]52;c;`);
+    ui.stdin.write(`${KEYS.escape}]`);
     vi.advanceTimersByTime(100);
     expect(errors).toEqual([]);
     vi.advanceTimersByTime(ESCAPE_TIMEOUT);
