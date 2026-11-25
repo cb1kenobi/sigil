@@ -21,7 +21,7 @@
 
 import { strip } from '../ansi/index.js';
 import { box, type Element, renderToString, text as textNode } from '../element/index.js';
-import { isStreamGone, writeTo } from '../output.js';
+import { guardOutput, isStreamGone, writeTo } from '../output.js';
 import { For } from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
@@ -522,10 +522,14 @@ export function createOutline(
       } else if (mountLevel(base) !== 'quiet') {
         // a document, and `mycli plan > out.txt` is the case: through `writeTo()` so a
         // file that took only part of it is a throw rather than an exit 0 over a
-        // cut-off one (SIG-680). Nothing is drawn here, so there is no live region to
-        // order against; what the terminal would have swallowed -- the reader going
-        // away, or a terminal already closed -- still is
+        // cut-off one (SIG-680). What the terminal gave this write is kept, since
+        // `terminal.write()` is no longer what writes it: a closed terminal writes
+        // nothing, a reader that went away is swallowed as a throw here and by
+        // `guardOutput()` as the `error` event an `EPIPE` on a pipe usually is --
+        // without it `| head -1` outside `main()` is an uncaught exception, which
+        // the terminal's own guard used to prevent
         if (!terminal.closed) {
+          guardOutput([terminal.stdout]);
           try {
             writeTo(terminal.stdout, `${outline(current, opts)}\n`);
           } catch (err) {

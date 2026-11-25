@@ -456,6 +456,40 @@ describe('createOutline()', () => {
       expect(() => live.done()).to.throw('ENOSPC');
     });
 
+    it('should guard the stream, so an EPIPE event is not an uncaught exception', () => {
+      const { ansi, stdout, terminal } = setup({ isTTY: false });
+      const events: string[] = [];
+      const on = stdout.on.bind(stdout);
+      stdout.on = (event: string, listener: (...args: unknown[]) => void) => {
+        events.push(event);
+        return on(event, listener);
+      };
+      const live = createOutline(['a'], { ansi, ...TERMINAL, terminal });
+
+      live.done();
+
+      expect(events).to.include('error');
+    });
+
+    it('should write nothing to a terminal whose far end is already gone', () => {
+      const { ansi, stdout, terminal } = setup({ isTTY: false });
+      stdout.write = () => {
+        throw Object.assign(new Error('write EPIPE'), { code: 'EPIPE' });
+      };
+      terminal.write('x');
+      expect(terminal.closed).to.equal(true);
+      let writes = 0;
+      stdout.write = () => {
+        writes++;
+        return true;
+      };
+      const live = createOutline(['a'], { ansi, ...TERMINAL, terminal });
+
+      live.done();
+
+      expect(writes).to.equal(0);
+    });
+
     it('should write nothing on stop', () => {
       const { ansi, stdout, terminal } = setup({ isTTY: false });
       const live = createOutline(['a'], { ansi, ...TERMINAL, terminal });

@@ -5291,7 +5291,7 @@ form is `createOutline(items, opts)`, for a list that changes on screen -- a
 checklist whose items turn up as they are found: `update(items)` replaces the
 list, `done()` leaves it where it is and `stop()` erases it. Where there is no
 terminal nothing is written until `done()`, which writes the list once; a quiet
-run writes nothing. That write is a document, so where the output is a file that
+run writes nothing. That write is a document, so where the process's own output is a file that
 took only part of it, `done()` throws `The output was cut off`, as `page()`'s
 promise rejects.
 

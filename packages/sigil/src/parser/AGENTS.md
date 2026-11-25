@@ -2829,12 +2829,20 @@ app that had somebody looking. Chris decided on 2026-11-24 that both are
     `write()` of it exited 0 over a cut-off file. It is
     `writeTo(terminal.stdout, ...)` now, and a cut-off is a **throw** from
     `done()`, where `page()` rejects, because `done()` returns `void` and the
-    promise was the only reason for the rejection. The wrapper's two behaviours
-    that matter on this branch are kept by hand: a closed terminal writes nothing,
-    and `isStreamGone()` is caught -- the reader leaving -- while anything else
-    throws, which is the terminal's own swallow narrowed to what it was for. The
-    ordering the wrapper owns is against a live region, and on this branch there
-    is none: `createOutline()` takes it only when `mountLevel()` is not `'live'`.
+    promise was the only reason for the rejection. What the
+    wrapper gave this write is kept by hand, three things: a closed terminal
+    writes nothing, `isStreamGone()` is caught when the write throws, and
+    `guardOutput([terminal.stdout])` is called first, because an `EPIPE` on a
+    pipe arrives as an `error` event and the terminal's listener, which
+    `terminal.write()` attached, is not there any more -- measured by the
+    review of this change, `| head -1` outside `main()` was an uncaught
+    exception before it. That listener is `main()`'s: it rethrows anything but the
+    reader leaving and is never taken off, where the terminal's swallowed
+    everything. What it does not do is set `terminal.closed`, which the next
+    `terminal.write()` does for itself. The wrapper's ordering is against a live
+    region, and this write is taken when `createOutline()` did not mount one:
+    nothing of this outline's own is on screen to order against, and the write
+    was a plain `stream.write()` with no region coordination before it either.
     `writeTo()` takes the descriptor only for the process's own stdout as a
     regular file, so a full pty is still the stream's and the SIG-671 reorder
     cannot happen. Spawned test `outline` in `packages/cli/test/output.test.ts`,

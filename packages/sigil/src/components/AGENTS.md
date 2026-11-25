@@ -5888,9 +5888,10 @@ added.
   `writeTo(terminal.stdout, ...)`, so a file that took only part of it makes
   `done()` **throw** `The output was cut off` -- a throw rather than `page()`'s
   rejection because `done()` returns `void`, and changing that is a breaking
-  change to a handle for one branch. What the terminal would have swallowed still
-  is: a closed terminal writes nothing, and `isStreamGone()` is caught, so
-  `mycli plan | head -1` stays silent. Only this branch moved: a live outline's
+  change to a handle for one branch. What the terminal gave the write is kept
+  by hand: a closed terminal writes nothing, `isStreamGone()` is caught, and
+  `guardOutput()` is put on the stream first so an `EPIPE` event is not uncaught,
+  which is what keeps `mycli plan | head -1` silent outside `main()` too. Only this branch moved: a live outline's
   frames are the terminal's. A quiet run writes nothing, through `mountLevel()`
   like every other mount. A malformed list is refused where it is handed over,
   including in `update()`, and the screen keeps what it was showing.
