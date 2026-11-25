@@ -1,4 +1,4 @@
-import { confirm, text } from '../../src/components/index.js';
+import { confirm, select, text } from '../../src/components/index.js';
 import { DISABLE_PASTE } from '../../src/terminal/sequences.js';
 import { setup, tick } from './helpers.js';
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest';
@@ -213,33 +213,46 @@ describe('a prompt asked as lines, on a terminal whose write fails at detach', (
   it('should resolve when the line that says the answer cannot be written (SIG-692)', async () => {
     const ui = setup({ columns: 40 });
     const write = ui.stdout.write.bind(ui.stdout);
-    // the newline that ends the typed line is written before the answer is read,
-    // and a failure there is an answer not given: it is the one after it that is
-    // the line saying what was answered
-    let allowed = Infinity;
+    // only what select() says once it has an answer: a failure before that is a
+    // prompt that was not answered, and rejects
     ui.stdout.write = (chunk: string): boolean => {
-      if (allowed-- <= 0) {
+      if (chunk.includes('Chosen:')) {
         throw new Error('pipe broke');
       }
       return write(chunk);
     };
     const heard: unknown[] = [];
-    const answer = confirm({
+    const answer = select({
       accessible: true,
-      message: 'sure?',
+      choices: ['a', 'b'],
+      message: 'Pick',
       onError: (error) => void heard.push(error),
       terminal: ui.terminal,
     });
     await tick();
-    ui.stdin.send('y');
-    await tick();
-    allowed = 1;
-    ui.stdin.send('\r');
+    ui.stdin.send('2\r');
 
     expect(await settledWithin(answer)).toBe(true);
-    await expect(answer).resolves.toBe(true);
+    await expect(answer).resolves.toBe('b');
     await tick(3);
     expect(rejections).toEqual([]);
     expect(heard.map(String)).toEqual(['Error: pipe broke']);
+  });
+
+  it('should give the input back and reject when the first question cannot be written (SIG-692)', async () => {
+    const ui = setup({ columns: 40 });
+    const write = ui.stdout.write.bind(ui.stdout);
+    ui.stdout.write = (chunk: string): boolean => {
+      if (chunk.includes('name?')) {
+        throw new Error('pipe broke');
+      }
+      return write(chunk);
+    };
+    const answer = text({ accessible: true, message: 'name?', terminal: ui.terminal });
+
+    await expect(answer).rejects.toThrow('pipe broke');
+    // the router was stopped rather than left reading with a raw stdin
+    expect(ui.stdin.rawMode).toBe(false);
+    expect(rejections).toEqual([]);
   });
 });

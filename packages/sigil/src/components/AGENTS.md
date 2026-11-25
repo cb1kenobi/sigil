@@ -1892,7 +1892,12 @@ decided once, for all of them. The runs and the sabotage passes are in
   the newline a line form writes when Enter is pressed -- is a prompt that was not
   answered, so it rejects. What `router.stop()` skips when `disableBracketedPaste()`
   throws -- the mouse and the hover states after it -- is the router's to order and
-  is not touched here.
+  is not touched here. One dead pipe can reach `onError` more than once -- the
+  input's `stop()`, then the screen's, then the write that ends a line -- because
+  each step is reported on its own rather than de-duplicated; the prompt still
+  settles once. The line form's first question was the same hole from the other
+  side: a write that fails there threw from the executor, so the promise rejected
+  with the router still attached to a raw stdin, and it goes through `fail()` now.
 - **A table's column widths are worked out and the rest is the box model.** A
   shared column width across rows is the one thing flexbox cannot do for itself:
   each row would size its own cells and no two rows would agree. So the widths are

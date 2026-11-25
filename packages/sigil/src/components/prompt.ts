@@ -3746,21 +3746,28 @@ function runLine<T>(
       reject(error);
       return;
     }
-    for (const line of lead) {
-      sayLine(line);
-    }
-    if (ready instanceof Promise) {
-      // the keys queue behind it, so nothing typed meanwhile is read against a
-      // question that has not been asked yet
-      queue = ready
-        .then((next) => {
-          if (!settled) {
-            begin(next);
-          }
-        })
-        .catch(fail);
-    } else {
-      begin(ready);
+    // the first write on a terminal that has gone throws from the executor, which
+    // rejects the promise and leaves the router attached to a raw stdin with
+    // nobody to stop it (SIG-692): so it goes through `fail()` like every other
+    try {
+      for (const line of lead) {
+        sayLine(line);
+      }
+      if (ready instanceof Promise) {
+        // the keys queue behind it, so nothing typed meanwhile is read against a
+        // question that has not been asked yet
+        queue = ready
+          .then((next) => {
+            if (!settled) {
+              begin(next);
+            }
+          })
+          .catch(fail);
+      } else {
+        begin(ready);
+      }
+    } catch (error) {
+      fail(error);
     }
   });
 }
