@@ -3,6 +3,7 @@ import { createEffect, onCleanup } from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { stringWidth } from '../width/index.js';
+import { refuseControl } from './control-character.js';
 import { type Mounted, type MountOptions, mountLive, writeLine } from './mount.js';
 import { unicodeSupported } from './note.js';
 
@@ -122,6 +123,8 @@ export interface SpinnerOptions extends MountOptions {
   /**
    * The frames to cycle: a set such as `ARC`, or an array of your own. Defaults
    * to `DOTS`, or to `LINE` where the terminal cannot be trusted with braille.
+   * A frame holding a control character is refused with a `TypeError` where the
+   * spinner is created.
    */
   frames?: readonly string[] | SpinnerFrames;
 }
@@ -189,12 +192,14 @@ export function spinnerState(label = ''): SpinnerState {
  * @param state - What it reads.
  * @param frames - The frames to cycle: a set, or an array.
  * @returns The tree.
+ * @throws If a frame holds a control character.
  */
 export function spinnerView(
   state: SpinnerState,
   frames: readonly string[] | SpinnerFrames = DOTS
 ): Element {
   const list = 'frames' in frames ? frames.frames : frames;
+  refuseFrames(list);
   const lead = textNode('', { 'margin-right': 1 });
   const label = textNode(state.label.get(), { class: 'sigil-spinner-text' });
 
@@ -232,6 +237,23 @@ export function spinnerView(
 }
 
 /**
+ * Refuses a frame that holds a control character.
+ *
+ * A frame is drawn as a text and given the width `stringWidth()` says it has, and
+ * the two disagree about a tab, so a frame with one was a column short on the
+ * tick it showed -- SIG-685. Asked where the frames are configured, and again
+ * where a view is built from a set that never went through that.
+ *
+ * @param list - The frames.
+ * @throws If one holds a control character.
+ */
+function refuseFrames(list: readonly string[]): void {
+  list.forEach((frame, index) => {
+    refuseControl(`spinner frames[${index}]`, frame);
+  });
+}
+
+/**
  * The frames a spinner draws and how fast, out of its options.
  *
  * An explicit set or array always wins, the way an explicit `border` does on a
@@ -243,10 +265,15 @@ export function spinnerView(
  *
  * @param opts - The spinner's options.
  * @returns The set.
+ * @throws If a frame holds a control character.
  */
 export function spinnerFrames(opts: SpinnerOptions = {}): SpinnerFrames {
   const given = opts.frames;
   const set = given === undefined || 'frames' in given ? given : { frames: given, interval: 80 };
+
+  if (set) {
+    refuseFrames(set.frames);
+  }
 
   if (set && set.frames.length > 0) {
     return set;

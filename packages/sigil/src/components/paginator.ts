@@ -16,13 +16,17 @@ import { State, untrack } from '../signals/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { stringWidth } from '../width/index.js';
 import { colorLevelOf } from './color-level.js';
+import { refuseControl } from './control-character.js';
 import { unicodeSupported } from './note.js';
 
 /** How the position is written: one dot per page, `2/5`, or both. */
 export type PageIndicatorStyle = 'both' | 'dots' | 'numeric';
 
 export interface PageIndicatorOptions extends StyledOptions {
-  /** The dot for the current page. Defaults to `●`, or `*` where `ascii` is on. */
+  /**
+   * The dot for the current page. Defaults to `●`, or `*` where `ascii` is on.
+   * One holding a control character is refused with a `TypeError`.
+   */
   active?: string;
   /**
    * Draw with ASCII only. Defaults to what `unicodeSupported()` says of `env` and
@@ -37,7 +41,10 @@ export interface PageIndicatorOptions extends StyledOptions {
    * the catalog; this is where `Page 2 of 5` in another language goes.
    */
   format?: (page: number, pages: number) => string;
-  /** The dot for every other page. Defaults to `○`, or `.` where `ascii` is on. */
+  /**
+   * The dot for every other page. Defaults to `○`, or `.` where `ascii` is on.
+   * One holding a control character is refused with a `TypeError`.
+   */
   inactive?: string;
   /**
    * The most pages that are drawn as dots. Defaults to 10.
@@ -299,6 +306,26 @@ export function createPaginator(opts: PaginatorOptions = {}): Paginator {
   return paginator;
 }
 
+/**
+ * Refuses a dot that holds a control character.
+ *
+ * The dots are sized with `stringWidth()` and drawn as a text, which disagree
+ * about a tab -- SIG-685. Asked where an indicator is built, which is before
+ * anything is drawn, rather than inside `slotsFor()`, which a live indicator runs
+ * from an effect on every page turn.
+ *
+ * @param opts - The glyphs.
+ * @throws If either holds a control character.
+ */
+function refuseDots(opts: PageIndicatorOptions): void {
+  if (opts.active !== undefined) {
+    refuseControl('a page indicator active dot', opts.active);
+  }
+  if (opts.inactive !== undefined) {
+    refuseControl('a page indicator inactive dot', opts.inactive);
+  }
+}
+
 /** The four runs an indicator is made of, each its own text so each can be its own role. */
 interface Slots {
   /** The dots after the current page, with a space before the first. */
@@ -406,12 +433,14 @@ function build(): { element: Element; nodes: Nodes } {
  * @param pages - How many pages there are.
  * @param opts - The style and the glyphs.
  * @returns The tree, and the room it takes.
+ * @throws If a dot holds a control character.
  */
 export function pageIndicatorView(
   page: number,
   pages: number,
   opts: PageIndicatorOptions = {}
 ): { element: Element; width: number } {
+  refuseDots(opts);
   const slots = slotsFor(page, pages, opts);
   const { element, nodes } = build();
   apply(nodes, slots);
@@ -465,8 +494,10 @@ export function pageIndicator(
  * @param state - What it reads.
  * @param opts - The style and the glyphs.
  * @returns The tree.
+ * @throws If a dot holds a control character.
  */
 export function paginatorView(state: PaginatorState, opts: PageIndicatorOptions = {}): Element {
+  refuseDots(opts);
   const { element, nodes } = build();
 
   createEffect(() => {

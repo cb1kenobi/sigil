@@ -55,6 +55,7 @@ import { createEffect } from '../renderer/index.js';
 import { State, untrack } from '../signals/index.js';
 import { TOKEN_ROLE } from '../theme/index.js';
 import { stringWidth } from '../width/index.js';
+import { holdsControl } from './control-character.js';
 import { controlCondition, type ControlCondition } from './control.js';
 import {
   boundary,
@@ -247,9 +248,6 @@ interface Frame {
 /** How wide the text is in a row when nothing says, which is what a `measure` has to answer. */
 const COLUMNS = 40;
 
-/** A control character, which a gutter mark must not hold: the grid throws on one. */
-const CONTROL = /\p{Cc}/u;
-
 /** Whether a stretch of a line is whitespace and nothing else, which a word never is. */
 const BLANK = /^\s*$/u;
 
@@ -298,7 +296,7 @@ export function TextArea(props: TextAreaProps = {}): Element {
   // a mark is drawn on every row, and the grid throws on a control character
   if (
     props.gutter !== undefined &&
-    (typeof props.gutter !== 'string' || CONTROL.test(props.gutter))
+    (typeof props.gutter !== 'string' || holdsControl(props.gutter))
   ) {
     throw new TypeError(`Expected a text area gutter to be a string with no control character`);
   }

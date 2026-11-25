@@ -2785,6 +2785,14 @@ no longer fits, because it may carry a handler the component would replace.
 `@ttylabs/sigil/components` is the check they share, for an ejected or a
 hand-written component that spreads `props` into its host and sets a hook there.
 
+`holdsControl(value)`, `controlFault(what, value)` and `refuseControl(what, value)`
+from `@ttylabs/sigil/components` are the check every configured glyph shares: a
+spinner frame, a progress bar's `filled` and `empty`, a page indicator's dots, an
+outline marker, a toggle's state names and a text area's `gutter`. A control
+character is `\p{Cc}`, and a glyph that holds one is refused where it is configured
+rather than drawn one column short. Call it from a component of your own that
+takes a glyph.
+
 ### `sigil/template`
 
 The `ui` tag, its parser, and the emitter's leaves -- `applyProp()`,
@@ -4123,7 +4131,9 @@ spinner.succeed('Compiled 2 files');
 
 `frames` takes one of the sets below, each with the interval it looks right at,
 or an array of your own (at 80 ms unless `interval` says otherwise). `interval`
-beats a set's own.
+beats a set's own. A frame holding a control character -- a tab, a bell, an escape
+sequence -- throws a `TypeError` when the spinner is created: it is drawn as one
+thing and sized as another, so the label beside it would not stay where it is.
 
 ```js
 import { ARC, createSpinner } from '@ttylabs/sigil/components/spinner';
@@ -4173,7 +4183,9 @@ bar.done('Copied');
 The bar sizes itself to a third of the terminal, between 10 and 40 columns,
 unless given a `barWidth`. A cell fills once the work has reached it, so the bar
 is full only when the work is done, and it agrees with the percentage, which
-also rounds down.
+also rounds down. `filled` and `empty` change the two characters, and one that
+holds a control character throws a `TypeError` when the bar is created, as it does
+for `createMultiProgress()`.
 
 Pass `rate: true`, `eta: true` or both for the pace and the time remaining beside
 the percentage -- `10 files/s  ETA 9s`, with `unit: 'files'` naming the unit. Both
@@ -5283,7 +5295,8 @@ Markers are right-aligned within their list, and are `.sigil-muted`; the item is
 `.sigil-outline-text`, with `.sigil-outline-marker`, `-item`, `-body`, `-list` and
 `-nested` for the rest, so a theme restyles them like anything else. Escape
 sequences are dropped from items and markers -- colour is the theme's, as in
-`note()`.
+`note()`. A marker function that returns anything else a terminal would act on --
+a tab, a bell -- throws a `TypeError`; a line break is read as a space.
 
 `outline()` returns a string and the caller does the writing, which puts it on the
 result side of `--quiet`. `outlineView()` is the element tree behind it. The live
@@ -5742,8 +5755,9 @@ the current one filled -- `● ○ ○` -- `'numeric'` is `2/5`, and `'both'` is
 the style said, because a row of forty dots wraps into a different shape on every
 terminal width. `format(page, pages)` words the number, counting from one --
 `Page 2 of 5` in your own language, since `2/5` is not prose and is not in the
-catalog -- `active` and `inactive` replace the glyphs, and `ascii` (by default what
-`unicodeSupported()` says) draws `*` and `.`.
+catalog -- `active` and `inactive` replace the glyphs (one holding a control
+character throws a `TypeError`), and `ascii` (by default what `unicodeSupported()`
+says) draws `*` and `.`.
 
 `paginatorView(state, options)` is the live indicator as an element tree, redrawn
 when the page, the total or the page size changes, and `pageIndicatorView()` is

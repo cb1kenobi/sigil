@@ -8136,13 +8136,12 @@ have.
   markdown, which splits a word at every `\s` before it measures one; the gradient and
   the live region, which are strings for a raw terminal where `stringWidth()` is the
   right question; and the log's streamed text, which is written to the terminal and
-  never handed to a `text`. **Not done, and a ticket of its own:** a glyph the caller
-  configures -- a spinner's frames, a bar's `filled` and `empty`, a page indicator's
-  dots, an outline's enumerator -- is measured raw and a tab in one is the same
-  column short, but a glyph holding a tab is a mistake and not content, and the
-  answer the toggle's states and the text area's gutter mark already give is to
-  refuse it where it is declared, which is a decision per option rather than a
-  measurement. A chart's `format()` output is the same slip in `barChart()` and
+  never handed to a `text`. **Left for SIG-685, which refused it** (see "A configured glyph
+  holding a control character is refused"): a glyph the
+  caller configures -- a spinner's frames, a bar's `filled` and `empty`, a page
+  indicator's dots, an outline's enumerator -- was measured raw and a tab in one was
+  the same column short, but a glyph holding a tab is a mistake and not content, so
+  it is refused where it is declared rather than measured. A chart's `format()` output is the same slip in `barChart()` and
   `lineChart()` (`5\t%` draws as `5`) and was left alone with that file. A readout of only a control character other than
   a tab or a newline (a bell, a bare `ESC`) is empty by the same rule: the tree draws
   nothing for it, so it is no readout, though a standalone `attachTooltip()` strips
@@ -8417,6 +8416,79 @@ is the group. SIG-184.
 - **Not done:** a timer that counts the ETA down between ticks; an overall bar
   for the group; a bar that is indeterminate until its total is known; locale
   number formatting.
+
+### A configured glyph holding a control character is refused, by one check (SIG-685)
+
+A glyph a caller configures -- a spinner frame, a bar's `filled` and `empty`, a page
+indicator's dots, an outline's marker -- is drawn as a `text` and sized with
+`stringWidth()`, and the two disagree about a control character: the tree draws a tab
+as a space and `stringWidth()` counts it as nothing, so a tab in one left the cell a
+column short per tab (SIG-670 swept the caller's strings that are content and left
+these four, because a glyph holding a tab is a mistake rather than content). Chris
+decided on 2026-11-25 to refuse it rather than measure it through `toDisplayText()`,
+as a toggle's state names and a text area's gutter mark already did -- which is
+simpler, fails where the mistake is made, and has no second reading of what a glyph
+is to keep in step with the first.
+
+- **One definition, `src/components/control-character.ts`, published from
+  `@ttylabs/sigil/components/control-character`.** The toggle's `fault()`, the text
+  area's `CONTROL` and the prompt's gutter check each held their own `/\p{Cc}/u`, so
+  the rule was three copies of one regex and the new sites would have been seven.
+  `holdsControl()` is the predicate, `controlFault()` the message and `refuseControl()`
+  the throw; all three have a subpath because the toggle, the spinner, the progress
+  bars, the paginator, the outline and the text area are registry entries, which may
+  import only what the package exports, and an ejected copy would otherwise have
+  grown a private regex of its own. The toggle, the text area's `gutter` and the
+  prompt's `gutter` now call it. Their behaviour is unchanged. The one visible
+  difference is the toggle's message, which is the shared wording and an echo
+  through `escapeControls()` rather than `JSON.stringify()`, which leaves DEL and C1
+  raw. A `\p{Cc}` check in a module that is not a configured glyph (the editor's
+  `postfix`, a markdown URL, large-text's hardblank, `decrypt`'s and
+  `text-field`'s own strip) is a different question -- those are refusing or
+  stripping content, not a glyph -- and was left alone.
+- **The set is `\p{Cc}` and nothing wider**, exactly what the toggle and the gutter
+  asked: C0, DEL and C1, which includes `\t`, `\n` and `\r`. `\p{Cf}` is deliberately
+  not in it. A format character draws as nothing and measures as nothing, so the two
+  agree about it; refusing one would refuse a joined emoji in a spinner frame, which
+  is exactly the glyph a caller would write. That is also why `escapeControls()`'s
+  wider class is used only to _echo_ the value and is not what decides.
+- **Asked where the glyph is configured, and again where a view is built from one
+  that never went through that.** `createSpinner()` through `spinnerFrames()`, which
+  `tasks()` shares, and `spinnerView()`; `createProgress()` and
+  `createMultiProgress()`, and `progressView()` and `renderBar()`, which are exported
+  and take the characters directly; `pageIndicator()` and `pageIndicatorView()` and
+  `paginatorView()`, and not `slotsFor()`, which a live indicator runs from an effect
+  on every page turn. Every one is a `TypeError` from the call that was given the
+  glyph, before anything is mounted or drawn -- `progressView()` asks as it is built
+  rather than in the effect that calls `renderBar()`, because that effect does not
+  run in a pipe, and a bar refused on a terminal is refused in a log too.
+  A spinner frame with an escape sequence in it is refused as well: an `ESC` is a
+  control character, colour is the theme's (`.sigil-spinner-frame` is `sigil-accent`),
+  and the toggle's names already refuse one.
+- **The outline is the one that is not static, and it keeps the two rules its
+  function marker already had.** `enumerator` is a style name or a function, the
+  names write only glyphs of the package's own, and the function is called as the
+  list is drawn -- so the refusal is at render rather than at configuration, naming
+  the item and the depth (`an outline marker for item 2 at depth 1`). It asks of
+  what is left after the two rules a function's marker already had: an escape
+  sequence is dropped and a line break is read as a space (`outline.test.ts` pins
+  both, and a marker can legitimately be built out of an item's own text that holds
+  a line break). So **a tab, a bell or any other control character is refused, and
+  a line break is not** -- the one place the shared rule is not the whole of the
+  `\p{Cc}` set, and the reason is that measuring a collapsed line break is not wrong:
+  the marker is measured after the collapse. `tree()` and `selectTree()` take the same
+  `enumerator` through `outlineMarkers()`, so they refuse the same way.
+- **Left alone, each for a reason.** A typewriter's `cursor` is appended to the text
+  being typed and never measured, so a tab in it draws as the space it is and no
+  column is miscounted. `PROMPT_SYMBOLS` is frozen and cannot be configured. The
+  log's `symbol` was already measured through `toDisplayText()` by SIG-670, which is
+  the other answer to the same question and is right for a glyph that is a label as
+  well. A chart's `filled` and `empty` bar glyphs are the framework's own and pass
+  through `renderBar()`, which asks. The outcome marks of a spinner are constants.
+- `test/components/control-character.test.ts` has one test per site, each of which
+  fails with `holdsControl()` taken out, plus the shared function's own: the set it
+  holds, what it leaves alone, and that the echo escapes. The toggle's own refusal is
+  still pinned in `test/components/toggle.test.ts`.
 
 ### A toggle prompt: two named states
 

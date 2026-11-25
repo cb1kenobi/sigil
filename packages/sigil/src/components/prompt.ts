@@ -27,6 +27,7 @@ import { terminal as defaultTerminal } from '../terminal/index.js';
 import { TOKEN_ROLE } from '../theme/index.js';
 import { graphemes, graphemeWidth, stringWidth } from '../width/index.js';
 import { wrap } from '../wrap/index.js';
+import { holdsControl } from './control-character.js';
 import {
   boundary,
   deleteAfter,
@@ -2060,7 +2061,7 @@ export function multiline(opts: MultilineOptions): Promise<string> {
   // a mark is drawn on every row, and `CellBuffer.put()` throws on a control
   // character -- so one here would take the first frame down rather than draw
   const mark = opts.gutter ?? '';
-  if (/\p{Cc}/u.test(mark)) {
+  if (holdsControl(mark)) {
     return Promise.reject(
       new PromptError(`"${opts.message}" has a \`gutter\` holding a control character`)
     );
