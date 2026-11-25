@@ -64,6 +64,10 @@ describe('a mounted component stopped over a terminal whose write fails', () => 
     expect(() => mounted.stop()).toThrow('pipe broke');
 
     expect(events).toEqual(['disposed']);
+    // and the renderer, finishing a region the erase failed on, wrote to the dead
+    // pipe too and reported it where nothing is on the stack: one dead pipe is
+    // said more than once, as a prompt's is, and the throw above is still the one
+    expect(String(stderr?.mock.calls.map((call) => call[0]).join(''))).toContain('pipe broke');
   });
 
   it('should stop cleanly when nothing fails, in the order it always had', () => {

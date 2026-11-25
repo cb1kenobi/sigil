@@ -1898,7 +1898,10 @@ decided once, for all of them. The runs and the sabotage passes are in
   `renderer.backend.stop()` and then disposes the renderer, in that order because
   the erase needs the anchor, and a write that threw in the first skipped the
   second, leaving every effect and cleanup of the tree live. Each is attempted and
-  what failed is raised once through `raise()`; pinned in
+  what failed is raised once through `raise()`. A dead pipe is still said more
+  than once, as the prompt's is: the renderer's `dispose()` finishes a region the
+  erase failed on, writes to the same pipe and reports that through its `onError`
+  or the default line, so the caller gets the throw and a report beside it; pinned in
   `test/components/mount-stop.test.ts`. One dead pipe can reach `onError` more than once -- the
   input's `stop()`, then the screen's, then the write that ends a line -- because
   each step is reported on its own rather than de-duplicated; the prompt still

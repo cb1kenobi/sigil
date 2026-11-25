@@ -719,7 +719,12 @@ the entry it belongs to.
   and the exit code set to 1, so a bare router no longer crashes on it. Through
   `runApp()` that means an `onEnd()` handler of the app's that throws as stdin ends
   is a failure of the app like any other handler's (its `onError` ends it with 1),
-  where it used to escape. Pinned in `test/input/input.test.ts`.
+  where it used to escape -- the first failure only, as for any handler: `runApp()`'s
+  own `onEnd()` is registered first, so for a stream that _errored_ it has already
+  recorded the stream's failure and an app handler's throw after it is dropped
+  with the other failures that follow the first, where for a clean end it is the
+  failure. Pinned in `test/input/input.test.ts` and, for `runApp()`, in
+  `test/renderer/app.test.ts`.
 
   **`stop()` runs every step and raises what failed once the last has run
   (SIG-699).** It ran them in a row with no protection, so a terminal write that
@@ -955,7 +960,7 @@ the absence here is settled rather than pending.
   Escape here needs a clock.
 
 - **The stream _ending_ leaves the pending sequence alone, and `held` is the
-  precedent.** `ended()` deliberately does not tear the router down -- `onEnd()`
+  precedent.** `endAll()` deliberately does not tear the router down -- `onEnd()`
   exists so the app decides, and the ordinary thing it decides is `stop()`, which
   clears -- and it leaves the half-arrived **key** and its deadline exactly where
   they are too. So a pending sequence is treated the same way: an exact match that

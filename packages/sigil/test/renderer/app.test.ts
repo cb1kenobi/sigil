@@ -584,6 +584,24 @@ describe('runApp()', () => {
       expectGivenBack(term);
     });
 
+    // the stream's own `'end'` listener has no caller either, so what an `onEnd()`
+    // handler of the app's throws there is a failure of the app like any other
+    // handler's, and not an uncaught exception (SIG-697)
+    it('should end with 1 and report an onEnd handler that throws as stdin ends', async () => {
+      const reports: unknown[] = [];
+      const { app, term } = run(() => text('x'), { onError: (error) => reports.push(error) });
+      app.input?.onEnd(() => {
+        throw new Error('onEnd broke');
+      });
+      app.view.frame();
+
+      term.stdin.end();
+      expect(await app.exited).toBe(1);
+
+      expect(reports.map(String)).toEqual(['Error: onEnd broke']);
+      expectGivenBack(term);
+    });
+
     it('should end with 1 when a paste or a resize handler throws', async () => {
       const paste = run(() => text('x'));
       paste.app.input?.onPaste(() => {
