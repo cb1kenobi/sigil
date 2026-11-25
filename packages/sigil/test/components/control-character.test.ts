@@ -19,7 +19,6 @@ import {
 import { TextField } from '../../src/components/text-field.js';
 import { tree } from '../../src/components/tree.js';
 import { State } from '../../src/signals/index.js';
-import { screenSetup } from './helpers.js';
 import { describe, expect, it } from 'vitest';
 
 /**
