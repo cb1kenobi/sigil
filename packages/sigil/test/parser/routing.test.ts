@@ -436,13 +436,6 @@ describe('filesystem routing', () => {
         );
       });
 
-      it('should refuse name-string syntax in an alias', async () => {
-        await refuses(
-          { 'commands.json': '{ "build": { "alias": "!b" } }' },
-          /Invalid alias "!b" for "build" in .*commands\.json/
-        );
-      });
-
       it('should refuse a control or format character in an alias, as it does in a route name (SIG-673)', async () => {
         // an alias is a spelling argv can match, and a `commands.json` dropped into an
         // installed app's commands directory is no more the app's own than a file

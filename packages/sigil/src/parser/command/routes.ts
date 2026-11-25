@@ -652,7 +652,7 @@ function hasUnsafeCharacter(spelling: string): boolean {
   return UNSAFE_IN_NAME.test(spelling);
 }
 
-/** Why {@link hasUnsafeCharacter} refuses what it does, finishing a sentence about the name. */
+/** Why {@link hasUnsafeCharacter} refuses what it does, finishing a sentence about the name or, after "it", an alias. */
 const UNSAFE_REASON =
   'contains a control or format character, which a terminal would act on or draw as something else';
 

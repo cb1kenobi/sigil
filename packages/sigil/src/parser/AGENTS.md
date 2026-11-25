@@ -1935,7 +1935,7 @@ name alone, and a `name` or `alias` written in a module could never route
   `.json` is not one of the six route extensions.
 - **What is wrong with the file throws, naming it.** Not JSONC (`parseJsonc()`'s
   `Failed to parse <file>`), not an object of objects, a property of the wrong
-  type, an alias starting `!` or `@` or holding a control or format character, or two entries both `default: true` -- the
+  type, an alias a route's name could not be (SIG-679), or two entries both `default: true` -- the
   last whether or not both name a route, so it is said naming the file rather
   than by the registry naming neither. It throws when the level is walked, as an
   invalid placeholder declaration throws when it is built, and the build fails

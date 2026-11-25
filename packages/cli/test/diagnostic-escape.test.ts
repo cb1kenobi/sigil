@@ -277,8 +277,8 @@ export default {
     writeFileSync(
       join(dir, 'commands.json'),
       JSON.stringify({
-        // an alias cannot hold a newline since SIG-673 -- `readRoutes()` refuses a
-        // control or format character in one, as it does in a route name -- so the
+        // an alias cannot hold a newline since SIG-673 -- `readRoutes()` refuses
+        // whitespace and control characters in one, as it does in a route name -- so the
         // aliases carry U+3164, which prints blank and is refused by neither, and
         // what is asserted of them is that they are echoed escaped
         [`stale${FORGED(2)}`]: { alias: ['z\u3164'], desc: 'gone' },
