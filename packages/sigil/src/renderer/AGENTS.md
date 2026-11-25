@@ -669,7 +669,12 @@ the entry it belongs to.
   throws is raised: one throw as itself and several as an `AggregateError`, which
   is the rule above and not a new one -- so `frame()` raises an aggregate when
   `onError` throws for two errors and the error itself when it throws for one. A
-  frame handler that runs after an earlier one's `onError` threw runs on a frame
+  `runFrame()` says whether what it caught is `told`'s (`fromTold`) rather than
+  `fail()` guessing from the value, which is `undefined` for a handler that throws
+  nothing and could equal an effect's failure when `onError` throws something shared.
+  In the `failed` branch, from `frame()`, what `onError` threw for several errors
+  is raised the same way -- an `AggregateError` for several -- without being handed
+  back to `onError`, as the single throw already was. frame handler that runs after an earlier one's `onError` threw runs on a frame
   that is about to fail, which is the cost of the rule and was chosen over a
   handler silently not hearing its frame.
 
