@@ -30,6 +30,7 @@ import {
   raw,
   renderToString,
   text as textNode,
+  toDisplayLine,
   toDisplayText,
 } from '../element/index.js';
 import { __ } from '../i18n/index.js';
@@ -102,7 +103,12 @@ export interface BarChartOptions extends ChartOptions, ScaleOptions {
   format?: (value: number) => string;
   /** The columns between one vertical bar and the next. Defaults to 1. */
   gap?: number;
-  /** How tall a vertical chart is, in rows. Defaults to 8. */
+  /**
+   * How tall a vertical chart is, in rows, which defaults to 8; and the most rows a
+   * horizontal chart is drawn in, which defaults to 1,000. A horizontal chart that
+   * has more bars than this shows the latest of them, as a vertical one does when
+   * it has more bars than columns, and the scale is over the bars shown.
+   */
   height?: number;
   /** The widest a label may be before it is cut. Defaults to its own width. */
   labelWidth?: number;
@@ -465,7 +471,7 @@ function segmentNode(kind: string, segment: Segment): Element {
     // the room a segment stands for, which is also what `pre` measures it
     // at. Written when `pre` was read as `normal` and a segment of padding
     // measured nothing (SIG-207); the two now say the same thing
-    width: stringWidth(segment.text),
+    width: stringWidth(toDisplayText(segment.text)),
     'white-space': 'pre',
   });
 }
@@ -491,7 +497,7 @@ function drawnSegments(row: Row): Row {
  */
 function viewOf(drawing: Drawing): ChartView {
   const width = maxOf(
-    drawing.rows.map((row) => stringWidth(row.map((s) => s.text).join(''))),
+    drawing.rows.map((row) => stringWidth(toDisplayText(row.map((s) => s.text).join('')))),
     1
   );
 
@@ -727,14 +733,33 @@ function barRole(datum: BarDatum, role: string | undefined): string | undefined 
 }
 
 /**
+ * What a chart's `format()` wrote, as it will be drawn: a tab is a space and a
+ * line break is a space, since a value is one row's cell. Measured raw it was
+ * the other way about -- a tab is no columns wide and is drawn as one, so
+ * `v + '\t%'` drew `5 %` in the room `5%` had (SIG-686).
+ *
+ * @param format - The caller's `format()`, or the default.
+ * @param value - The number.
+ * @returns What is drawn for it.
+ */
+function written(format: (value: number) => string, value: number): string {
+  return toDisplayLine(format(value));
+}
+
+/**
  * Builds the rows of a horizontal bar chart.
  *
- * @param data - The bars.
- * @param opts - The width and the scale.
+ * Shows the latest bars that fit `height` and draws no more -- the vertical
+ * chart's rule across the other axis, for the same reason -- and the scale and
+ * the widths are over the bars shown. What is not shown is never built.
+ *
+ * @param bars - The bars.
+ * @param opts - The height, the width and the scale.
  * @returns The rows.
  */
-function horizontalBars(data: readonly BarDatum[], opts: BarChartOptions): Row[] {
+function horizontalBars(bars: Bars, opts: BarChartOptions): Row[] {
   const format = opts.format ?? formatNumber;
+  const data = bars.last(count(opts.height, MOST_ROWS));
   const [low, high] = barBounds(data, opts);
   const labels = data.map((d) => labelLine(d.label));
   const cap = count(opts.labelWidth, Infinity);
@@ -745,7 +770,7 @@ function horizontalBars(data: readonly BarDatum[], opts: BarChartOptions): Row[]
       0
     )
   );
-  const values = data.map((d) => (isPlottable(d.value) ? format(d.value) : '-'));
+  const values = data.map((d) => (isPlottable(d.value) ? written(format, d.value) : '-'));
   const showValues = opts.showValues !== false;
   const valueWidth = showValues
     ? maxOf(
@@ -803,7 +828,7 @@ function naturalColumn(
   );
   return showValues
     ? maxOf(
-        data.map((d) => stringWidth(isPlottable(d.value) ? format(d.value) : '-')),
+        data.map((d) => stringWidth(isPlottable(d.value) ? written(format, d.value) : '-')),
         labels
       )
     : labels;
@@ -823,6 +848,16 @@ function gapOf(opts: { gap?: number }): number {
  * spoken yet from being a reason to draw a million columns.
  */
 const MOST_COLUMNS = 1000;
+
+/**
+ * The most rows a horizontal chart is drawn in when nothing says how tall: far
+ * taller than any terminal, and what keeps 200,000 bars from being 200,000 rows
+ * drawn and then clipped. It is `MOST_COLUMNS` across the other axis, and a
+ * constant rather than the terminal's height for the reason a live chart's ask is
+ * one: a printed chart is not clipped to a screen, since it scrolls, and an ask
+ * read from the process goes stale.
+ */
+const MOST_ROWS = 1000;
 
 /**
  * The most a printed vertical chart can be shown in when nothing says: the
@@ -898,7 +933,7 @@ function verticalBars(bars: Bars, opts: BarChartOptions): Row[] {
   // the scale is over the bars shown, as a sparkline's is over its samples
   const [low, high] = barBounds(data, opts);
   const labels = data.map((d) => labelLine(d.label));
-  const values = data.map((d) => (isPlottable(d.value) ? format(d.value) : '-'));
+  const values = data.map((d) => (isPlottable(d.value) ? written(format, d.value) : '-'));
   const showValues = opts.showValues !== false;
   const height = count(opts.height, DEFAULT_HEIGHT);
   const gap = ' '.repeat(gaps);
@@ -956,7 +991,7 @@ function barDrawing(bars: Bars, opts: BarChartOptions): Drawing {
       ? []
       : opts.direction === 'vertical'
         ? verticalBars(bars, opts)
-        : horizontalBars(bars.last(bars.length), opts);
+        : horizontalBars(bars, opts);
 
   return { kind: 'bar', rows };
 }
@@ -1247,7 +1282,7 @@ function lineDrawing(list: readonly PlotSeries[], layout: LineLayout): Drawing {
     const [low, high] = bounds(shown.flat(), layout);
     const ticks = tickRows(height).map((row) => ({
       row,
-      text: format(height <= 1 ? high : high - (row / (height - 1)) * (high - low)),
+      text: written(format, height <= 1 ? high : high - (row / (height - 1)) * (high - low)),
     }));
     const widest = axis
       ? maxOf(
@@ -2019,7 +2054,9 @@ export interface BarChartProps extends ChartElementProps, ScaleOptions {
   gap?: number;
   /**
    * The rows asked for where the layout does not decide: the bars' own for a
-   * vertical chart, which defaults to 8, and a row a bar for a horizontal one.
+   * vertical chart, which defaults to 8, and a row a bar for a horizontal one,
+   * which is never more than 1,000. Bars that do not fit the rows the layout gave
+   * are dropped from the top, so a horizontal chart shows its latest bars too.
    */
   height?: number;
   /** The widest a label may be before it is cut. Defaults to its own width. */
@@ -2744,8 +2781,9 @@ export function BarChart(props: BarChartProps): Element {
     () => {
       const bars = barsOf(read(props.data));
       if (!vertical) {
+        // a row a bar, up to what is drawn: 200,000 bars ask for `MOST_ROWS`
         return {
-          height: props.height ?? Math.max(1, bars.length),
+          height: props.height ?? Math.max(1, Math.min(MOST_ROWS, bars.length)),
           width: props.width ?? DEFAULT_WIDTH,
         };
       }
@@ -2783,7 +2821,7 @@ export function BarChart(props: BarChartProps): Element {
         direction: props.direction,
         format: props.format,
         gap: props.gap,
-        height: vertical ? Math.max(1, size.height - below) : undefined,
+        height: Math.max(1, vertical ? size.height - below : size.height),
         labelWidth: props.labelWidth,
         max: props.max,
         min: props.min,

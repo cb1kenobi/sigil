@@ -7777,6 +7777,45 @@ and not the stack overflow that one fixed: no spread was involved.
   default is the terminal's width, clamped to `MOST_COLUMNS` for the same
   hostile `COLUMNS` -- nothing prints a vertical chart wider than that by default
   and a caller who wants one passes `width`.
+- **A horizontal chart fits its height the same way, which is SIG-684.** It is a row
+  a bar, so 200,000 bars were 200,000 rows, and the ask was `bars.length` rows too.
+  `height` is now the most rows a horizontal chart is drawn in, and past it the chart
+  keeps the **latest** bars, with the scale and the label and value widths over the
+  bars shown -- the vertical rule across the other axis, through the same `barsOf()`
+  handle, so a list is sliced and a record's entries are made for the rows shown
+  only. `fitBars()` was not generalized to it: it is the arithmetic of sharing a
+  width out between columns, and a row has nothing to share -- one row a bar -- so
+  what the two have in common is `Bars.last()` and no more. **What bounds it when
+  nothing says is `MOST_ROWS`, 1,000, a constant.** It mirrors `MOST_COLUMNS`
+  without reading the terminal, for a different reason than the live ask's: a
+  printed chart is not clipped to a screen's height, since it scrolls, and a chart
+  of 300 bars printed through a pipe has always been 300 rows. 1,000 changes no
+  chart anybody reads and bounds the one nobody can; a caller who wants more
+  passes `height`, which is not capped. The live `BarChart` asks for a row a bar up
+  to `MOST_ROWS`, and the layout's own height is what it draws at, so a host shorter
+  than its bars now shows the latest of them where it used to draw all and have the
+  rest clipped from the bottom. Measured before the change, 2,000 bars drew in 871
+  ms, 8,000 in 2.6 s and 32,000 in 10 s -- about 0.3 ms a bar, so 200,000 ran past
+  100 s -- and 200,000 bars after it are 1,000 rows, in 0.4 s and 14 MB.
+  `should cost the same to draw 128,000 bars as 16,000` has a horizontal twin, and
+  `should not ask the caller to format a bar that is not drawn` counts the calls
+  to `format()`, which is what "nothing is built for a row that is not drawn"
+  looks like from outside.
+- **A chart's `format()` is measured as it is drawn, which is SIG-686.** A tab in
+  what `format()` wrote was drawn as a space and measured as nothing, so
+  `v => v + '\t%'` made a value column one cell narrower than the `5 %` in it and a
+  line chart's gutter one cell narrower than its `10 %`. Every value goes through
+  `written()`, which is `toDisplayLine()` of `format(value)`: the element layer's one
+  definition, and its single-line form because a value is a cell of one row and
+  a line break in it would push every row after it down by one, which is what
+  `toDisplayLine()` was written for. It is applied where the string is made, in
+  `horizontalBars()`, `naturalColumn()`, `verticalBars()` and the line chart's
+  ticks, so everything after -- `pad()`, `truncate()`, the widths -- reads a string
+  that is what is drawn. `segmentNode()`'s width and `viewOf()`'s are measured through
+  `toDisplayText()` as well, which changes nothing for what `written()` made and is
+  the two places a segment's text could still be something else. Left alone, since
+  the SIG-665 entry above lists it: the live line chart's crosshair readout, which
+  is `format()` output too and already goes through `toDisplayText()` in `follow()`.
 - **The four spreads SIG-417's review listed are `maxOf()`.** `chart.ts`'s axis
   label width and its readout bubble's, `large-text.ts`'s glyph width and `diff.ts`'s
   longest common tail were each `Math.max(...x.map())` over a line's worth, so
@@ -8142,8 +8181,9 @@ have.
   column short, but a glyph holding a tab is a mistake and not content, and the
   answer the toggle's states and the text area's gutter mark already give is to
   refuse it where it is declared, which is a decision per option rather than a
-  measurement. A chart's `format()` output is the same slip in `barChart()` and
-  `lineChart()` (`5\t%` draws as `5`) and was left alone with that file. A readout of only a control character other than
+  measurement. A chart's `format()` output was the same slip in `barChart()` and
+  `lineChart()` (`5\t%` drew as `5`) and was left alone with that file; SIG-686
+  swept it, in the SIG-664 section above. A readout of only a control character other than
   a tab or a newline (a bell, a bare `ESC`) is empty by the same rule: the tree draws
   nothing for it, so it is no readout, though a standalone `attachTooltip()` strips
   sequences only and still shows a bubble for one.
