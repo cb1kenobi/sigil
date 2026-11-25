@@ -907,6 +907,27 @@ describe('a reply that arrives late and split mid-payload (SIG-403)', () => {
     }
   });
 
+  // one reply finishing in the read that starts the next -- a probe asking for two
+  // colours produces exactly that -- is a new wait, not the first reply's clock
+  it('should give a second reply that starts as the first ends its own wait', async () => {
+    vi.useFakeTimers();
+    try {
+      const { feed, router, seen } = await afterAnUnansweredProbe();
+
+      feed(`${ESC}]10;rgb:11`);
+      await vi.advanceTimersByTimeAsync(200);
+      feed(`11/2222/3333${ST}${ESC}]11;rgb:11`);
+      await vi.advanceTimersByTimeAsync(120);
+      feed(`11/2222/3333${ST}`);
+      await vi.advanceTimersByTimeAsync(QUERY_TIMEOUT * 2);
+
+      expect(seen).toEqual([]);
+      router.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // the same reply, split while the probe was still open and finishing before its
   // second half came, is the other way to the same tail
   it('should hold a reply the probe deadline caught half way on the query deadline too', async () => {

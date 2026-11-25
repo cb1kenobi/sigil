@@ -2617,6 +2617,11 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       length === 0
         ? ''
         : ((held === '' ? '' : heldEdge) + input).slice(-Math.min(length, PASTE_START.length - 1));
+    // a read that decoded anything ended whatever was being waited on, so the tail
+    // it leaves is a new reply's and not the old one's continuation
+    if (ready !== '') {
+      replyHeldAt = undefined;
+    }
     held = tail;
     heldString = length > 0 && isString ? { strings: opts.strings === true } : undefined;
 
@@ -2715,8 +2720,12 @@ export function createInput(opts: InputOptions = {}): InputRouter {
     // held open by ordinary typing and swallow it, Ctrl-C included, until a pause
     // of the full deadline. The wait is bounded; what arrives meanwhile is in the
     // flushed string, which is the cost of a reply that never ended
-    replyHeldAt ??= Date.now();
-    return Math.max(0, QUERY_TIMEOUT - (Date.now() - replyHeldAt));
+    // `performance.now()` because it only moves forward: a wall clock stepped back
+    // would make the elapsed time negative and the wait longer than the deadline,
+    // which is the unbounded hold this exists to remove
+    const now = performance.now();
+    replyHeldAt ??= now;
+    return Math.min(QUERY_TIMEOUT, Math.max(0, QUERY_TIMEOUT - (now - replyHeldAt)));
   }
 
   /** Nothing followed it, so what is held is a key rather than a beginning. */

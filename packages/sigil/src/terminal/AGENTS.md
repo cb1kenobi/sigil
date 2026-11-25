@@ -333,7 +333,10 @@ is the vocabulary and the probe, the framing that makes a reply recognisable is
   open by ordinary typing -- measured, 1,664 ms of `hello^Cworld` at 150 ms gaps
   reached no handler, Ctrl-C included, until a 300 ms pause. At fifty milliseconds
   nobody could sustain that, which is why the key deadline restarts safely and this
-  one does not. What it does not close: `ESC ]` or `ESC P` then a digit (or `>`)
+  one does not. The clock is `performance.now()`, which cannot step back, and is
+  cleared by any read that decodes something, so a second reply starting as the
+  first ends (a probe for two colours) is waited on from its own start (review
+  round 2). What it does not close: `ESC ]` or `ESC P` then a digit (or `>`)
   **typed** (Alt-] then `1` in one read) is held a quarter of a second rather than
   a twentieth, which is as far as "nobody types it" goes. `settleKeys()` still sees such a tail as held -- its probe
   asks `held`, not a timer -- and so waits out the longer deadline, on a real clock.
