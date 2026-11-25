@@ -1871,10 +1871,33 @@ decided once, for all of them. The runs and the sabotage passes are in
   resolved and an unhandled rejection followed, with `onError` heard three times
   for one failed frame. `report()` hands it to `handOver()` now, the signals
   layer's rule that a handler's own throw goes no further, with `Error in prompt`
-  as the lead. The answer is still the answer. Not fixed by it, and measured while
-  looking: a write that fails inside `detach()` -- the router's `stop()` writes
-  the bracketed-paste reset -- throws out of `succeed()` before its `try`, so the
-  prompt never settles, and out of `.catch(report)` again as a rejection.
+  as the lead. The answer is still the answer. **A write that fails while the
+  prompt gives its input back is the same rule, one step earlier (SIG-692).** The
+  router's `stop()` writes the bracketed-paste reset, and `detach()` ran ahead of
+  the `try` in `succeed()` that resolves, so a terminal that had gone left the
+  caller awaiting an answer it had been given, with the throw coming out of
+  `.catch(report)` as a rejection -- measured on all six ways out of a prompt, not
+  only the answer: a cancel, an abort and the end of input threw out of `fail()`
+  ahead of `reject()` as well, into an abort listener and a stream's `end` emit
+  with nothing to catch them, and the line form (`accessible`) had the same shape
+  in `end()` and in the line that says an answer. Every step of giving a prompt up
+  is guarded on its own now, by `release()`, which hands what it throws to
+  `lateError()` -- `handOver()` over `onError`, and nowhere if the caller gave none
+  -- so the prompt **settles exactly once with the outcome it already had**. An
+  answered prompt resolves with its answer, because a failed cleanup write is not
+  the user's answer being wrong, and a cancelled one rejects with the cancel
+  rather than with the write. Each step is separate because one that fails must
+  not skip the next: `done()` still hands the screen back when the input was not.
+  Not guarded, and left deliberately: a write that fails _before_ the answer --
+  the newline a line form writes when Enter is pressed -- is a prompt that was not
+  answered, so it rejects. What `router.stop()` skips when `disableBracketedPaste()`
+  throws -- the mouse and the hover states after it -- is the router's to order and
+  is not touched here. One dead pipe can reach `onError` more than once -- the
+  input's `stop()`, then the screen's, then the write that ends a line -- because
+  each step is reported on its own rather than de-duplicated; the prompt still
+  settles once. The line form's first question was the same hole from the other
+  side: a write that fails there threw from the executor, so the promise rejected
+  with the router still attached to a raw stdin, and it goes through `fail()` now.
 - **A table's column widths are worked out and the rest is the box model.** A
   shared column width across rows is the one thing flexbox cannot do for itself:
   each row would size its own cells and no two rows would agree. So the widths are
@@ -8257,7 +8280,21 @@ have.
   the same column short, but a glyph holding a tab is a mistake and not content, so
   it is refused where it is declared rather than measured. A chart's `format()` output
   was the same slip in `barChart()` and `lineChart()` (`5\t%` drew as `5`) and was left
-  alone with that file; SIG-686 swept it, in the SIG-664 section above. A readout of
+  alone with that file; SIG-686 swept it, in the SIG-664 section above. A numeric page
+  indicator's `format()` was the third, and SIG-685 left it as content rather than a
+  glyph: `pageIndicator(1, 3, { style: 'numeric', format: () => 'a\tb' })` drew `a`.
+  SIG-694 puts the output through `toDisplayLine()` in `slotsFor()`, where the run is
+  made, so `apply()` and `pageIndicatorView()` size what is drawn -- the single-line
+  form because the indicator is one row, as for a chart's `format()`. The sweep for the
+  rest of the callers' `format()` and label callbacks found nothing else raw: the data
+  table's `format()` goes through `tableCell()`, the slider's through its `measure()`,
+  a treemap's label through `toDisplayLine()` in `paintTreemap()`, a calendar's title
+  is a fixed-width cell it never measures, a list `label` is drawn and never measured,
+  a `short` is an answer, and the clock's `format`, the log's `timestamp`, the panel's
+  label, an outline's enumerator and a chart's crosshair `text` already go through
+  `labelLine()`, `refuseControl()` or `toDisplayText()`. A `format` that returns an
+  SGR-styled string draws its escapes as text, here and in a chart's, which is
+  unchanged by this and would be a `strip()` in both if it were ever wanted. A readout of
   only a control character other than
   a tab or a newline (a bell, a bare `ESC`) is empty by the same rule: the tree draws
   nothing for it, so it is no readout, though a standalone `attachTooltip()` strips

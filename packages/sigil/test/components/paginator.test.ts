@@ -5,6 +5,7 @@ import {
   pageBounds,
   pageCount,
   pageIndicator,
+  pageIndicatorView,
   type PageIndicatorOptions,
   paginatorState,
   paginatorView,
@@ -329,6 +330,18 @@ describe('pageIndicator()', () => {
       ).to.equal('Page 2 of 5');
     });
 
+    it('should size and draw a tab in a format as the space it is drawn as (SIG-694)', () => {
+      const format = (): string => 'a\tb';
+
+      expect(indicator(1, 3, { format, style: 'numeric' })).to.equal('a b');
+      expect(indicator(1, 3, { format, style: 'both' })).to.equal('○ ● ○ a b');
+      expect(pageIndicatorView(1, 3, { format, style: 'numeric' }).width).to.equal(3);
+    });
+
+    it('should keep a line break in a format on one row (SIG-694)', () => {
+      expect(indicator(1, 3, { format: () => 'a\nb', style: 'numeric' })).to.equal('a b');
+    });
+
     it('should say 1/1 for a result set with nothing in it', () => {
       expect(indicator(0, 0, { style: 'numeric' })).to.equal('1/1');
     });
@@ -429,6 +442,14 @@ describe('paginatorView()', () => {
     const it = drive(state);
 
     expect(it.read()).to.equal('○ ● ○');
+    it.dispose();
+  });
+
+  it('should size and draw a tab in a format as the space it is drawn as (SIG-694)', () => {
+    const state = paginatorState({ page: 1, perPage: 5, total: 15 });
+    const it = drive(state, { format: () => 'a\tb', style: 'numeric' });
+
+    expect(it.read()).to.equal('a b');
     it.dispose();
   });
 

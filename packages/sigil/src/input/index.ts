@@ -58,6 +58,7 @@ import type { Element } from '../element/index.js';
 // focus ring needs one function out of the element tree and reaching it through
 // the barrel would put the layout engine and the cascade behind this module
 import { scrollIntoView } from '../element/scroll.js';
+import { handOver } from '../signals/effect.js';
 import { State, untrack } from '../signals/index.js';
 import { raise } from '../signals/raise.js';
 // a type, which erases: the router asks a cascade one question and never imports one
@@ -833,7 +834,10 @@ export interface InputOptions {
    * given back and the error reported, which is what a frame that throws does.
    * Without it a throw is left to escape, as it always was -- a router with no
    * caller to report to has no better answer, and a prompt is not one that needs
-   * it. A handler that throws here is not caught again.
+   * it. A handler that throws here is not rethrown into the stream's listener or a
+   * timer, which have nobody to catch it: its error and the one it was given are
+   * written to stderr by the default report, once each, and the exit code is set to
+   * 1 (SIG-693).
    */
   onError?: (error: unknown) => void;
   /**
@@ -1181,8 +1185,8 @@ export function createInput(opts: InputOptions = {}): InputRouter {
    * a mouse report, a paste, a sequence's deadline, and a resize -- and from no
    * handler site inside them, which is what "at the router rather than per
    * component" comes to: one catch per entry, however many handlers the event
-   * reaches. A key a handler `feed()`s is an entry of its own, so what its handlers
-   * throw is reported there and is not rethrown through the `feed()` call.
+   * reaches. `feed()` is not an entry of its own: it reaches `route()`, so what a
+   * handler it fed throws is reported there and is not rethrown through the `feed()` call.
    *
    * @param error - What the handler threw.
    */
@@ -1190,7 +1194,10 @@ export function createInput(opts: InputOptions = {}): InputRouter {
     if (opts.onError === undefined) {
       throw error;
     }
-    opts.onError(error);
+    // `handOver()` rather than a bare call: every caller is an entry with nothing on
+    // the stack to catch what a handler that throws raises, and a `runApp()` that
+    // wraps its own is not the only caller of `createInput()` (SIG-693)
+    handOver(opts.onError, error, 'Error in input');
   };
 
   /**
