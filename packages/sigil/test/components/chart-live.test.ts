@@ -488,6 +488,14 @@ describe('BarChart', () => {
     );
   });
 
+  it('should refuse a keep that is not first or last before it reads the data', () => {
+    const read = () => {
+      throw new Error('read');
+    };
+
+    expect(() => BarChart({ data: read, keep: 'middle' as unknown as 'first' })).toThrow(TypeError);
+  });
+
   it('should refuse a keep that is not first or last', () => {
     expect(() => BarChart({ data: [], keep: 'middle' as unknown as 'first' })).toThrow(TypeError);
   });

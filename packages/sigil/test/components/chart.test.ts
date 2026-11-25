@@ -506,6 +506,14 @@ describe('barChart()', () => {
       ).to.deep.equal(['█ ▇', '0 1']);
     });
 
+    it('should take the first keys of an object in the order JavaScript lists them', () => {
+      const data = { zebra: 9, apple: 5, mango: 1 };
+
+      expect(
+        firstColumn(bars(data, { height: 2, keep: 'first', showValues: false, width: 5 }))
+      ).to.deep.equal(['z', 'a']);
+    });
+
     it('should scale over the bars it keeps', () => {
       const rows = bars(
         [1, 2, 100].map((value, i) => ({ label: String(i), value })),

@@ -5434,7 +5434,8 @@ not a view built again every tick.
   past that it shows the **latest** bars, with the scale over the bars shown too.
   `keep: 'first'` keeps the **first** bars instead, in either direction, which is
   what a list sorted largest first wants: `keep` is `'last'` by default, and an
-  unknown value throws a `TypeError`.
+  unknown value throws a `TypeError`. A ranked list is an array of `{ label, value }`
+  and not an object, whose integer-like keys JavaScript lists ascending first.
 - **`lineChart(values, { width, height, min, max, axis, format, xLabels, legend, step, fill })`**
   is braille, two dots across and four down a cell, from the same `Dots` grid the
   canvas draws with. `values` is a list of numbers, or several series as

@@ -7850,7 +7850,10 @@ and not the stack overflow that one fixed: no spread was involved.
   echo it, before the empty-data check, so `barChart([], { keep: 'middle' })` is
   not a way round it; a live chart refuses it when it is built and not on its first
   frame. `undefined` is `'last'`, as every option's is. `BarKeep` is exported
-  beside `BarDatum`.
+  beside `BarDatum`. The first keys of a record are `Object.keys()`'s, which lists
+  integer-like keys ascending before the rest whatever order they were written in
+  -- so `{ 500: 900, 404: 300, 200: 50 }` keeps `200` first -- and a ranked list is
+  an array; review found it, and the JSDoc and README say so.
 
   **A live horizontal chart in a scroll box that must show every bar needs an
   explicit `height`, and that is the answer rather than a gap.** It asks for a row a

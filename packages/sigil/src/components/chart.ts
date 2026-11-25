@@ -119,7 +119,9 @@ export interface BarChartOptions extends ChartOptions, ScaleOptions {
    * for: `last` keeps the latest bars and drops the first, as a sparkline keeps its
    * latest samples; `first` keeps the first bars and drops the rest, which is what
    * a list sorted largest first wants. The scale is over the bars shown either way.
-   * Defaults to `last`.
+   * Defaults to `last`. The first of an object is the first of its keys, which
+   * JavaScript lists integer-like keys ascending before any others: a ranked list
+   * is an array of `{ label, value }`.
    */
   keep?: BarKeep;
   /** The widest a label may be before it is cut. Defaults to its own width. */
@@ -2110,7 +2112,8 @@ export interface BarChartProps extends ChartElementProps, ScaleOptions {
   /**
    * Which end of the list is shown when the bars do not fit: `last` keeps the
    * latest and drops the first, `first` keeps the first and drops the rest, which
-   * is what a list sorted largest first wants. Defaults to `last`.
+   * is what a list sorted largest first wants. Defaults to `last`. As for
+   * `barChart()`, a ranked list is an array rather than an object.
    */
   keep?: BarKeep;
   /** The widest a label may be before it is cut. Defaults to its own width. */
