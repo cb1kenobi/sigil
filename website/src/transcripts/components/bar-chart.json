@@ -45,8 +45,7 @@
         "type": "number"
       },
       {
-        "description": "How tall a vertical chart is, in rows. Defaults to 8.",
-        "default": "8",
+        "description": "How tall a vertical chart is, in rows, which defaults to 8; and the most rows a horizontal chart is drawn in, which defaults to 1,000. A horizontal chart that has more bars than this shows the latest of them, as a vertical one does when it has more bars than columns, and the scale is over the bars shown.",
         "name": "height",
         "optional": true,
         "type": "number"

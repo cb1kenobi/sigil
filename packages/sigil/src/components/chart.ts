@@ -743,7 +743,9 @@ function barRole(datum: BarDatum, role: string | undefined): string | undefined 
  * @returns What is drawn for it.
  */
 function written(format: (value: number) => string, value: number): string {
-  return toDisplayLine(format(value));
+  // `String()` because a `format` from JavaScript may answer with the number
+  // itself, which a chart has always drawn and `toDisplayLine()` would throw on
+  return toDisplayLine(String(format(value)));
 }
 
 /**
@@ -2054,8 +2056,8 @@ export interface BarChartProps extends ChartElementProps, ScaleOptions {
   gap?: number;
   /**
    * The rows asked for where the layout does not decide: the bars' own for a
-   * vertical chart, which defaults to 8, and a row a bar for a horizontal one,
-   * which is never more than 1,000. Bars that do not fit the rows the layout gave
+   * vertical chart, which defaults to 8, and a row a bar for a horizontal one, up
+   * to 1,000 when this is not given. Bars that do not fit the rows the layout gave
    * are dropped from the top, so a horizontal chart shows its latest bars too.
    */
   height?: number;

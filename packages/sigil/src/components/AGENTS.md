@@ -7791,10 +7791,16 @@ and not the stack overflow that one fixed: no spread was involved.
   printed chart is not clipped to a screen's height, since it scrolls, and a chart
   of 300 bars printed through a pipe has always been 300 rows. 1,000 changes no
   chart anybody reads and bounds the one nobody can; a caller who wants more
-  passes `height`, which is not capped. The live `BarChart` asks for a row a bar up
+  passes `height`, which is not capped (a finite one: `Infinity` is not a number
+  of rows to `count()` and reads as none). The live `BarChart` asks for a row a bar up
   to `MOST_ROWS`, and the layout's own height is what it draws at, so a host shorter
   than its bars now shows the latest of them where it used to draw all and have the
-  rest clipped from the bottom. Measured before the change, 2,000 bars drew in 871
+  rest clipped from the bottom. Two costs of that, taken knowingly: a
+  live chart of more than 1,000 bars in a scroll box asks for 1,000 rows, so the
+  oldest are not reachable by scrolling unless `height` is given, which is a number
+  and cannot follow live data; and "latest" drops the **first** bars, which in a top-N
+  list are the ones that matter -- an app that wants those slices its data itself,
+  as the vertical rule already says. Measured before the change, 2,000 bars drew in 871
   ms, 8,000 in 2.6 s and 32,000 in 10 s -- about 0.3 ms a bar, so 200,000 ran past
   100 s -- and 200,000 bars after it are 1,000 rows, in 0.4 s and 14 MB.
   `should cost the same to draw 128,000 bars as 16,000` has a horizontal twin, and
@@ -7808,7 +7814,9 @@ and not the stack overflow that one fixed: no spread was involved.
   `written()`, which is `toDisplayLine()` of `format(value)`: the element layer's one
   definition, and its single-line form because a value is a cell of one row and
   a line break in it would push every row after it down by one, which is what
-  `toDisplayLine()` was written for. It is applied where the string is made, in
+  `toDisplayLine()` was written for. It reads `String()` of what `format()` answered, so a
+  `format` from JavaScript that returns the number itself still draws it, as it always
+  did. It is applied where the string is made, in
   `horizontalBars()`, `naturalColumn()`, `verticalBars()` and the line chart's
   ticks, so everything after -- `pad()`, `truncate()`, the widths -- reads a string
   that is what is drawn. `segmentNode()`'s width and `viewOf()`'s are measured through
