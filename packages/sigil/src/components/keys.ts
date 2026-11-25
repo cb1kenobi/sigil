@@ -642,7 +642,7 @@ export function hasStringEnd(input: string, from: number): boolean {
  * than a pattern of its own: two readers of one table cannot disagree about which
  * tail a reply is. `ESC ]` alone and `ESC ]` then a letter are Alt-] and are not.
  *
- * @param input - The start of what is held. Only its first few bytes are read.
+ * @param input - The start of what is held. Only the run of `ESC` and the two bytes after it are read.
  * @returns Whether it is unmistakably the start of a reply.
  */
 export function isReplyOnItsFace(input: string): boolean {

@@ -882,6 +882,31 @@ describe('a reply that arrives late and split mid-payload (SIG-403)', () => {
     }
   );
 
+  // an unterminated string absorbs every byte after it, so a wait renewed by each
+  // read was held open by ordinary typing and swallowed it, Ctrl-C included
+  it('should not let typing renew the wait on a reply whose end never comes', async () => {
+    vi.useFakeTimers();
+    try {
+      const { feed, router, seen } = await afterAnUnansweredProbe();
+
+      feed(`${ESC}]11;rgb:11`);
+      for (const ch of 'he') {
+        await vi.advanceTimersByTimeAsync(100);
+        feed(ch);
+      }
+      expect(seen, 'flushed early').toEqual([]);
+      await vi.advanceTimersByTimeAsync(QUERY_TIMEOUT - 200);
+
+      expect(seen).toEqual([`${ESC}]11;rgb:11he`]);
+      feed('\u0003');
+      expect(seen.at(-1)).toBe('\u0003');
+      expect(vi.getTimerCount()).to.equal(0);
+      router.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // the same reply, split while the probe was still open and finishing before its
   // second half came, is the other way to the same tail
   it('should hold a reply the probe deadline caught half way on the query deadline too', async () => {

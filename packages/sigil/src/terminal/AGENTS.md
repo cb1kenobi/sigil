@@ -327,10 +327,15 @@ is the vocabulary and the probe, the framing that makes a reply recognisable is
   that put a held tail on the key timer with nothing outstanding -- `armExpiry()`
   and the settling of the last query -- because a reply the deadline caught half way
   is the same tail. What a tail that never completes costs is one 250 ms hold
-  before it is flushed as it was, so input is never wedged behind a dead reply.
-  What it does not close: `ESC ]` then a digit **typed** (Alt-] then `1` in one
-  read) is held a quarter of a second rather than a twentieth, which is as far as
-  "nobody types it" goes. `settleKeys()` still sees such a tail as held -- its probe
+  before it is flushed as it was, **counted from the first wait and not renewed by
+  each read** (review round 1): an unterminated string absorbs every byte after it
+  and is exempt from `HELD_LIMIT`, so a deadline that every read restarted was held
+  open by ordinary typing -- measured, 1,664 ms of `hello^Cworld` at 150 ms gaps
+  reached no handler, Ctrl-C included, until a 300 ms pause. At fifty milliseconds
+  nobody could sustain that, which is why the key deadline restarts safely and this
+  one does not. What it does not close: `ESC ]` or `ESC P` then a digit (or `>`)
+  **typed** (Alt-] then `1` in one read) is held a quarter of a second rather than
+  a twentieth, which is as far as "nobody types it" goes. `settleKeys()` still sees such a tail as held -- its probe
   asks `held`, not a timer -- and so waits out the longer deadline, on a real clock.
 - **A satisfied query is settled at the end of the chunk, not in the middle of
   it.** The sentinel is written last so its reply normally arrives last -- but a

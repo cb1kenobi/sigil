@@ -2290,6 +2290,8 @@ export function createInput(opts: InputOptions = {}): InputRouter {
    * `strings` option it was read with, since a different one is a different reading.
    */
   let heldString: { strings: boolean } | undefined;
+  /** When `held` began waiting on `QUERY_TIMEOUT` with no query outstanding, if it is. */
+  let replyHeldAt: number | undefined;
   /** The paste being held, as the reads it arrived in, joined once at the end. */
   let pasting: string[] | undefined;
   /** The last few characters of `pasting`, which is all an end marker can straddle. */
@@ -2555,6 +2557,10 @@ export function createInput(opts: InputOptions = {}): InputRouter {
   function keys(input: string, final = false): void {
     clearTimeout(timer);
     timer = undefined;
+    // nothing held, so no reply is being waited on: the next one's wait is its own
+    if (held === '') {
+      replyHeldAt = undefined;
+    }
 
     // the same options to both, which is the whole reason `pendingLength()`
     // exists: two readers of one chunk that disagree about where the last key
@@ -2692,14 +2698,25 @@ export function createInput(opts: InputOptions = {}): InputRouter {
    * half into somebody's answer (SIG-403). What qualifies is what the decoder
    * claims as a control string with nothing outstanding: `ESC ]` and a digit, or
    * `ESC P` and `>` or a digit, behind any run of `ESC`. Nobody types those, so
-   * the longer wait is no Escape held back. `ESC ]` alone, or followed by
+   * the longer wait is no Escape held back, bar `ESC ]` or `ESC P` and a digit
+   * typed straight after an Alt key, which waits the one deadline. `ESC ]` alone, or followed by
    * anything else, is Alt-] and keeps fifty milliseconds, which is the recorded
    * refusal of a grace period after a probe still standing for keys.
    *
    * @param tail - What is held.
    */
   function expiryFor(tail: string): number {
-    return isReplyOnItsFace(tail) ? QUERY_TIMEOUT : ESCAPE_TIMEOUT;
+    if (!isReplyOnItsFace(tail)) {
+      return ESCAPE_TIMEOUT;
+    }
+    // counted from when the tail was first waited on and not from the last read,
+    // which `keys()` restarts: an unterminated string absorbs every byte after it
+    // and is exempt from `HELD_LIMIT`, so a deadline renewed by each read would be
+    // held open by ordinary typing and swallow it, Ctrl-C included, until a pause
+    // of the full deadline. The wait is bounded; what arrives meanwhile is in the
+    // flushed string, which is the cost of a reply that never ended
+    replyHeldAt ??= Date.now();
+    return Math.max(0, QUERY_TIMEOUT - (Date.now() - replyHeldAt));
   }
 
   /** Nothing followed it, so what is held is a key rather than a beginning. */
@@ -3331,6 +3348,8 @@ export function createInput(opts: InputOptions = {}): InputRouter {
             // always was. Armed rather than flushed here, because flushing
             // would dispatch keys from inside the handling of a reply
             if (pending.size === 0 && held !== '' && timer === undefined) {
+              // the wait on a reply starts when nothing else was waiting on it
+              replyHeldAt = undefined;
               timer = setTimeout(timed(expire), expiryFor(held));
             }
             resolve(it.replies);
