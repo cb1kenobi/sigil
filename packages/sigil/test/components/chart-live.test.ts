@@ -446,6 +446,60 @@ describe('BarChart', () => {
     ]);
   });
 
+  // SIG-689: the latest bars were the only ones a host could show, so a list sorted
+  // largest first lost its largest ones
+  it('should show the first bars that fit the height the layout gave it, where asked', () => {
+    const data = Array.from({ length: 200_000 }, (_, i) => ({
+      label: String(i % 10),
+      value: 10 - (i % 10),
+    }));
+    const chart = BarChart({ ascii: false, data, keep: 'first', showValues: false });
+
+    expect(picture(column(3, chart), 9, 3).map((line) => line.slice(0, 1))).toEqual([
+      '0',
+      '1',
+      '2',
+    ]);
+  });
+
+  it('should show the first bars that fit the width the layout gave it, where asked', () => {
+    const data = Array.from({ length: 200_000 }, (_, i) => ({
+      label: String(i % 10),
+      value: 10 - (i % 10),
+    }));
+    const chart = BarChart({
+      ascii: false,
+      data,
+      direction: 'vertical',
+      keep: 'first',
+      showValues: false,
+    });
+
+    expect(picture(column(3, chart), 9, 3).at(-1)).toBe('0 1 2 3 4');
+  });
+
+  it('should show every bar of more than 1,000 in a host that has the rows, given a height', () => {
+    const data = Array.from({ length: 1500 }, (_, i) => ({ label: 'x', value: i % 7 }));
+    const chart = BarChart({ ascii: false, data, height: 1500, showValues: false });
+
+    expect(chart.children[1]?.children.length).toBe(1500);
+    expect(BarChart({ ascii: false, data, showValues: false }).children[1]?.children.length).toBe(
+      1000
+    );
+  });
+
+  it('should refuse a keep that is not first or last before it reads the data', () => {
+    const read = () => {
+      throw new Error('read');
+    };
+
+    expect(() => BarChart({ data: read, keep: 'middle' as unknown as 'first' })).toThrow(TypeError);
+  });
+
+  it('should refuse a keep that is not first or last', () => {
+    expect(() => BarChart({ data: [], keep: 'middle' as unknown as 'first' })).toThrow(TypeError);
+  });
+
   it('should ask for no more rows than it will draw before the layout has said', () => {
     const data = Array.from({ length: 200_000 }, (_, i) => ({ label: 'x', value: i % 7 }));
     const chart = BarChart({ ascii: false, data, showValues: false });

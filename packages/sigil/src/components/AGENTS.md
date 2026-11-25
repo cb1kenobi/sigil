@@ -7834,8 +7834,8 @@ and not the stack overflow that one fixed: no spread was involved.
   downsampling helper in this module to follow: `step: 'fit'` spreads every sample
   and draws all of them. Bars are labelled categories and not a series, so
   "latest" is the end of the list as it was written, which is a choice and not a
-  fact about the data; an app that wants the biggest bars sorts and slices them
-  itself.
+  fact about the data, and it is the default rather than the only answer: `keep:
+  'first'` is the other (SIG-689, below).
 - **A `barWidth` that was written down is kept, and it is the count that gives
   way.** It is cut only to the chart's own width, so one bar is never wider than the
   chart. The live chart's own sharing-out passes the column it worked out as a
@@ -7845,7 +7845,7 @@ and not the stack overflow that one fixed: no spread was involved.
   and a bar that is not on the screen deciding how tall the ones that are come out.
   `min` and `max` still say otherwise.
 - **Nothing is built per bar that is not drawn.** `barsOf()` is a handle on the
-  data -- its length and its last `n` -- so a list is sliced and a record's
+  data -- its length and `n` bars from one end -- so a list is sliced and a record's
   entries are made for the bars shown rather than all of them
   (`Object.entries` was an object and an array per bar). A drawing's cost is
   `width * height` whatever the number of bars; `should cost the same to draw
@@ -7879,7 +7879,7 @@ and not the stack overflow that one fixed: no spread was involved.
   handle, so a list is sliced and a record's entries are made for the rows shown
   only. `fitBars()` was not generalized to it: it is the arithmetic of sharing a
   width out between columns, and a row has nothing to share -- one row a bar -- so
-  what the two have in common is `Bars.last()` and no more. **What bounds it when
+  what the two have in common is `Bars.take()` and no more. **What bounds it when
   nothing says is `MOST_ROWS`, 1,000, a constant.** It mirrors `MOST_COLUMNS`
   without reading the terminal, for a different reason than the live ask's: a
   printed chart is not clipped to a screen's height, since it scrolls, and a chart
@@ -7893,14 +7893,48 @@ and not the stack overflow that one fixed: no spread was involved.
   live chart of more than 1,000 bars in a scroll box asks for 1,000 rows, so the
   oldest are not reachable by scrolling unless `height` is given, which is a number
   and cannot follow live data; and "latest" drops the **first** bars, which in a top-N
-  list are the ones that matter -- an app that wants those slices its data itself,
-  as the vertical rule already says. Measured before the change, 2,000 bars drew in 871
+  list are the ones that matter -- both costs are answered under SIG-689 below.
+  Measured before the change, 2,000 bars drew in 871
   ms, 8,000 in 2.6 s and 32,000 in 10 s -- about 0.3 ms a bar, so 200,000 ran past
   100 s -- and 200,000 bars after it are 1,000 rows, in 0.4 s and 14 MB.
   `should cost the same to draw 128,000 bars as 16,000` has a horizontal twin, and
   `should not ask the caller to format a bar that is not drawn` counts the calls
   to `format()`, which is what "nothing is built for a row that is not drawn"
   looks like from outside.
+- **`keep: 'first' | 'last'` says which end of the bars a chart shows when it
+  cannot show them all, which is SIG-689.** The latest-bars rule above is right for
+  a series and wrong for a list sorted largest first, where the end is the
+  least: a top-N chart that did not fit lost its top. Chris decided on an option
+  over slicing the data in the app, and on both bar charts -- horizontal and
+  vertical, printed (`barChart()`, `barChartView()`) and live (`BarChart`) -- so it is one
+  definition and not four. It is the second argument of `Bars.take(count, keep)`,
+  which replaced `Bars.last(count)`, and `fitBars()` passes it through; the
+  horizontal rows and the vertical columns each ask `take()` and nothing else decides
+  which bars. A list is sliced from the front and a record's keys are the first
+  `count` of its keys, so neither builds an object per bar it does not draw, from
+  either end (`should not ask the caller to format a bar it did not keep, from either
+  end` counts `format()` at 200,000 bars). **The default is `'last'`, which is what
+  drew before**, so no chart that was drawn changes. **The scale and the label and
+  value widths are over the bars kept**, as they were over the latest. `keep` is
+  read with `keepOf()` -- one function, where a printed chart's `barDrawing()` and a live
+  `BarChart()` both ask -- and an unknown value throws a `TypeError` that does not
+  echo it, before the empty-data check, so `barChart([], { keep: 'middle' })` is
+  not a way round it; a live chart refuses it when it is built and not on its first
+  frame. `undefined` is `'last'`, as every option's is. `BarKeep` is exported
+  beside `BarDatum`. The first keys of a record are `Object.keys()`'s, which lists
+  integer-like keys ascending before the rest whatever order they were written in
+  -- so `{ 500: 900, 404: 300, 200: 50 }` keeps `200` first -- and a ranked list is
+  an array; review found it, and the JSDoc and README say so.
+
+  **A live horizontal chart in a scroll box that must show every bar needs an
+  explicit `height`, and that is the answer rather than a gap.** It asks for a row a
+  bar up to `MOST_ROWS` and no more, and `height` is a number, so a list that grows
+  past 1,000 is shown as its latest (or first) 1,000 unless the app gives a
+  height that covers it. A mechanism that followed live data was refused for the
+  reason SIG-684 bounded the ask: a chart that asks for as many rows as it has bars
+  is the 200,000-row chart again. The README's `BarChart` entry and the `height`
+  JSDoc say so.
+
 - **A chart's `format()` is measured as it is drawn, which is SIG-686.** A tab in
   what `format()` wrote was drawn as a space and measured as nothing, so
   `v => v + '\t%'` made a value column one cell narrower than the `5 %` in it and a

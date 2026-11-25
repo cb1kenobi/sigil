@@ -6,6 +6,7 @@ export {
   barChartView,
   type BarData,
   type BarDatum,
+  type BarKeep,
   type ChartElementProps,
   type ChartOptions,
   type ChartRole,

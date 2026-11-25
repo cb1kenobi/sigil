@@ -448,6 +448,138 @@ describe('barChart()', () => {
   // SIG-684: a horizontal chart is a row a bar, and nothing said how many rows it
   // had -- so 200,000 bars were 200,000 rows, as a vertical chart's were 400,000
   // columns before SIG-664
+  // SIG-689: a chart kept the latest bars whatever it was asked, so a list sorted
+  // largest first lost its largest ones when it did not fit
+  describe('keep', () => {
+    const ranked = (n: number): { label: string; value: number }[] =>
+      Array.from({ length: n }, (_, i) => ({ label: String(i), value: n - i }));
+    const firstColumn = (rows: string[]): string[] => rows.map((row) => row.slice(0, 1));
+
+    it('should keep the first bars of a horizontal chart that does not fit, where asked', () => {
+      const rows = bars(ranked(10), { height: 3, keep: 'first', showValues: false, width: 8 });
+
+      expect(firstColumn(rows)).to.deep.equal(['0', '1', '2']);
+    });
+
+    it('should keep the first bars of a vertical chart that does not fit, where asked', () => {
+      const rows = bars(ranked(10), {
+        direction: 'vertical',
+        height: 1,
+        keep: 'first',
+        showValues: false,
+        width: 9,
+      });
+
+      expect(rows).to.deep.equal(['█ ▇ ▆ ▆ ▅', '0 1 2 3 4']);
+    });
+
+    it('should keep the first bars at a barWidth that was asked for, and with a gap of none', () => {
+      const wide = bars(ranked(5), {
+        barWidth: 3,
+        direction: 'vertical',
+        height: 1,
+        keep: 'first',
+        showValues: false,
+        width: 11,
+      });
+      const tight = bars(ranked(10), {
+        direction: 'vertical',
+        gap: 0,
+        height: 1,
+        keep: 'first',
+        showValues: false,
+        width: 4,
+      });
+
+      expect(wide).to.deep.equal(['███ ▆▆▆ ▅▅▅', ' 0   1   2']);
+      expect(tight).to.deep.equal(['█▇▆▆', '0123']);
+    });
+
+    it('should keep the first keys of an object', () => {
+      const data = Object.fromEntries(ranked(10).map((d) => [d.label, d.value]));
+
+      expect(
+        firstColumn(bars(data, { height: 2, keep: 'first', showValues: false, width: 5 }))
+      ).to.deep.equal(['0', '1']);
+      expect(
+        bars(data, { direction: 'vertical', height: 1, keep: 'first', showValues: false, width: 3 })
+      ).to.deep.equal(['█ ▇', '0 1']);
+    });
+
+    it('should take the first keys of an object in the order JavaScript lists them', () => {
+      const data = { zebra: 9, apple: 5, mango: 1 };
+
+      expect(
+        firstColumn(bars(data, { height: 2, keep: 'first', showValues: false, width: 5 }))
+      ).to.deep.equal(['z', 'a']);
+    });
+
+    it('should scale over the bars it keeps', () => {
+      const rows = bars(
+        [1, 2, 100].map((value, i) => ({ label: String(i), value })),
+        { height: 2, keep: 'first', min: 0, showValues: false, width: 6 }
+      );
+
+      // the 100 is not shown, so the 2 is the longest
+      expect(rows).to.deep.equal(['0 ██', '1 ████']);
+    });
+
+    it('should keep the latest where it is not asked, and where it is asked for by name', () => {
+      const opts = { height: 3, showValues: false, width: 8 };
+
+      expect(firstColumn(bars(ranked(10), opts))).to.deep.equal(['7', '8', '9']);
+      expect(firstColumn(bars(ranked(10), { ...opts, keep: 'last' }))).to.deep.equal([
+        '7',
+        '8',
+        '9',
+      ]);
+      expect(firstColumn(bars(ranked(10), { ...opts, keep: undefined }))).to.deep.equal([
+        '7',
+        '8',
+        '9',
+      ]);
+    });
+
+    it('should draw every bar either way when they all fit', () => {
+      const opts = { height: 9, showValues: false, width: 8 };
+
+      expect(bars(ranked(3), { ...opts, keep: 'first' })).to.deep.equal(bars(ranked(3), opts));
+    });
+
+    it('should not ask the caller to format a bar it did not keep, from either end', () => {
+      const data = Array.from({ length: 200_000 }, (_, i) => ({ label: 'x', value: i % 7 }));
+      let calls = 0;
+      const format = (value: number): string => {
+        calls++;
+        return String(value);
+      };
+      barChart(data, { ...plain, format, height: 3, keep: 'first', width: 20 });
+
+      expect(calls).to.equal(3);
+    });
+
+    it('should build the same rows through barChartView()', () => {
+      const { element } = barChartView(ranked(10), {
+        ...plain,
+        height: 3,
+        keep: 'first',
+        width: 20,
+      });
+
+      expect(element.children.length).to.equal(3);
+    });
+
+    it('should refuse a keep that is not first or last, in either form', () => {
+      for (const keep of ['middle', 'FIRST', '', 1, null]) {
+        const opts = { ...plain, keep } as unknown as BarChartOptions;
+
+        expect(() => barChart(ranked(3), opts)).to.throw(TypeError, "keep to be 'first' or 'last'");
+        expect(() => barChartView(ranked(3), opts)).to.throw(TypeError, 'keep');
+        expect(() => barChart([], opts)).to.throw(TypeError, 'keep');
+      }
+    });
+  });
+
   describe('horizontal, fitted to its height', () => {
     const digits = (n: number, from = 0): { label: string; value: number }[] =>
       Array.from({ length: n }, (_, i) => ({ label: String(from + i), value: from + i + 1 }));

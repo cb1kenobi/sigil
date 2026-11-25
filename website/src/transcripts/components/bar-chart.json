@@ -45,10 +45,17 @@
         "type": "number"
       },
       {
-        "description": "How tall a vertical chart is, in rows, which defaults to 8; and the most rows a horizontal chart is drawn in, which defaults to 1,000. A horizontal chart that has more bars than this shows the latest of them, as a vertical one does when it has more bars than columns, and the scale is over the bars shown.",
+        "description": "How tall a vertical chart is, in rows, which defaults to 8; and the most rows a horizontal chart is drawn in, which defaults to 1,000. A horizontal chart that has more bars than this shows some of them, as a vertical one does when it has more bars than columns -- the latest, unless `keep` says the first -- and the scale is over the bars shown.",
         "name": "height",
         "optional": true,
         "type": "number"
+      },
+      {
+        "description": "Which end of the list is shown when the chart has more bars than it has room for: `last` keeps the latest bars and drops the first, as a sparkline keeps its latest samples; `first` keeps the first bars and drops the rest, which is what a list sorted largest first wants. The scale is over the bars shown either way. Defaults to `last`. The first of an object is the first of its keys, which JavaScript lists integer-like keys ascending before any others: a ranked list is an array of `{ label, value }`.",
+        "default": "`last`",
+        "name": "keep",
+        "optional": true,
+        "type": "BarKeep"
       },
       {
         "description": "The widest a label may be before it is cut. Defaults to its own width.",
@@ -93,7 +100,7 @@
         "type": "boolean"
       },
       {
-        "description": "The widest the chart may be. Defaults to `terminalWidth()` for a horizontal chart, and to the terminal's own width for a vertical one. A vertical chart that has more bars than this has columns for shows the latest of them, as a sparkline shows its latest samples: bars are narrowed to fit first, down to a column each, and only then dropped from the left.",
+        "description": "The widest the chart may be. Defaults to `terminalWidth()` for a horizontal chart, and to the terminal's own width for a vertical one. A vertical chart that has more bars than this has columns for shows the latest of them, as a sparkline shows its latest samples -- or the first, with `keep: 'first'`: bars are narrowed to fit first, down to a column each, and only then dropped from the left, or from the right.",
         "default": "`terminalWidth()` for a horizontal chart",
         "name": "width",
         "optional": true,
