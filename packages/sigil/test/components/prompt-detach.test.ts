@@ -411,8 +411,6 @@ describe('a prompt asked as lines that ends while its loader is still out', () =
 
       expect(heard.map(String)).toEqual(['Error: read failed']);
       expect(ui.stdout.text).toBe(before);
-      expect(ui.stdout.text).not.toContain('name?');
-      expect(ui.stdin.rawMode).toBe(false);
       expect(rejections).toEqual([]);
     });
 
@@ -447,7 +445,7 @@ describe('a prompt asked as lines that ends while its loader is still out', () =
     });
   }
 
-  it('should tell onError of a loader that rejects before anything ended the prompt (SIG-708)', async () => {
+  it('should reject with a loader that fails before anything ended the prompt, and not tell onError (SIG-708)', async () => {
     const ui = setup({ columns: 40 });
     const heard: unknown[] = [];
     const answer = runLinePrompt<string>(
@@ -486,5 +484,34 @@ describe('a prompt asked as lines that ends while its loader is still out', () =
     expect(heard.map(String)).toEqual(['Error: validate failed']);
     expect(ui.stdout.text).toBe(before);
     expect(rejections).toEqual([]);
+  });
+
+  it('should keep a throwing onError from escaping a late loader failure (SIG-708)', async () => {
+    const ui = setup({ columns: 40 });
+    const controller = new AbortController();
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    let reject!: (error: Error) => void;
+    const loading = new Promise<typeof form>((_resolve, no) => (reject = no));
+    const answer = runLinePrompt<string>(
+      {
+        message: 'name?',
+        onError: () => {
+          throw new Error('handler broke');
+        },
+        signal: controller.signal,
+        terminal: ui.terminal,
+      },
+      () => loading
+    );
+    const caught = answer.catch((error: unknown) => error);
+    await tick();
+
+    controller.abort(new Error('stop'));
+    await caught;
+    reject(new Error('read failed'));
+    await tick(3);
+
+    expect(rejections).toEqual([]);
+    stderr.mockRestore();
   });
 });

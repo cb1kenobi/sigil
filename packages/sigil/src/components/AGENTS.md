@@ -1930,7 +1930,7 @@ decided once, for all of them. The runs and the sabotage passes are in
   arrives before to `fail()`, as the drawn prompt's `report()` always did. The key
   chain had the same hole by the same line: a `validate` that rejects after Ctrl-C
   was dropped as well. A loader that _resolves_ after the end writes nothing and
-  reports nothing, which the `!settled` check in the `then` already did. Pinned in
+  reports nothing, which the `!settled` check in the `then` already did. A late rejection that is the abort reason itself -- a `validate` that passes the signal on -- reaches `onError` as well as the caller, as the drawn prompt's `report()` already did; it is not de-duplicated. Pinned in
   `test/components/prompt-detach.test.ts`.
 - **A table's column widths are worked out and the rest is the box model.** A
   shared column width across rows is the one thing flexbox cannot do for itself:
