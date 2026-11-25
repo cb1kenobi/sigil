@@ -1871,10 +1871,33 @@ decided once, for all of them. The runs and the sabotage passes are in
   resolved and an unhandled rejection followed, with `onError` heard three times
   for one failed frame. `report()` hands it to `handOver()` now, the signals
   layer's rule that a handler's own throw goes no further, with `Error in prompt`
-  as the lead. The answer is still the answer. Not fixed by it, and measured while
-  looking: a write that fails inside `detach()` -- the router's `stop()` writes
-  the bracketed-paste reset -- throws out of `succeed()` before its `try`, so the
-  prompt never settles, and out of `.catch(report)` again as a rejection.
+  as the lead. The answer is still the answer. **A write that fails while the
+  prompt gives its input back is the same rule, one step earlier (SIG-692).** The
+  router's `stop()` writes the bracketed-paste reset, and `detach()` ran ahead of
+  the `try` in `succeed()` that resolves, so a terminal that had gone left the
+  caller awaiting an answer it had been given, with the throw coming out of
+  `.catch(report)` as a rejection -- measured on all six ways out of a prompt, not
+  only the answer: a cancel, an abort and the end of input threw out of `fail()`
+  ahead of `reject()` as well, into an abort listener and a stream's `end` emit
+  with nothing to catch them, and the line form (`accessible`) had the same shape
+  in `end()` and in the line that says an answer. Every step of giving a prompt up
+  is guarded on its own now, by `release()`, which hands what it throws to
+  `lateError()` -- `handOver()` over `onError`, and nowhere if the caller gave none
+  -- so the prompt **settles exactly once with the outcome it already had**. An
+  answered prompt resolves with its answer, because a failed cleanup write is not
+  the user's answer being wrong, and a cancelled one rejects with the cancel
+  rather than with the write. Each step is separate because one that fails must
+  not skip the next: `done()` still hands the screen back when the input was not.
+  Not guarded, and left deliberately: a write that fails _before_ the answer --
+  the newline a line form writes when Enter is pressed -- is a prompt that was not
+  answered, so it rejects. What `router.stop()` skips when `disableBracketedPaste()`
+  throws -- the mouse and the hover states after it -- is the router's to order and
+  is not touched here. One dead pipe can reach `onError` more than once -- the
+  input's `stop()`, then the screen's, then the write that ends a line -- because
+  each step is reported on its own rather than de-duplicated; the prompt still
+  settles once. The line form's first question was the same hole from the other
+  side: a write that fails there threw from the executor, so the promise rejected
+  with the router still attached to a raw stdin, and it goes through `fail()` now.
 - **A table's column widths are worked out and the rest is the box model.** A
   shared column width across rows is the one thing flexbox cannot do for itself:
   each row would size its own cells and no two rows would agree. So the widths are
