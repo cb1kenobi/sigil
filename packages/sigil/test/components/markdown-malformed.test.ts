@@ -26,7 +26,9 @@ import { describe, expect, it } from 'vitest';
  * The measurement is `growthOf()` in `test/growth.ts`, which the highlighter's
  * linear-time check shares (SIG-649): CPU time where the platform reports it, a
  * span of clock rather than a floor for the small side, and the best of seven with
- * the two sides taking turns. This file used to read the wall clock and count a
+ * the two sides taking turns, and more of them while the ratio is over {@link LIMIT}
+ * (SIG-681): on a runner without a fine CPU clock a stall costs a long read its
+ * whole wait, and `]` followed by `(`, repeated, read 25.07 on one. This file used to read the wall clock and count a
  * side under two milliseconds as two.
  *
  * The two tests that draw (SIG-423) count calls to an element's `measure` instead
@@ -43,9 +45,17 @@ import { describe, expect, it } from 'vitest';
  */
 const SPAN = 1;
 
+/**
+ * The ratio a read has to come in under, and what `growthOf()` samples towards:
+ * it goes on reading past seven runs while the best is not under it (SIG-681), so
+ * that a stall on a loaded runner is read again rather than failed. A ratio that
+ * stays over it after that is the read's own.
+ */
+const LIMIT = 24;
+
 /** How much more a document eight times the size costs to read. */
 function growth(make: (size: number) => string, size: number): number {
-  return growthOf(parseMarkdown, make(size), make(size * 8), 8, make(12).slice(0, 12), SPAN);
+  return growthOf(parseMarkdown, make(size), make(size * 8), 8, make(12).slice(0, 12), SPAN, LIMIT);
 }
 
 /**
@@ -150,26 +160,28 @@ const K = 1024;
 describe('parseMarkdown() on malformed input', { timeout: BUDGET }, () => {
   describe('a long run of spaces', () => {
     it('should read spaces before a line end in linear time, which was a backtracking pattern', () => {
-      expect(growth((n) => `a${' '.repeat(n)}b\nc`, 16 * K)).toBeLessThan(24);
+      expect(growth((n) => `a${' '.repeat(n)}b\nc`, 16 * K)).toBeLessThan(LIMIT);
     });
 
     it('should read a heading with spaces in it in linear time', () => {
-      expect(growth((n) => `# a${' '.repeat(n)}b`, 16 * K)).toBeLessThan(24);
+      expect(growth((n) => `# a${' '.repeat(n)}b`, 16 * K)).toBeLessThan(LIMIT);
     });
 
     it('should read a table delimiter row with spaces after it in linear time', () => {
-      expect(growth((n) => `a|b\n---${' '.repeat(n)}x`, 8 * K)).toBeLessThan(24);
+      expect(growth((n) => `a|b\n---${' '.repeat(n)}x`, 8 * K)).toBeLessThan(LIMIT);
     });
 
     it('should read a line with a line separator after its spaces in linear time', () => {
       for (const lead of ['- ', '[^a]: ']) {
-        expect(growth((n) => `${lead}${' '.repeat(n)}a${LINE_SEPARATOR}`, 2 * K)).toBeLessThan(24);
+        expect(growth((n) => `${lead}${' '.repeat(n)}a${LINE_SEPARATOR}`, 2 * K)).toBeLessThan(
+          LIMIT
+        );
       }
       // the heading was cubic, and a synchronous parse cannot be timed out: at
       // 16 KB the old cost was hours, so a regression would hang the suite rather
       // than fail it. At 4 KB it is fifteen seconds a run, which still fails
-      expect(growth((n) => `#${' '.repeat(n)}a${LINE_SEPARATOR}`, 512)).toBeLessThan(24);
-      expect(growth((n) => `${'`'.repeat(n)}${LINE_SEPARATOR}`, 4 * K)).toBeLessThan(24);
+      expect(growth((n) => `#${' '.repeat(n)}a${LINE_SEPARATOR}`, 512)).toBeLessThan(LIMIT);
+      expect(growth((n) => `${'`'.repeat(n)}${LINE_SEPARATOR}`, 4 * K)).toBeLessThan(LIMIT);
     });
 
     it('should still take a hard break from two spaces, and only from spaces', () => {
@@ -199,14 +211,14 @@ describe('parseMarkdown() on malformed input', { timeout: BUDGET }, () => {
 
   describe('a link that never closes', () => {
     it('should not scan to the end for every `](` whose parentheses never balance', () => {
-      expect(growth((n) => '[]('.repeat(n / 3), 3 * K)).toBeLessThan(24);
-      expect(growth((n) => '[a]('.repeat(n / 4), 4 * K)).toBeLessThan(24);
-      expect(growth((n) => '![a]('.repeat(n / 5), 4 * K)).toBeLessThan(24);
-      expect(growth((n) => '[a](b'.repeat(n / 5), 4 * K)).toBeLessThan(24);
+      expect(growth((n) => '[]('.repeat(n / 3), 3 * K)).toBeLessThan(LIMIT);
+      expect(growth((n) => '[a]('.repeat(n / 4), 4 * K)).toBeLessThan(LIMIT);
+      expect(growth((n) => '![a]('.repeat(n / 5), 4 * K)).toBeLessThan(LIMIT);
+      expect(growth((n) => '[a](b'.repeat(n / 5), 4 * K)).toBeLessThan(LIMIT);
     });
 
     it('should not scan to the end for every title that never closes', () => {
-      expect(growth((n) => '[a](b ('.repeat(n / 7), 16 * K)).toBeLessThan(24);
+      expect(growth((n) => '[a](b ('.repeat(n / 7), 16 * K)).toBeLessThan(LIMIT);
     });
 
     it('should read a destination nested 32 deep, and not one nested 33 deep, as cmark does', () => {
@@ -227,17 +239,17 @@ describe('parseMarkdown() on malformed input', { timeout: BUDGET }, () => {
 
   describe('a `]`', () => {
     it('should not walk back over every token for a `]` with no `[`', () => {
-      expect(growth((n) => ']'.repeat(n), 16 * K)).toBeLessThan(24);
-      expect(growth((n) => ']('.repeat(n / 2), 10 * K)).toBeLessThan(24);
+      expect(growth((n) => ']'.repeat(n), 16 * K)).toBeLessThan(LIMIT);
+      expect(growth((n) => ']('.repeat(n / 2), 10 * K)).toBeLessThan(LIMIT);
     });
 
     it('should not put out every earlier bracket once per link', () => {
-      expect(growth((n) => '[a](b) '.repeat(n / 7), 16 * K)).toBeLessThan(24);
-      expect(growth((n) => '[a](b)['.repeat(n / 7), 8 * K)).toBeLessThan(24);
+      expect(growth((n) => '[a](b) '.repeat(n / 7), 16 * K)).toBeLessThan(LIMIT);
+      expect(growth((n) => '[a](b)['.repeat(n / 7), 8 * K)).toBeLessThan(LIMIT);
     });
 
     it('should not normalize every label of nested brackets', () => {
-      expect(growth((n) => '['.repeat(n / 2) + ']'.repeat(n / 2), 4 * K)).toBeLessThan(24);
+      expect(growth((n) => '['.repeat(n / 2) + ']'.repeat(n / 2), 4 * K)).toBeLessThan(LIMIT);
     });
 
     it('should still read a bracket opened after an image that held a link as a link', () => {
@@ -259,11 +271,11 @@ describe('parseMarkdown() on malformed input', { timeout: BUDGET }, () => {
 
   describe('emphasis', () => {
     it('should match mixed delimiter runs in linear time', () => {
-      expect(growth((n) => '_*'.repeat(n / 2), 4 * K)).toBeLessThan(24);
-      expect(growth((n) => '*a*_b_'.repeat(n / 6), 8 * K)).toBeLessThan(24);
-      expect(growth((n) => 'a*'.repeat(n / 2), 8 * K)).toBeLessThan(24);
-      expect(growth((n) => 'a~~'.repeat(n / 3), 8 * K)).toBeLessThan(24);
-      expect(growth((n) => 'a_ b*'.repeat(n / 5), 4 * K)).toBeLessThan(24);
+      expect(growth((n) => '_*'.repeat(n / 2), 4 * K)).toBeLessThan(LIMIT);
+      expect(growth((n) => '*a*_b_'.repeat(n / 6), 8 * K)).toBeLessThan(LIMIT);
+      expect(growth((n) => 'a*'.repeat(n / 2), 8 * K)).toBeLessThan(LIMIT);
+      expect(growth((n) => 'a~~'.repeat(n / 3), 8 * K)).toBeLessThan(LIMIT);
+      expect(growth((n) => 'a_ b*'.repeat(n / 5), 4 * K)).toBeLessThan(LIMIT);
     });
   });
 

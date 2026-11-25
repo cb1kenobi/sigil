@@ -376,7 +376,15 @@ describe('groupMultiselect() opening a long list', () => {
     }
 
     expect(
-      await growthOfAsync(open, grouped(SIZE), grouped(SIZE * 8), 8, 'groupMultiselect')
+      await growthOfAsync(
+        open,
+        grouped(SIZE),
+        grouped(SIZE * 8),
+        8,
+        'groupMultiselect',
+        undefined,
+        16
+      )
     ).to.be.lessThan(16);
   });
 });

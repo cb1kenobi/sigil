@@ -29,6 +29,22 @@
  *   0.75 ms, and a large one that grew by up to twice the allowed ratio passed.
  * - **Best of seven, the sides taking turns**, so that a collection or a busy
  *   core costs one sample of one side rather than every sample of it.
+ * - **More samples where the ratio is over what the caller will accept**
+ *   (SIG-681), for the clock that cannot be fixed. On the wall clock a stall costs
+ *   a sample its whole wait, and the two sides are not exposed to it alike: a
+ *   small read is a few tenths of a millisecond and fits between two preemptions,
+ *   where one read of a text eight times the size is several milliseconds and is
+ *   cut by the scheduler's slice on a runner with more work than cores. A best of
+ *   seven does not help when all seven of the large side are cut, and `](`
+ *   repeated read 25.07 against 24 on an Ubuntu job whose file took 11.9 s where
+ *   it takes 0.7 s idle. But a stall only ever adds: noise puts time into a sample
+ *   and takes none out, so the best of more samples is nearer what a read costs
+ *   and never further from it. A caller that says which ratio it will take, as
+ *   `limit`, therefore has the sampling go on past seven runs while the best is not
+ *   under it, for {@link EXTRA_MS}. A read that really grows does not come down by
+ *   being read more -- its best is its cost -- so a quadratic is still sixty-four
+ *   and spends the whole budget saying so, where a linear one on a quiet machine
+ *   is under the limit at seven and spends nothing.
  */
 
 /** Milliseconds this thread has spent running, in the units the CPU clock keeps. */
@@ -100,6 +116,23 @@ export const MOST_READS = 4096;
 const RUNS = 7;
 
 /**
+ * How long, in milliseconds of wall clock, the sampling may go on past
+ * {@link RUNS} while the ratio is not under the caller's `limit` (SIG-681). It is
+ * spent only by a ratio that is over: on a quiet machine a linear read is under
+ * its limit after seven runs and the budget is never opened, and a quadratic
+ * spends all of it before the test fails.
+ */
+export const EXTRA_MS = 2000;
+
+/**
+ * Whether more samples have nothing to add: the ratio of the two best reads is
+ * under `limit`, or the clock read nothing for the small side, which no sample is
+ * going to change and which {@link ratioOf} says aloud.
+ */
+const settled = (bestSmall: number, bestLarge: number, limit: number): boolean =>
+  !(bestSmall > 0) || bestLarge < limit * bestSmall;
+
+/**
  * What one measurement is, whichever way it reads: how many reads of the small
  * side fill the span and how many of the large side make the same work. One
  * definition, so that {@link growthOf} and {@link growthOfAsync} cannot come to
@@ -122,7 +155,11 @@ function ratioOf(bestSmall: number, bestLarge: number, reads: number, label: str
  * shape if the clock reads nothing, which is said aloud because a ratio of zero
  * would pass for ever. `span` is how much of the clock the small side is read to
  * fill: the shapes whose small read is already a millisecond of it can ask for
- * less, and the work grows with it on both sides, seven times over.
+ * less, and the work grows with it on both sides, seven times over. `limit` is the
+ * ratio the caller will accept, and it is what the sampling is for: while the
+ * ratio is not under it the sides go on being read, up to {@link EXTRA_MS} past
+ * the seven runs, because a ratio over it may be a stall and only more samples can
+ * say (SIG-681). Without one, seven runs are all there are.
  *
  * What is read is whatever the two sides are -- a text, a count, a prepared
  * fixture -- and the function only hands it back.
@@ -133,7 +170,8 @@ export function growthOf<Input = string>(
   large: Input,
   factor: number,
   label = '',
-  span: number = SPAN
+  span: number = SPAN,
+  limit: number = Infinity
 ): number {
   const time = (input: Input, reads: number): number => {
     const start = now();
@@ -152,9 +190,22 @@ export function growthOf<Input = string>(
   const largeReads = largeReadsFor(smallReads, factor);
   let bestSmall = Infinity;
   let bestLarge = Infinity;
-  for (let run = 0; run < RUNS; run++) {
+  // the budget opens the first time the ratio is over, and not before
+  let until = Infinity;
+  for (let run = 1; ; run++) {
     bestSmall = Math.min(bestSmall, time(small, smallReads) / smallReads);
     bestLarge = Math.min(bestLarge, time(large, largeReads) / largeReads);
+    if (run >= RUNS) {
+      if (settled(bestSmall, bestLarge, limit)) {
+        break;
+      }
+      if (until === Infinity) {
+        until = performance.now() + EXTRA_MS;
+      }
+      if (performance.now() >= until) {
+        break;
+      }
+    }
   }
   return ratioOf(bestSmall, bestLarge, smallReads, label);
 }
@@ -181,7 +232,8 @@ export async function growthOfAsync<Input = string>(
   large: Input,
   factor: number,
   label = '',
-  span: number = SPAN
+  span: number = SPAN,
+  limit: number = Infinity
 ): Promise<number> {
   const time = async (input: Input, reads: number): Promise<number> => {
     const start = now();
@@ -197,9 +249,22 @@ export async function growthOfAsync<Input = string>(
   const largeReads = largeReadsFor(smallReads, factor);
   let bestSmall = Infinity;
   let bestLarge = Infinity;
-  for (let run = 0; run < RUNS; run++) {
+  // the budget opens the first time the ratio is over, and not before
+  let until = Infinity;
+  for (let run = 1; ; run++) {
     bestSmall = Math.min(bestSmall, (await time(small, smallReads)) / smallReads);
     bestLarge = Math.min(bestLarge, (await time(large, largeReads)) / largeReads);
+    if (run >= RUNS) {
+      if (settled(bestSmall, bestLarge, limit)) {
+        break;
+      }
+      if (until === Infinity) {
+        until = performance.now() + EXTRA_MS;
+      }
+      if (performance.now() >= until) {
+        break;
+      }
+    }
   }
   return ratioOf(bestSmall, bestLarge, smallReads, label);
 }

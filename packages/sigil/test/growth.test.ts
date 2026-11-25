@@ -1,4 +1,4 @@
-import { growthOf, growthOfAsync, now } from './growth.js';
+import { growthOf, growthOfAsync, now, SPAN } from './growth.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -36,6 +36,51 @@ describe('growthOf()', () => {
     // Windows runner, the large side was then 64 of them, and seven turns of that
     // timed out at ten seconds
     expect(growthOf(quadratic, text(512), text(4096), 8, 'quadratic')).toBeGreaterThan(24);
+  });
+
+  // `]` and `(` repeated read 25.07 against 24 on an Ubuntu job (SIG-681) that took
+  // 11.9 s over a file that takes 0.7 s idle: the wall clock was what that runner
+  // had, and a long read is cut by the scheduler where a short one is not. The
+  // stall is made here by hand and not waited for: the first read of the large side
+  // in each of the first seven runs waits thirty milliseconds, which is what being
+  // descheduled costs a sample that long, and the runs after those are clean. It
+  // waits on the clock being measured, so that it is time on it whatever the
+  // machine is doing
+  describe('on a runner that stalls the large side in every one of seven runs', () => {
+    const STALL = 30;
+    const stalling = (small: string): ((source: string) => number) => {
+      let turns = 0;
+      let last = '';
+      return (source) => {
+        const side = source === small ? 'small' : 'large';
+        if (side === 'large' && last !== 'large' && ++turns <= 7) {
+          for (const end = now() + STALL; now() < end;) {
+            // spin
+          }
+        }
+        last = side;
+        return linear(source);
+      };
+    };
+
+    it('should read the stall as growth when it has seven runs to say so with', () => {
+      // the control: without it, the next test passes for want of a stall
+      const small = text(4096);
+      expect(growthOf(stalling(small), small, text(32768), 8, 'stalled')).toBeGreaterThan(24);
+    }, 60_000);
+
+    it('should read past the stall once it is asked for a ratio and not given it', () => {
+      const small = text(4096);
+      expect(growthOf(stalling(small), small, text(32768), 8, 'stalled', SPAN, 24)).toBeLessThan(
+        24
+      );
+    }, 60_000);
+
+    it('should still read a quadratic walk as growth however long it samples', () => {
+      expect(growthOf(quadratic, text(512), text(4096), 8, 'quadratic', SPAN, 24)).toBeGreaterThan(
+        24
+      );
+    }, 60_000);
   });
 
   // the async form is the same measurement over a read that is awaited, which a

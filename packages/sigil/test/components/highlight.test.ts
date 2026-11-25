@@ -524,7 +524,9 @@ describe('highlightCode()', () => {
         make(SIZE),
         make(SIZE * factor),
         factor,
-        `${lang}: ${make(12).slice(0, 12)}...`
+        `${lang}: ${make(12).slice(0, 12)}...`,
+        undefined,
+        3 * factor
       );
 
     const repeat =
@@ -621,6 +623,7 @@ describe('highlightCode()', () => {
     ];
 
     it.each(PATHOLOGICAL)('should read %s %#  in linear time', (lang, make, factor = 8) => {
+      // the bound is what `growth()` samples towards (SIG-681), so it is one number
       expect(growth(lang, make, factor), `${lang}: ${make(12).slice(0, 12)}...`).toBeLessThan(
         3 * factor
       );

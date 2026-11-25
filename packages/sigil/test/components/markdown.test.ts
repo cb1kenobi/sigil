@@ -169,7 +169,7 @@ describe('parseMarkdown()', () => {
       'should not be slow over a long run of unmatched delimiters: %j',
       (unit) => {
         const make = (size: number): string => unit.repeat(size);
-        expect(growthOf(parseMarkdown, make(600), make(4800), 8, unit, 1)).to.be.lessThan(24);
+        expect(growthOf(parseMarkdown, make(600), make(4800), 8, unit, 1, 24)).to.be.lessThan(24);
       }
     );
   });

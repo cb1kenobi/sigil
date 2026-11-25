@@ -439,9 +439,9 @@ describe('barChart()', () => {
 
       // linear in the number of bars is 8, which is what drawing every one was; a
       // chart that draws what fits reads the same at both, and 4 is half of linear
-      expect(growthOf(draw, make(16_000), make(128_000), 8, 'vertical barChart', 1)).to.be.lessThan(
-        4
-      );
+      expect(
+        growthOf(draw, make(16_000), make(128_000), 8, 'vertical barChart', 1, 4)
+      ).to.be.lessThan(4);
     });
   });
 

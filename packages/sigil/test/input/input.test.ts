@@ -1914,7 +1914,7 @@ describe('paste', () => {
       // flatten the whole paste every time, so 16 MB in a macOS pty's 1022-byte
       // reads took about 9s; searching the held tail takes about 5ms
       it('should be held in time linear in its size', () => {
-        expect(growthOf(paste, 250, 2000, 8, 'paste')).toBeLessThan(24);
+        expect(growthOf(paste, 250, 2000, 8, 'paste', undefined, 24)).toBeLessThan(24);
       });
     });
   });
