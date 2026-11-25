@@ -2824,15 +2824,37 @@ app that had somebody looking. Chris decided on 2026-11-24 that both are
     `createTerminal()`, whose own guard and best-effort writes are decided in
     `terminal/AGENTS.md`. That includes the fallbacks that write a line where a
     frame cannot be drawn -- `tasks`, `multi-progress`, `mount`'s `writeLine()`,
-    each a progress line, which is a diagnostic by the rule -- and `outline`'s
-    `done()`, which writes the whole tree when it is not mounted. That last one is
-    the same shape as `page()` and is the borderline case: it is **left** because
-    it goes through the terminal wrapper, which owns ordering against a live
-    region and swallows errors on purpose, where `page()` has neither on its
-    non-terminal branch. Whether a tree written to a file is a document is the open
-    question, recorded as a follow-up rather than decided here. A `writeSync` loop
-    there could block against a full pty and reorder against the stream's queue,
-    which is the SIG-671 defect again on the one stream where it would be seen.
+    each a progress line, which is a diagnostic by the rule. They are left for
+    a reason that is the rule's rather than the wrapper's: a spinner, a bar or a
+    task list redirected to `out.txt` is progress nobody asked for as a file, so a
+    lost line costs nothing the exit code does not say, and a throw out of one
+    would fail a command that did its work over a line about it. `outline`'s
+    `done()` was left with them and was **decided separately** (SIG-680, Chris,
+    2026-11-25), below.
+  - **`outline`'s unmounted `done()` (`components/outline.ts`): changed**
+    (SIG-680). It writes the whole tree when there is no frame to draw, which is
+    the same shape as `page()`: `mycli plan > out.txt` is a document, and one
+    `write()` of it exited 0 over a cut-off file. It is
+    `writeTo(terminal.stdout, ...)` now, and a cut-off is a **throw** from
+    `done()`, where `page()` rejects, because `done()` returns `void` and the
+    promise was the only reason for the rejection. What the
+    wrapper gave this write is kept by hand, three things: a closed terminal
+    writes nothing, `isStreamGone()` is caught when the write throws, and
+    `guardOutput([terminal.stdout])` is called first, because an `EPIPE` on a
+    pipe arrives as an `error` event and the terminal's listener, which
+    `terminal.write()` attached, is not there any more -- measured by the
+    review of this change, `| head -1` outside `main()` was an uncaught
+    exception before it. That listener is `main()`'s: it rethrows anything but the
+    reader leaving and is never taken off, where the terminal's swallowed
+    everything. What it does not do is set `terminal.closed`, which the next
+    `terminal.write()` does for itself. The wrapper's ordering is against a live
+    region, and this write is taken when `createOutline()` did not mount one:
+    nothing of this outline's own is on screen to order against, and the write
+    was a plain `stream.write()` with no region coordination before it either.
+    `writeTo()` takes the descriptor only for the process's own stdout as a
+    regular file, so a full pty is still the stream's and the SIG-671 reorder
+    cannot happen. Spawned test `outline` in `packages/cli/test/output.test.ts`,
+    which fails with the terminal write put back.
   - **`debug/` and the console replay in `renderer/app.ts`: left.** A `DEBUG` line
     is a diagnostic by definition, and the replay is written once at exit by a loop
     of its own that gives up quietly on purpose, since an exit handler must not throw.
