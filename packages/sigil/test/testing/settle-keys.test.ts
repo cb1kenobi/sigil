@@ -51,6 +51,24 @@ describe('waiting for the router to decide a key', () => {
     input.stop();
   });
 
+  // the held-keys probe asks `held`, and a reply half way along the wire is held
+  // on the query deadline rather than the key one (SIG-403), so it is still a key
+  // the router has not decided -- settleKeys() has to wait it out, not report
+  // settled over a tail that is about to be flushed
+  it('should see a held control string as held, and return once it is flushed', async () => {
+    const ui = createTestTerminal();
+    const input = createInput({ root: box({}), terminal: ui.terminal });
+    const seen: string[] = [];
+    input.bind((event) => void seen.push(event.key.name));
+
+    await ui.press('\u001b]11;rgb:11');
+    expect(seen, 'dispatched before the deadline').toEqual([]);
+    await settleKeys(ui);
+
+    expect(seen).toEqual(['unknown']);
+    input.stop();
+  });
+
   it('should return at once where nothing is held', async () => {
     const ui = createTestTerminal();
     const input = createInput({ root: box({}), terminal: ui.terminal });

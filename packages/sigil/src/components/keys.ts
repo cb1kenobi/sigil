@@ -635,6 +635,28 @@ export function hasStringEnd(input: string, from: number): boolean {
 }
 
 /**
+ * Whether what begins `input` is a control string on its face: one the decoder
+ * claims with no query outstanding, so `ESC ]` and a digit or `ESC P` and `>` or
+ * a digit, behind any run of `ESC`. The router asks it of a held tail to decide
+ * how long to wait for the rest (SIG-403), which is why it reads `STRINGS` rather
+ * than a pattern of its own: two readers of one table cannot disagree about which
+ * tail a reply is. `ESC ]` alone and `ESC ]` then a letter are Alt-] and are not.
+ *
+ * @param input - The start of what is held. Only its first few bytes are read.
+ * @returns Whether it is unmistakably the start of a reply.
+ */
+export function isReplyOnItsFace(input: string): boolean {
+  let i = 0;
+  while (input[i] === '\u001b') {
+    i++;
+  }
+  const first = input[i];
+  const claim = i > 0 && first !== undefined ? STRINGS[first] : undefined;
+  const payload = input[i + 1];
+  return claim !== undefined && payload !== undefined && claim.test(payload);
+}
+
+/**
  * The tail of a chunk that has not finished arriving, and whether it is a control
  * string. `pendingLength()` and `pendingIsString()` are the halves of this, so the
  * router asks once instead of walking the chunk twice.

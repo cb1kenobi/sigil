@@ -1,6 +1,6 @@
 import * as keysModule from '../../src/components/keys.js';
 import { box } from '../../src/element/index.js';
-import { createInput, ESCAPE_TIMEOUT, HELD_LIMIT } from '../../src/input/index.js';
+import { createInput, ESCAPE_TIMEOUT, HELD_LIMIT, QUERY_TIMEOUT } from '../../src/input/index.js';
 import { createTestTerminal } from '../../src/testing/index.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -305,7 +305,9 @@ describe('a held key sequence that keeps growing', () => {
       // the continuation of anything
       const { feed, keys, stop } = recording();
       feed(`${ESC}]52;c;x`);
-      vi.advanceTimersByTime(ESCAPE_TIMEOUT + 10);
+      // the query deadline rather than the key one: a tail that is a reply on its
+      // face waits on the longer of the two (SIG-403)
+      vi.advanceTimersByTime(QUERY_TIMEOUT + 10);
       feed('abc');
       expect(keys.map((key) => key.sequence).slice(-3)).toEqual(['a', 'b', 'c']);
       stop();

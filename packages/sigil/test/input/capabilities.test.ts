@@ -1,16 +1,18 @@
-import { pendingIsString } from '../../src/components/keys.js';
+import { isReplyOnItsFace, pendingIsString } from '../../src/components/keys.js';
 import { box, type Element, renderToString, text } from '../../src/element/index.js';
 import { main } from '../../src/index.js';
 import {
   type CapabilityReply,
   createInput,
   detectCapabilities,
+  ESCAPE_TIMEOUT,
   isCapabilityResponse,
   type KeyEvent,
   parseCapabilityResponse,
   PALETTE_COLORS,
   parseReportedColor,
   queryCursor,
+  QUERY_TIMEOUT,
   queryMode,
   readCapabilities,
   refineColorLevel,
@@ -787,6 +789,185 @@ describe('a reply whose read split at the introducer', () => {
 
     h.feed(`\u0003${CSI}200~abc${CSI}201~`);
     expect(seen).toEqual(['c']);
+  });
+});
+
+describe('a reply that arrives late and split mid-payload (SIG-403)', () => {
+  it.each([
+    [`${ESC}]1`, true],
+    [`${ESC}]11;rgb:11`, true],
+    [`${ESC}P>|Ghost`, true],
+    [`${ESC}P1$r`, true],
+    [`${ESC}${ESC}]11;rgb:11`, true],
+    [`${ESC}]`, false],
+    [`${ESC}]x`, false],
+    [`${ESC}Px`, false],
+    [`${ESC}Pq`, false],
+    [`${ESC}[`, false],
+    [`${ESC}`, false],
+    [']11', false],
+    ['', false],
+  ])('should say whether %j is a reply on its face', (tail, expected) => {
+    expect(isReplyOnItsFace(tail)).toBe(expected);
+  });
+
+  /** A router that has finished a probe nobody answered, with its key log. */
+  async function afterAnUnansweredProbe(): Promise<{
+    feed: (chunk: string) => void;
+    router: ReturnType<typeof createInput>;
+    seen: string[];
+  }> {
+    const h = harness();
+    const seen: string[] = [];
+    const router = createInput({ paste: false, terminal: h.terminal });
+    router.bind((event: KeyEvent) => void seen.push(event.key.sequence));
+    const probe = detectCapabilities(router, { background: true, timeout: 60 });
+    await vi.advanceTimersByTimeAsync(60);
+    await probe;
+    return { feed: h.feed, router, seen };
+  }
+
+  // a slow link can exceed the query deadline, and a reply split by a read across
+  // two chunks more than the key timeout apart was flushed as `unknown` on the
+  // key deadline, its remainder routed as `1 1 / 2 2 2 2 / 3 3 3 3 M-\`
+  it.each([
+    ['an OSC reply', `${ESC}]11;rgb:11`, `11/2222/3333${ST}`],
+    ['an OSC reply ended with BEL', `${ESC}]11;rgb:11`, `11/2222/3333${BEL}`],
+    ['an XTVersion reply', `${ESC}P>|Ghost`, `ty 1.0.1${ST}`],
+    ['a DECRQSS reply', `${ESC}P1$r`, `0m${ST}`],
+  ])('should type nothing of %s whose second half comes late', async (_name, first, second) => {
+    vi.useFakeTimers();
+    try {
+      const { feed, router, seen } = await afterAnUnansweredProbe();
+
+      feed(first);
+      await vi.advanceTimersByTimeAsync(120);
+      feed(second);
+      await vi.advanceTimersByTimeAsync(QUERY_TIMEOUT * 2);
+
+      expect(seen).toEqual([]);
+      expect(vi.getTimerCount(), 'a timer outlived the reply').to.equal(0);
+      router.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // and the second half that never comes is not held for ever: it is flushed on
+  // the longer deadline, the same way `ESCAPE_TIMEOUT` flushes a key, and input
+  // after it reaches the handlers
+  it.each([
+    ['an OSC', `${ESC}]11;rgb:11`],
+    ['a DCS', `${ESC}P>|Ghost`],
+  ])(
+    'should flush %s whose second half never comes on the query deadline',
+    async (_name, first) => {
+      vi.useFakeTimers();
+      try {
+        const { feed, router, seen } = await afterAnUnansweredProbe();
+
+        feed(first);
+        await vi.advanceTimersByTimeAsync(QUERY_TIMEOUT - 1);
+        expect(seen, 'flushed before the query deadline').toEqual([]);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(seen, 'never flushed').toEqual([first]);
+
+        feed('a');
+        expect(seen, 'input is wedged behind a dead reply').toEqual([first, 'a']);
+        expect(vi.getTimerCount()).to.equal(0);
+        router.stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    }
+  );
+
+  // the same reply, split while the probe was still open and finishing before its
+  // second half came, is the other way to the same tail
+  it('should hold a reply the probe deadline caught half way on the query deadline too', async () => {
+    vi.useFakeTimers();
+    try {
+      const h = harness();
+      const seen: string[] = [];
+      const router = createInput({ paste: false, terminal: h.terminal });
+      router.bind((event: KeyEvent) => void seen.push(event.key.sequence));
+      const probe = detectCapabilities(router, { background: true, timeout: 60 });
+
+      h.feed(`${ESC}]11;rgb:11`);
+      await vi.advanceTimersByTimeAsync(60);
+      await probe;
+      await vi.advanceTimersByTimeAsync(120);
+      h.feed(`11/2222/3333${ST}`);
+      await vi.advanceTimersByTimeAsync(QUERY_TIMEOUT * 2);
+
+      expect(seen).toEqual([]);
+      router.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // what keeps the recorded refusal of a grace period standing: only a tail that
+  // is a reply on its face gets the longer wait, and a key keeps fifty
+  // milliseconds. `ESC ]` and then a letter is Alt-] followed by that letter,
+  // which nothing holds at all, and a lone Escape is still decided on the key
+  // deadline
+  it.each([
+    ['Alt-] and a letter', `${ESC}]x`, [']', 'x']],
+    ['Alt-]', `${ESC}]`, [']']],
+    ['Alt-Shift-P and a letter', `${ESC}Px`, ['P', 'x']],
+  ])('should still read %s as keys straight away', async (_name, bytes, names) => {
+    vi.useFakeTimers();
+    try {
+      const h = harness();
+      const seen: string[] = [];
+      const router = createInput({ paste: false, terminal: h.terminal });
+      router.bind((event: KeyEvent) => void seen.push(event.key.name));
+      const probe = detectCapabilities(router, { background: true, timeout: 60 });
+      await vi.advanceTimersByTimeAsync(60);
+      await probe;
+
+      h.feed(bytes);
+      expect(seen).toEqual(names);
+      router.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('should still decide a lone Escape, and one followed by ] later, on the key deadline', async () => {
+    vi.useFakeTimers();
+    try {
+      const { feed, router } = await afterAnUnansweredProbe();
+      const keys: string[] = [];
+      router.bind((event: KeyEvent) => void keys.push(event.key.name));
+
+      feed(ESC);
+      await vi.advanceTimersByTimeAsync(ESCAPE_TIMEOUT);
+      expect(keys, 'a lone Escape waited past the key deadline').toEqual(['escape']);
+
+      feed(ESC);
+      await vi.advanceTimersByTimeAsync(ESCAPE_TIMEOUT - 1);
+      feed(']');
+      expect(keys.slice(1)).toEqual([']']);
+      router.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('should still flush a half-arrived key on the key deadline after a probe', async () => {
+    vi.useFakeTimers();
+    try {
+      const { feed, router, seen } = await afterAnUnansweredProbe();
+
+      feed(CSI);
+      await vi.advanceTimersByTimeAsync(ESCAPE_TIMEOUT);
+      expect(seen).toHaveLength(1);
+      router.stop();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

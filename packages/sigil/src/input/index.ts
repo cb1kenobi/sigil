@@ -46,6 +46,7 @@ import {
   decodeKeys,
   hasStringEnd,
   type Key,
+  isReplyOnItsFace,
   pendingTail,
 } from '../components/keys.js';
 // `element/hit.js` rather than the element barrel, which is the same precision
@@ -2656,6 +2657,8 @@ export function createInput(opts: InputOptions = {}): InputRouter {
    * So a held control string with a query outstanding is not put on a timer at
    * all, and `settle()` flushes whatever is left when the last query goes. A held
    * *key* is untouched, which is what keeps that Ctrl-C at fifty milliseconds.
+   * With no query outstanding a tail that is a reply on its face still waits
+   * `QUERY_TIMEOUT` rather than `ESCAPE_TIMEOUT` (`expiryFor()`).
    *
    * @param isString - Whether what is held is a control string, which `keys()`
    *   already knows from the read that held it.
@@ -2676,7 +2679,27 @@ export function createInput(opts: InputOptions = {}): InputRouter {
     if (pending.size > 0 && isString) {
       return;
     }
-    timer = setTimeout(timed(expire), ESCAPE_TIMEOUT);
+    timer = setTimeout(timed(expire), expiryFor(held));
+  }
+
+  /**
+   * How long to wait for the rest of what is held, with no query to wait on.
+   *
+   * `QUERY_TIMEOUT` for a tail that is a reply on its face, `ESCAPE_TIMEOUT` for
+   * anything else. The query that would have owned the wait is gone -- its
+   * deadline passed, which a slow link can exceed -- but a reply can still be
+   * half way along the wire, and flushing one on the key deadline types the other
+   * half into somebody's answer (SIG-403). What qualifies is what the decoder
+   * claims as a control string with nothing outstanding: `ESC ]` and a digit, or
+   * `ESC P` and `>` or a digit, behind any run of `ESC`. Nobody types those, so
+   * the longer wait is no Escape held back. `ESC ]` alone, or followed by
+   * anything else, is Alt-] and keeps fifty milliseconds, which is the recorded
+   * refusal of a grace period after a probe still standing for keys.
+   *
+   * @param tail - What is held.
+   */
+  function expiryFor(tail: string): number {
+    return isReplyOnItsFace(tail) ? QUERY_TIMEOUT : ESCAPE_TIMEOUT;
   }
 
   /** Nothing followed it, so what is held is a key rather than a beginning. */
@@ -3308,7 +3331,7 @@ export function createInput(opts: InputOptions = {}): InputRouter {
             // always was. Armed rather than flushed here, because flushing
             // would dispatch keys from inside the handling of a reply
             if (pending.size === 0 && held !== '' && timer === undefined) {
-              timer = setTimeout(timed(expire), ESCAPE_TIMEOUT);
+              timer = setTimeout(timed(expire), expiryFor(held));
             }
             resolve(it.replies);
           },
