@@ -7,7 +7,7 @@
  * `markdown-malformed.test.ts` each had their own, and the one that had not been
  * through SIG-627 and SIG-640 timed out on a macOS runner.
  *
- * Three things make it stable, each one a failure measured on a loaded machine.
+ * Four things make it stable, each one a failure measured on a loaded machine.
  *
  * - **CPU time rather than wall time** where the platform can say it (SIG-627). A
  *   wall-clock best of seven survives a stall that lands on some of the runs and
@@ -31,10 +31,13 @@
  *   core costs one sample of one side rather than every sample of it.
  * - **More samples where the ratio is over what the caller will accept**
  *   (SIG-681), for the clock that cannot be fixed. On the wall clock a stall costs
- *   a sample its whole wait, and the two sides are not exposed to it alike: a
- *   small read is a few tenths of a millisecond and fits between two preemptions,
- *   where one read of a text eight times the size is several milliseconds and is
- *   cut by the scheduler's slice on a runner with more work than cores. A best of
+ *   a sample its whole wait, and the two sides are not always exposed to it alike.
+ *   A sample is the same work on both sides, except where a small read fills the
+ *   span in fewer reads than the factor and the large side's count is rounded up
+ *   to one: then a sample of the large side is a whole read of eight times the
+ *   text, several milliseconds, cut by the scheduler's slice on a runner with more
+ *   work than cores, against a small one of a few tenths that fits between two
+ *   preemptions. `](` repeated is that case, with one read on each side. A best of
  *   seven does not help when all seven of the large side are cut, and `](`
  *   repeated read 25.07 against 24 on an Ubuntu job whose file took 11.9 s where
  *   it takes 0.7 s idle. But a stall only ever adds: noise puts time into a sample
@@ -116,11 +119,13 @@ export const MOST_READS = 4096;
 const RUNS = 7;
 
 /**
- * How long, in milliseconds of wall clock, the sampling may go on past
- * {@link RUNS} while the ratio is not under the caller's `limit` (SIG-681). It is
- * spent only by a ratio that is over: on a quiet machine a linear read is under
- * its limit after seven runs and the budget is never opened, and a quadratic
- * spends all of it before the test fails.
+ * How long, in milliseconds of wall clock from the first run, the sampling may go
+ * on past {@link RUNS} while the ratio is not under the caller's `limit`
+ * (SIG-681). It is spent only by a ratio that is over: on a quiet machine a linear
+ * read is under its limit after seven runs and nothing more is read, and a
+ * quadratic spends it before the test fails. Counted from the first run and not
+ * from the seventh, so that a read slow enough to have used it up in seven runs
+ * is not read an eighth time on top of a failure already on its way to a timeout.
  */
 export const EXTRA_MS = 2000;
 
@@ -190,17 +195,15 @@ export function growthOf<Input = string>(
   const largeReads = largeReadsFor(smallReads, factor);
   let bestSmall = Infinity;
   let bestLarge = Infinity;
-  // the budget opens the first time the ratio is over, and not before
-  let until = Infinity;
+  // the budget is counted from the first run, so that a read whose seven runs
+  // already took longer than it has no extra ones
+  const until = performance.now() + EXTRA_MS;
   for (let run = 1; ; run++) {
     bestSmall = Math.min(bestSmall, time(small, smallReads) / smallReads);
     bestLarge = Math.min(bestLarge, time(large, largeReads) / largeReads);
     if (run >= RUNS) {
       if (settled(bestSmall, bestLarge, limit)) {
         break;
-      }
-      if (until === Infinity) {
-        until = performance.now() + EXTRA_MS;
       }
       if (performance.now() >= until) {
         break;
@@ -249,17 +252,15 @@ export async function growthOfAsync<Input = string>(
   const largeReads = largeReadsFor(smallReads, factor);
   let bestSmall = Infinity;
   let bestLarge = Infinity;
-  // the budget opens the first time the ratio is over, and not before
-  let until = Infinity;
+  // the budget is counted from the first run, so that a read whose seven runs
+  // already took longer than it has no extra ones
+  const until = performance.now() + EXTRA_MS;
   for (let run = 1; ; run++) {
     bestSmall = Math.min(bestSmall, (await time(small, smallReads)) / smallReads);
     bestLarge = Math.min(bestLarge, (await time(large, largeReads)) / largeReads);
     if (run >= RUNS) {
       if (settled(bestSmall, bestLarge, limit)) {
         break;
-      }
-      if (until === Infinity) {
-        until = performance.now() + EXTRA_MS;
       }
       if (performance.now() >= until) {
         break;

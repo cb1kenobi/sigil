@@ -67,14 +67,26 @@ describe('growthOf()', () => {
       // the control: without it, the next test passes for want of a stall
       const small = text(4096);
       expect(growthOf(stalling(small), small, text(32768), 8, 'stalled')).toBeGreaterThan(24);
-    }, 60_000);
+    });
 
     it('should read past the stall once it is asked for a ratio and not given it', () => {
       const small = text(4096);
       expect(growthOf(stalling(small), small, text(32768), 8, 'stalled', SPAN, 24)).toBeLessThan(
         24
       );
-    }, 60_000);
+    });
+
+    it('should read past the stall of an awaited read the same way', async () => {
+      const small = text(4096);
+      const read = stalling(small);
+      const awaited = async (source: string): Promise<number> => {
+        await Promise.resolve();
+        return read(source);
+      };
+      expect(await growthOfAsync(awaited, small, text(32768), 8, 'stalled', SPAN, 24)).toBeLessThan(
+        24
+      );
+    });
 
     it('should still read a quadratic walk as growth however long it samples', () => {
       expect(growthOf(quadratic, text(512), text(4096), 8, 'quadratic', SPAN, 24)).toBeGreaterThan(
