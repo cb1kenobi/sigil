@@ -604,6 +604,33 @@ commit message in a text area. What it settled:
   is wrapped to count them -- rather than for a time, since a Windows runner
   spawns git several times slower than a Mac.
 
+- **A test reads a toast off the screen, so the test mounts it to stay (SIG-696).**
+  An action raises its toast when its own git answers, and then `act()` runs
+  `refresh()`, several more gits, before `settle()` returns -- so the toast is
+  read after the refresh, and a toast lasts 4,000 ms. On a slow Windows runner
+  the refresh is longer than that: PR 704's Windows node 24 job read
+  `would be overwritten` off a screen with no toast on it, the branch having
+  correctly stayed `main`. Reproduced before the fix by making every git in the
+  test's counted wrapper wait 1,500 ms: `Staged a hunk of a.txt` and `Staged
+  a.txt` failed the same way, on a screen that showed the staged state and no
+  toast. What it reads is what a user sees, so the answer is not to record the
+  toasts raised instead; it is to make how long one stays something the test
+  controls. `ToastTimeout` in `src/model.ts` is a context the model reads and
+  passes to `showToast()` as `timeout`, `undefined` by default so every entry
+  keeps the four seconds, and `mount()` provides `Infinity`. Not a longer
+  default and not a bigger margin, either of which only moves the machine it
+  fails on. The footer assertions, which a toast at the bottom right could
+  cover, all still pass with a toast left up. The two `not.toMatch` ones in the dialog's
+  footer test read a row the toast covers from column 71 on; the dialog's own
+  keys end before that, but they were not shown to be absent beyond it. The git client's 76 tests, which
+  `pnpm vitest run examples/git-client` counted at the time, all passed.
+  `should still show what an action said when the refresh after it outlasts the
+  four seconds a toast has by default` is the regression test: `slow(ms)` on the
+  mounted client delays every git, it asserts the press really took longer than
+  a toast lasts so a fast git cannot pass it for the wrong reason, and without
+  the context it fails on `Staged a.txt` in both syntaxes. It delays each git 1,250 ms, which is
+  about six seconds a syntax, and needs only the refresh to be over four.
+
 - **Its temp directories are removed by the test file, not by a sixth
   `temp.ts`.** "The suite removes every directory it makes" in
   `packages/sigil/src/testing/AGENTS.md` keeps one identical copy of `tempDir()`

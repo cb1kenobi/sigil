@@ -45,8 +45,29 @@ import {
 } from '@ttylabs/sigil/components';
 import { box, type Element, text } from '@ttylabs/sigil/element';
 import type { InputRouter, KeyEvent } from '@ttylabs/sigil/input';
-import { createEffect, onCleanup, onMount, useContext } from '@ttylabs/sigil/renderer';
+import {
+  type Context,
+  createContext,
+  createEffect,
+  onCleanup,
+  onMount,
+  useContext,
+} from '@ttylabs/sigil/renderer';
 import { Computed, State, untrack } from '@ttylabs/sigil/signals';
+
+/**
+ * How long a toast stays, in milliseconds, or `undefined` for `showToast()`'s own
+ * four seconds -- which is what every entry runs with.
+ *
+ * It is a context for the one reader that has to control it: a test reads the
+ * toast an action raised off the screen after the refresh that action queues, and
+ * a refresh on a slow runner can outlast four seconds. `Infinity` keeps a toast
+ * until the app is disposed. See "The git client" in `examples/AGENTS.md`.
+ */
+export const ToastTimeout: Context<number | undefined> = createContext<number | undefined>(
+  undefined,
+  'toast timeout'
+);
 
 /** The four panes, by what they hold. */
 export type PaneName = 'branches' | 'commits' | 'diff' | 'files';
@@ -271,6 +292,7 @@ export function createModel(): Model {
     throw new Error('The git client needs keys: run it with runApp() on a terminal');
   }
   const git: Git = useContext(GitContext);
+  const toastTimeout = useContext(ToastTimeout);
 
   // -- state ------------------------------------------------------------------
   const files = new State<readonly FileChange[]>([]);
@@ -341,7 +363,7 @@ export function createModel(): Model {
   // -- what the app says ------------------------------------------------------
   const toast = (message: string, variant: NoteVariant = 'success'): void => {
     if (!disposed) {
-      showToast(app.view, { message, variant, width: 40 });
+      showToast(app.view, { message, timeout: toastTimeout, variant, width: 40 });
     }
   };
   const failed = (err: unknown): void => {
