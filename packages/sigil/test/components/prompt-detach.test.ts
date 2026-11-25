@@ -361,3 +361,157 @@ describe('a prompt asked as lines whose first() ends it before it returns', () =
     await expect(answer).resolves.toBe('x');
   });
 });
+
+describe('a prompt asked as lines that ends while its loader is still out', () => {
+  /** What the form says, so that anything of it on the screen is told from the rest. */
+  const form = { ask: 'name? ', echo: true, read: () => ({ value: 'x' }) };
+
+  /** How a prompt ends while a loader is pending: a Ctrl-C, and an aborted signal. */
+  const ways = [
+    {
+      name: 'Ctrl-C',
+      end: (ui: ReturnType<typeof setup>) => ui.stdin.send('\u0003'),
+      options: () => ({}),
+    },
+    {
+      name: 'an aborted signal',
+      end: (_ui: ReturnType<typeof setup>, controller: AbortController) =>
+        controller.abort(new Error('stop')),
+      options: (controller: AbortController) => ({ signal: controller.signal }),
+    },
+  ] as const;
+
+  for (const way of ways) {
+    it(`should tell onError once of a loader that rejects after ${way.name} (SIG-708)`, async () => {
+      const ui = setup({ columns: 40 });
+      const controller = new AbortController();
+      const heard: unknown[] = [];
+      let reject!: (error: Error) => void;
+      const loading = new Promise<typeof form>((_resolve, no) => (reject = no));
+      const answer = runLinePrompt<string>(
+        {
+          message: 'name?',
+          onError: (error) => void heard.push(error),
+          terminal: ui.terminal,
+          ...way.options(controller),
+        },
+        () => loading,
+        ['a lead-in line']
+      );
+      const caught = answer.catch((error: unknown) => error);
+      await tick();
+
+      way.end(ui, controller);
+      await caught;
+      const before = ui.stdout.text;
+      expect(heard).toEqual([]);
+
+      reject(new Error('read failed'));
+      await tick(3);
+
+      expect(heard.map(String)).toEqual(['Error: read failed']);
+      expect(ui.stdout.text).toBe(before);
+      expect(rejections).toEqual([]);
+    });
+
+    it(`should write and report nothing of a loader that resolves after ${way.name} (SIG-708)`, async () => {
+      const ui = setup({ columns: 40 });
+      const controller = new AbortController();
+      const heard: unknown[] = [];
+      let resolve!: (value: typeof form) => void;
+      const loading = new Promise<typeof form>((yes) => (resolve = yes));
+      const answer = runLinePrompt<string>(
+        {
+          message: 'name?',
+          onError: (error) => void heard.push(error),
+          terminal: ui.terminal,
+          ...way.options(controller),
+        },
+        () => loading
+      );
+      const caught = answer.catch((error: unknown) => error);
+      await tick();
+
+      way.end(ui, controller);
+      await caught;
+      const before = ui.stdout.text;
+
+      resolve(form);
+      await tick(3);
+
+      expect(heard).toEqual([]);
+      expect(ui.stdout.text).toBe(before);
+      expect(rejections).toEqual([]);
+    });
+  }
+
+  it('should reject with a loader that fails before anything ended the prompt, and not tell onError (SIG-708)', async () => {
+    const ui = setup({ columns: 40 });
+    const heard: unknown[] = [];
+    const answer = runLinePrompt<string>(
+      { message: 'name?', onError: (error) => void heard.push(error), terminal: ui.terminal },
+      () => Promise.reject(new Error('read failed'))
+    );
+
+    await expect(answer).rejects.toThrow('read failed');
+    // the answer is the rejection, so onError is not told of it as well
+    expect(heard).toEqual([]);
+    expect(rejections).toEqual([]);
+  });
+
+  it('should tell onError of a validate that throws after Ctrl-C (SIG-708)', async () => {
+    const ui = setup({ columns: 40 });
+    const heard: unknown[] = [];
+    let reject!: (error: Error) => void;
+    const reading = new Promise<never>((_resolve, no) => (reject = no));
+    const answer = runLinePrompt<string>(
+      { message: 'name?', onError: (error) => void heard.push(error), terminal: ui.terminal },
+      { ask: 'name? ', echo: true, read: () => reading }
+    );
+    const caught = answer.catch((error: unknown) => error);
+    await tick();
+
+    // Enter starts a read that does not come back, and Ctrl-C ends the prompt under it
+    ui.stdin.send('\r');
+    await tick();
+    ui.stdin.send('\u0003');
+    await caught;
+    const before = ui.stdout.text;
+
+    reject(new Error('validate failed'));
+    await tick(3);
+
+    expect(heard.map(String)).toEqual(['Error: validate failed']);
+    expect(ui.stdout.text).toBe(before);
+    expect(rejections).toEqual([]);
+  });
+
+  it('should keep a throwing onError from escaping a late loader failure (SIG-708)', async () => {
+    const ui = setup({ columns: 40 });
+    const controller = new AbortController();
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    let reject!: (error: Error) => void;
+    const loading = new Promise<typeof form>((_resolve, no) => (reject = no));
+    const answer = runLinePrompt<string>(
+      {
+        message: 'name?',
+        onError: () => {
+          throw new Error('handler broke');
+        },
+        signal: controller.signal,
+        terminal: ui.terminal,
+      },
+      () => loading
+    );
+    const caught = answer.catch((error: unknown) => error);
+    await tick();
+
+    controller.abort(new Error('stop'));
+    await caught;
+    reject(new Error('read failed'));
+    await tick(3);
+
+    expect(rejections).toEqual([]);
+    stderr.mockRestore();
+  });
+});
