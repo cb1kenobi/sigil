@@ -27,7 +27,7 @@ import {
   type MouseEvent,
 } from '../../src/input/index.js';
 import { createRoot } from '../../src/renderer/index.js';
-import { Computed, flush, State } from '../../src/signals/index.js';
+import { Computed, flush, setErrorHandler, State } from '../../src/signals/index.js';
 import { createTestTerminal, KEYS } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 import { tempDir } from '../temp.js';
@@ -1412,48 +1412,63 @@ describe('TreeListView()', () => {
     it('should walk again when a failure marks a branch the walk had already drawn', async () => {
       // review round 2: an answer kept while its branch was closed names a value
       // shown elsewhere -- which the walk only refuses when both are shown -- and
-      // the read again that fails marks that one stale after its row was built
-      const later = deferred<TreeChoiceItem[]>();
-      let fail = false;
-      let reads = 0;
-      const host = tree({
-        items: [
-          {
-            items: () => {
-              reads++;
-              return ['kept'];
+      // the read again that fails marks that one stale after its row was built.
+      // Expanding `b` shows both, which refuses the walk as a by-product of this
+      // order of events, and the tree's effect reports it: heard here, because a
+      // passing suite prints no effect error (SIG-675)
+      const errors: unknown[] = [];
+      const previous = setErrorHandler((error) => void errors.push(error));
+      try {
+        const later = deferred<TreeChoiceItem[]>();
+        let fail = false;
+        let reads = 0;
+        const host = tree({
+          items: [
+            {
+              items: () => {
+                reads++;
+                return ['kept'];
+              },
+              text: 'a',
             },
-            text: 'a',
-          },
-          {
-            items: () => {
-              if (fail) {
-                throw new Error('gone');
-              }
-              return later.promise;
+            {
+              items: () => {
+                if (fail) {
+                  throw new Error('gone');
+                }
+                return later.promise;
+              },
+              text: 'b',
             },
-            text: 'b',
-          },
-        ],
-      });
-      const { collapse, expand, reload } = control(host);
-      expand('a');
-      expand('b');
-      flush();
-      collapse('b');
-      flush();
-      later.resolve([{ items: () => ['x'], text: 'a' }]);
-      await landed();
-      expand('b');
-      flush();
-      expect(reads).toBe(1);
+          ],
+        });
+        const { collapse, expand, reload } = control(host);
+        expand('a');
+        expand('b');
+        flush();
+        collapse('b');
+        flush();
+        later.resolve([{ items: () => ['x'], text: 'a' }]);
+        await landed();
+        expand('b');
+        flush();
+        expect(reads).toBe(1);
+        // the walk refused `a` shown twice, and the tree's effect reported it
+        expect(errors.map(String)).toEqual([
+          'TypeError: Expected every tree node to have a value of its own: a is used twice',
+        ]);
 
-      fail = true;
-      reload('b');
-      flush();
-      // a was marked by the failure and read again by the walk it asked for
-      expect(reads).toBe(2);
-      expect(reload('a')).toBe(true);
+        fail = true;
+        reload('b');
+        flush();
+        // a was marked by the failure and read again by the walk it asked for
+        expect(reads).toBe(2);
+        expect(reload('a')).toBe(true);
+        // and the failure took the repeated value out, so nothing more was refused
+        expect(errors).toHaveLength(1);
+      } finally {
+        setErrorHandler(previous);
+      }
     });
 
     it('should reload a subtree: every read branch under one, open or closed', () => {
