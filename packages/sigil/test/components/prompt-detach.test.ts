@@ -1,4 +1,4 @@
-import { confirm, select, text } from '../../src/components/index.js';
+import { confirm, runLinePrompt, select, text } from '../../src/components/index.js';
 import { DISABLE_PASTE } from '../../src/terminal/sequences.js';
 import { setup, tick } from './helpers.js';
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest';
@@ -254,5 +254,61 @@ describe('a prompt asked as lines, on a terminal whose write fails at detach', (
     // the router was stopped rather than left reading with a raw stdin
     expect(ui.stdin.rawMode).toBe(false);
     expect(rejections).toEqual([]);
+  });
+});
+
+describe('a prompt asked as lines whose first() ends it before it returns', () => {
+  /** What the form says, so that anything of it on the screen is told from the rest. */
+  const form = { ask: 'name? ', echo: true, read: () => ({ value: 'x' }) };
+
+  it('should write no question once the prompt has rejected (SIG-700)', async () => {
+    const ui = setup({ columns: 40 });
+    const controller = new AbortController();
+    const reason = new Error('stop');
+    const answer = runLinePrompt<string>(
+      { message: 'name?', signal: controller.signal, terminal: ui.terminal },
+      () => {
+        // the prompt rejects inside this call, before it has a question to write
+        controller.abort(reason);
+        return form;
+      }
+    );
+    const caught = answer.catch((error: unknown) => error);
+
+    expect(await caught).toBe(reason);
+    expect(ui.stdout.text).not.toContain('name?');
+    expect(ui.stdin.rawMode).toBe(false);
+    expect(rejections).toEqual([]);
+  });
+
+  it('should write no lead-in either once the prompt has rejected (SIG-700)', async () => {
+    const ui = setup({ columns: 40 });
+    const controller = new AbortController();
+    const reason = new Error('stop');
+    const answer = runLinePrompt<string>(
+      { message: 'name?', signal: controller.signal, terminal: ui.terminal },
+      () => {
+        controller.abort(reason);
+        return form;
+      },
+      ['a lead-in line']
+    );
+
+    await expect(answer).rejects.toBe(reason);
+    expect(ui.stdout.text).not.toContain('a lead-in line');
+    expect(ui.stdout.text).not.toContain('name?');
+  });
+
+  it('should still write both when first() leaves the prompt alone (SIG-700)', async () => {
+    const ui = setup({ columns: 40 });
+    const answer = runLinePrompt<string>({ message: 'name?', terminal: ui.terminal }, () => form, [
+      'a lead-in line',
+    ]);
+    await tick();
+
+    expect(ui.stdout.text).toContain('a lead-in line');
+    expect(ui.stdout.text).toContain('name?');
+    ui.stdin.send('\r');
+    await expect(answer).resolves.toBe('x');
   });
 });

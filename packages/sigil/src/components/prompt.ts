@@ -3746,6 +3746,13 @@ function runLine<T>(
       reject(error);
       return;
     }
+    // `first()` may have ended the prompt before it returned -- an abort, say --
+    // and what is written after that is output for a prompt that is gone, the
+    // lead-in as much as the question (SIG-700). The promise below is asked the
+    // same when it resolves
+    if (settled) {
+      return;
+    }
     // the first write on a terminal that has gone throws from the executor, which
     // rejects the promise and leaves the router attached to a raw stdin with
     // nobody to stop it (SIG-692): so it goes through `fail()` like every other
