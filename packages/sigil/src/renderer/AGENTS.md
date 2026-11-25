@@ -929,6 +929,19 @@ the entry it belongs to.
   none of it; the leaf was a 294 B chunk as of this change. Each site passes its
   own message, byte for byte what it threw before. `components/tasks.ts` always
   aggregates, even one error, so it is a different rule and is left alone.
+
+  The rule had one more copy, found by SIG-701: a private `raise()` inside
+  `renderer/index.ts`, beside the one the three owner-tree sites already
+  imported, which threw the same three answers with `'Errors thrown by onError'`.
+  It is gone and the renderer passes that message to the shared one. A typed
+  aggregate, so a test could tell this case from any other `AggregateError`, was
+  considered and refused: several stay a plain `AggregateError`, and a test pins
+  the message (`on-error-frame-timer.test.ts`). `element/index.ts`'s tree-callback
+  throw was the same rule written inline with `'More than one tree callback
+  threw'` and goes through `raise()` too. What stays its own, on purpose: the
+  mount catch in `runFrame()` always aggregates (the body's error plus what
+  `onError` threw, with a `cause`), and `components/tasks.ts`.
+
 - **A frame does not start from inside a frame.** `frame()` called from an effect
   re-entered `settle()`, and the flush it runs is a no-op while one is already
   draining -- so what the inner frame actually did was take the outer frame's

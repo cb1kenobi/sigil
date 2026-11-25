@@ -461,6 +461,7 @@ describe('several errors in one frame, whose onError throws for each', () => {
       // one throw for each of the two, and none dropped
       expect(raised).toBeInstanceOf(AggregateError);
       expect((raised as AggregateError).errors).toHaveLength(2);
+      expect((raised as AggregateError).message).toBe('Errors thrown by onError');
       expect(view.failed).toBe(true);
     } finally {
       written.restore();

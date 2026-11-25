@@ -704,6 +704,32 @@ describe('a mark callback that mutates the tree', () => {
     expect(to.children).toEqual([kid]);
   });
 
+  it('should raise several throwing tree callbacks as one aggregate', () => {
+    const kid = box();
+    const from = box({}, kid);
+    const to = box();
+    createTree(from, () => {
+      throw new Error('from');
+    });
+    createTree(to, () => {
+      throw new Error('to');
+    });
+
+    let raised: unknown;
+    try {
+      to.insertBefore(kid, undefined);
+    } catch (error) {
+      raised = error;
+    }
+
+    expect(raised).toBeInstanceOf(AggregateError);
+    expect((raised as AggregateError).message).toBe('More than one tree callback threw');
+    expect((raised as AggregateError).errors.map((e: Error) => e.message).sort()).toEqual([
+      'from',
+      'to',
+    ]);
+  });
+
   it('should call a tree back once when a callback takes the parent out of it', () => {
     const kid = box();
     const from = box({}, kid);
