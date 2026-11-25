@@ -1349,11 +1349,16 @@ describe('LineChart, with a crosshair from the keyboard (SIG-516)', () => {
       const m = await mount();
       await m.key(KEYS.tab, KEYS.left);
       expect(m.screen().join('\n')).toContain('│ API 3 │');
-      // Escape while nothing holds the bubble dismisses it, as Escape does
+      // Escape while nothing holds the bubble dismisses it, as Escape does. A lone
+      // Escape is held back for ESCAPE_TIMEOUT on a real timer, which a loaded
+      // runner can fire late, so this waits for the dismissal rather than for a
+      // fixed span past the timeout: a fixed 20 ms margin read the bubble before
+      // the timer had fired on a Windows CI runner.
       await m.key(KEYS.escape);
-      await new Promise((resolve) => setTimeout(resolve, ESCAPE_TIMEOUT + 20));
-      await m.key();
-      expect(m.screen().join('\n')).not.toContain('│ API 3 │');
+      await vi.waitFor(async () => {
+        await m.key();
+        expect(m.screen().join('\n')).not.toContain('│ API 3 │');
+      });
       // and the pin that follows is a new reason to show it, which the Escape before
       // it does not outlast
       await m.key(KEYS.enter);
