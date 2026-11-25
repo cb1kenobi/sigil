@@ -96,8 +96,9 @@ every app, and a built app gets `--version`. Do not declare them by hand.
   after argv has matched its file, so a `name`, `alias` or `default: true`
   inside it does nothing for routing. Put descriptions, aliases, `hidden` and
   `default` in a `commands.json` beside the modules, keyed by file name without
-  the extension. An alias there is a plain name: one starting `!` or `@`, or
-  holding a control or format character, is refused. See [A `commands.json`](../../docs/parser.md#a-commandsjson)
+  the extension. An alias there is held to the rules of a route's name: one that is
+  empty, holds whitespace, a `,` or a `/`, starts with `<`, `[`, `!` or `@`, or
+  holds a control or format character, is refused. See [A `commands.json`](../../docs/parser.md#a-commandsjson)
   and [A module's own name does not route](../../docs/parser.md#a-modules-own-name-does-not-route).
 - **A route's name is taken literally.** A file named `!x.ts`, `@x.ts` or
   `my cmd.ts`, or one holding a control or format character, is refused rather than read as hidden, aliased or two names.
