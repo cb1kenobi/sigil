@@ -123,6 +123,24 @@ export default { commands: { x: { ...{ ...(base as object) } } } };`)
     ],
     ['a __proto__', `const base = { __proto__: { path: './x.js' } };\nexport default { ...base };`],
     [
+      'an array value',
+      `const base = { alias: ['b'] };\nconst copy = { ...base };\ncopy.alias.push('zz');\nexport default { ...base };`,
+    ],
+    ['an object value', `const base = { options: { a: 1 } };\nexport default { ...base };`],
+    [
+      'an array value under a type assertion',
+      `const base = { alias: ['b'] as string[] };\nexport default { ...base };`,
+    ],
+    ['a spread above the declaration', `export default { ...base };\nconst base = { a: 1 };`],
+    [
+      'a direct eval',
+      `const base = { a: 1 };\neval("base.path = './x.js'");\nexport default { ...base };`,
+    ],
+    [
+      'a with statement',
+      `const base = { a: 1 };\nwith (other) { var x = 1; }\nexport default { ...base };`,
+    ],
+    [
       'a destructured declaration',
       `const { base } = { base: { a: 1 } };\nexport default { ...base };`,
     ],
@@ -132,6 +150,14 @@ export default { commands: { x: { ...{ ...(base as object) } } } };`)
     ],
   ])('should refuse %s', (_what, source) => {
     expect(sealedKeys(source)).toBeUndefined();
+  });
+
+  it('should refuse a name a JSX expression reads a member of', () => {
+    const parsed = parseModule(
+      '/virtual/view.tsx',
+      `const base = { a: 1 };\nconst el = <base.a />;\nexport default { ...base };`
+    );
+    expect(sealedObject(parsed, 'base')).toBeUndefined();
   });
 
   it('should refuse a name nothing here can tell from a literal, when a literal spread is read', () => {

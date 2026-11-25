@@ -1631,6 +1631,29 @@ export default {
       });
     });
 
+    it('read a const spread twice as the object it is, and not as a key written before a spread', async () => {
+      // SIG-440, review. The same members come back for each spread of one const, so
+      // the position of the last spelling was the first spread's and `path` read as
+      // written before the second
+      const source = `const pathed = { path: './commands/a.js' };
+let other = { hidden: true };
+export default {
+  baseDir: import.meta.dirname,
+  commands: {
+    twice: { ...pathed, ...other, ...pathed, name: 'twice' },
+  },
+};\n`;
+
+      await withSchema(source, (dir) => {
+        const { commands, diagnostics } = readAppCommands(discoverApp(dir));
+        const list = commands?.kind === 'inline' ? commands.commands : [];
+        // `other` may carry the five other keys, which is a warning each; the module is
+        // spelled after it and is not an error
+        expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
+        expect(at(list, 'twice').module?.split(/[\\/]/).at(-1)).toBe('a.js');
+      });
+    });
+
     it('refused a spread of a const that something else can change, with the message it always had', async () => {
       // SIG-440. The guard is what makes the reading above safe: a wrong answer
       // for a `name`, a `path` or a `load` is a built app that routes by another
@@ -1640,7 +1663,7 @@ export default {
       // the cases the rule gives up on rather than argues about
       const cases: ReadonlyArray<[string, string]> = [
         ['assigned', 'const base = { path: "./commands/a.js" };\nbase.path = "./commands/b.js";'],
-        ['reassigned', 'let base = { path: "./commands/a.js" };'],
+        ['let', 'let base = { path: "./commands/a.js" };'],
         [
           'passed',
           'const base = { path: "./commands/a.js" };\nObject.assign(base, { path: "./commands/b.js" });',

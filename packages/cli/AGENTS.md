@@ -705,9 +705,13 @@ makes it testable with a fixture directory and no bundler at all.
   literal itself -- not a call, not `command({ ... })`, which `bindingObject()`
   alone looks through for the `desc` lift -- whose members are properties a spread
   copies as they read: no accessor, no `__proto__`, no computed key that is not a
-  string, and no spread of anything but a literal, so a spread of a spread is
-  refused rather than resolved twice. And the name may occur **nowhere** but its
-  declaration and as the operand of an object spread: an assignment, a member
+  string, no array or object literal as a value -- a spread is a shallow copy, so
+  `{ ...base }.alias.push('x')` writes the const's own array without the name ever
+  being assigned, which review found -- and no spread of anything but a literal, so
+  a spread of a spread is refused rather than resolved twice. A module with a
+  `with` statement or a direct `eval` gives every name up, and so does a spread
+  textually above the declaration (a `ReferenceError` from source). And the name
+  may occur **nowhere** but its declaration and as the operand of an object spread: an assignment, a member
   assignment (`base.path = ...`), a call argument (`Object.assign(base, ...)`,
   `mutate(base)`), a closure, an export, a member read, an array spread and a type
   query are all the same answer, because each is a use the build cannot follow and

@@ -299,6 +299,12 @@ export function sealedResolver(
   return (name) => sealedObject(parsed, name);
 }
 
+/** Whether a property's value is an array or an object literal, which a spread shares. */
+function holdsObject(value: Expression | unknown): boolean {
+  const inner = unwrapShallow(value as Expression);
+  return inner.type === 'ObjectExpression' || inner.type === 'ArrayExpression';
+}
+
 function sealedObjectOf(parsed: ParsedModule, name: string): ObjectExpression | undefined {
   if (bindingSites(parsed).get(name) !== 1) {
     return undefined;
@@ -325,7 +331,11 @@ function sealedObjectOf(parsed: ParsedModule, name: string): ObjectExpression | 
       !member.computed &&
       member.kind === 'init' &&
       propertyKey(member) !== undefined &&
-      propertyKey(member) !== '__proto__'
+      propertyKey(member) !== '__proto__' &&
+      // a spread is a shallow copy, so a nested array or object is the very one
+      // the const holds, handed to whoever the spread went to: `{ ...base }.alias`
+      // can be pushed to without the name ever being written (SIG-440, review)
+      !holdsObject(member.value)
   );
   if (!readable) {
     return undefined;
@@ -333,20 +343,30 @@ function sealedObjectOf(parsed: ParsedModule, name: string): ObjectExpression | 
 
   // every occurrence of the name but its declaration and an object spread's
   // operand is a use that might write -- or might hand the object to something
-  // that does
+  // that does. A JSX name is an occurrence too (`<base.path />` reads a member),
+  // and so is a spread above the declaration, which throws from source. A module
+  // with `with` or a direct `eval` can bind or write any name without saying so
   const allowed = new Set<unknown>([declarator.id]);
   let used = false;
   walk(parsed.program, (node) => {
-    if (node.type === 'ObjectExpression') {
+    if (node.type === 'WithStatement') {
+      used = true;
+    } else if (node.type === 'ObjectExpression') {
       for (const property of node.properties) {
         if (property.type === 'SpreadElement') {
           const operand = unwrapShallow(property.argument);
           if (operand.type === 'Identifier' && operand.name === name) {
+            if (operand.start < declarator.end) {
+              used = true;
+            }
             allowed.add(operand);
           }
         }
       }
-    } else if (node.type === 'Identifier' && node.name === name && !allowed.has(node)) {
+    } else if (
+      (node.type === 'Identifier' || node.type === 'JSXIdentifier') &&
+      (node.name === 'eval' || (node.name === name && !allowed.has(node)))
+    ) {
       used = true;
     }
 

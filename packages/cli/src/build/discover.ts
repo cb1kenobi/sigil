@@ -972,7 +972,7 @@ function placeholderSpelling(
     }
   }
 
-  const replaced = found !== undefined && members.indexOf(found) < lastReplacing(members, key);
+  const replaced = found !== undefined && members.lastIndexOf(found) < lastReplacing(members, key);
 
   // `undefined` is what the runtime reads as not declared
   const declared =
