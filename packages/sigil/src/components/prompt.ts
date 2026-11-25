@@ -3741,6 +3741,12 @@ function runLine<T>(
     try {
       ready = typeof first === 'function' ? first() : first;
     } catch (error) {
+      if (settled) {
+        // it ended the prompt and then threw: the prompt has its outcome, and
+        // the throw is a late one (SIG-700)
+        lateError(opts, error);
+        return;
+      }
       // nothing has been written yet, so there is nothing to finish the line of
       end();
       reject(error);

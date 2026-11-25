@@ -1907,8 +1907,13 @@ decided once, for all of them. The runs and the sabotage passes are in
   prompt, already returns when its first frame settled it, and every component
   that passes a function for its first question (`file-picker` and `tree`, the only two)
   does it through this runner. A promise `first()` returned after ending the
-  prompt is still held, its rejection going to `onError` by `lateError()`: without
-  that it is nobody's, and an unhandled rejection kills the process.
+  prompt is still held, and a throw after it ended the prompt is kept too, both going
+  to `onError` by `lateError()`: without that the first is nobody's, and an unhandled
+  rejection kills the process. **Left as it was, found by round 2:** a loader still
+  pending when the prompt ends _later_ -- Ctrl-C while a directory read is out --
+  has its eventual rejection dropped by `fail()` being a no-op, so `onError` hears
+  that one only if the prompt ended inside `first()`. It is the promise branch's
+  own `.catch(fail)` and a different timing, so it is not changed here.
 - **A table's column widths are worked out and the rest is the box model.** A
   shared column width across rows is the one thing flexbox cannot do for itself:
   each row would size its own cells and no two rows would agree. So the widths are

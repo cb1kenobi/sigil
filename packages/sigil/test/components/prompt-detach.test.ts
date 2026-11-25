@@ -324,6 +324,30 @@ describe('a prompt asked as lines whose first() ends it before it returns', () =
     expect(ui.stdout.text).not.toContain('name?');
   });
 
+  it('should report what first() threw after ending the prompt (SIG-700)', async () => {
+    const ui = setup({ columns: 40 });
+    const controller = new AbortController();
+    const reason = new Error('stop');
+    const heard: unknown[] = [];
+    const answer = runLinePrompt<string>(
+      {
+        message: 'name?',
+        onError: (error) => void heard.push(error),
+        signal: controller.signal,
+        terminal: ui.terminal,
+      },
+      () => {
+        controller.abort(reason);
+        throw new Error('sync boom');
+      }
+    );
+
+    await expect(answer).rejects.toBe(reason);
+    await tick(3);
+    expect(heard.map(String)).toEqual(['Error: sync boom']);
+    expect(rejections).toEqual([]);
+  });
+
   it('should still write both when first() leaves the prompt alone (SIG-700)', async () => {
     const ui = setup({ columns: 40 });
     const answer = runLinePrompt<string>({ message: 'name?', terminal: ui.terminal }, () => form, [
