@@ -30,9 +30,9 @@ makes it testable with a fixture directory and no bundler at all.
   three seconds on rolldown's clock, as the SIG-648 paragraph below reads the gate
   -- a first attempt at provoking it read the logs too early and
   concluded it could not be provoked, which was wrong.
-  `test/build/bundle-timings.test.ts` holds a build, asserts the warning comes
-  with rolldown's defaults as a control, and that it does not come with this
-  build's.
+  `test/build/bundle-timings.test.ts` asserts what the build asks rolldown for
+  rather than the warning, for the reason the SIG-687 paragraph below gives; it
+  held a build and provoked the warning until then.
 
   **What provokes it is not a share of the build (SIG-648).** The report prints
   `%build`, but the gate is `BuildTimings::is_plugin_bound()` in rolldown's own
@@ -46,10 +46,11 @@ makes it testable with a fixture directory and no bundler at all.
   2.9 s never warned and 3.0 s did, in the loaded runs measured the ones that did
   not warn were the builds that ran 45 ms or more past a 3 s hold, and with the summary callback instrumented it was
   never even requested on a failure, which is the gate refusing before the callbacks are asked. Waiting
-  cannot make that impossible, only less likely, so the control holds five seconds
-  and, if that build did not warn, ten, and takes the first that does; the
-  sibling then holds as long as the control had to, so that its negative is made
-  under a hold known to provoke the warning.
+  cannot make that impossible, only less likely, so the control then held five seconds
+  and, if that build did not warn, ten, and took the first that did; the
+  sibling then held as long as the control had to, so that its negative is made
+  under a hold known to provoke the warning. (Retired by SIG-687, below; this
+  paragraph and the next say what was done and why it was not enough.)
   One fixed hold on a machine with 30 busy processes over 18 cores failed 2 of 12
   at 3.5 s, 1 of 12 at 5 s and 0 of 12 at 6.5 s. A longer test timeout was never
   the fix: the build finishes on time and is judged not worth reporting.
@@ -67,7 +68,7 @@ makes it testable with a fixture directory and no bundler at all.
   measured 5 to 27 ms warm and 74 ms cold on a machine at load average 79. Ten
   seconds needs under 99 ms, so a link stage that was already 5 to 27 ms took an
   ordinary stall to cross it. The control has no use for that graph: it needs
-  rolldown's defaults provoked, not an app built. So the held build is **one
+  rolldown's defaults provoked, not an app built. So the held build became **one
   module**, run through the unmocked `rolldown()`, and `bundleApp()` is built for
   real with no hold only to learn what it passes as `checks`, which is then given
   to the same held build the control gave `{}`. The two differ in `checks` and
@@ -82,11 +83,49 @@ makes it testable with a fixture directory and no bundler at all.
   to the second hold once. At 250 busy processes and forty copies (load average 530) the old test failed 27 of 120 and the new one passed 120 of 120. A link
   stage is still wall clock, so a starved process can still stall inside it --
   standalone, 5 of 120 one-module builds at five seconds with forty racing -- and
-  the escalation stays for that reason: nothing here is a guarantee, it is a
+  the escalation stayed for that reason: nothing here is a guarantee, it is a
   margin of tens where there was one of two. Checked by sabotage both ways: a
   control holding 100 and 200 ms fails, and `checks: {}` in `bundle.ts` fails the
   sibling on the held build alone, with the `toMatchObject` assertion beside it
   removed.
+
+  **The test stopped provoking the warning, because a clock is not a thing a test
+  can hold (SIG-687).** SIG-667's build was in place and the control failed a
+  third time on CI's macOS node 22 job: `expected [] to include 'PLUGIN_TIMINGS'`
+  after 15.4 s, which is both holds missing, with nothing at all logged. The job
+  log says no more than that, and the gate is rolldown's own clock inside a native
+  binary, so what took the warning away was not recovered -- the candidates are a
+  link stage that stalled on a starved runner, rolldown's clock counting a
+  different stretch than the wall, and a report dropped some other way, and none of
+  them can be told apart from outside. That is the finding: SIG-648 bought margin
+  with a longer hold, SIG-667 with a smaller graph, and each left the test passing
+  by a probability, which a runner shared with other jobs spends eventually.
+  A fourth tweak was refused. A test of what **this build** asks for does not need
+  rolldown to emit anything, and what it did need the control for was to say that
+  `bundlerTimings` is still a name rolldown knows.
+
+  That has a deterministic answer, which is rolldown's option validator: it reads
+  `checks` through a schema before the native binding sees it, and says
+  `Invalid input options ... For the "checks.<key>". Invalid key` through
+  `console.warn` -- not `onLog` -- for a key it does not know. So the test asserts
+  `bundleApp()` hands rolldown exactly `{ bundlerTimings: false }`, read off the
+  options of its real `rolldown()` call; that the real call draws no validator
+  warning; and, as the control that keeps a silent spy from passing for rolldown's
+  answer, that an unknown key on one module **does**. Nothing in it waits. Checked
+  by sabotage: `checks: {}` and `{ bundlerTimings: true }` in `bundle.ts` fail the
+  equality; a misspelt key is refused by `tsc` first (`ChecksOptions` is closed),
+  and cast past it fails the same assertion. Thirty copies of the file passed 30
+  of 30 under forty busy processes over eighteen cores, at a load average of 164.
+  What is no longer asserted is that rolldown **suppresses** the warning when told
+  to, which is rolldown's documented contract and now unobserved: a rolldown that
+  kept the key and changed what it does would not be caught here, nor would one
+  that renamed it and kept the old name as a deprecated alias in its schema --
+  `pluginTimings` is that for `bundlerTimings` already, and the validator is
+  silent for it. The validator is also skipped when `ROLLUP_TEST` is set, which
+  fails the control loudly rather than passing it. It is the cost
+  of the change, and the hand check is to build one module under a plugin holding
+  `transform` for five seconds with `checks: {}`, then with `{ bundlerTimings:
+  false }`, and read what `onLog` is given after `close()`.
 
 - **The route rules live in `@ttylabs/sigil/internal/routes`, because there are two
   walks.** The runtime's reads one level when argv names it; the build's reads
