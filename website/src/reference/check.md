@@ -14,6 +14,8 @@ Check an app without building it
 sigil check [options] [dir]
 ```
 
+Read-only: it changes nothing. Idempotent: running it again with the same input changes nothing more.
+
 ## Arguments
 
 | Argument | Type | Description |

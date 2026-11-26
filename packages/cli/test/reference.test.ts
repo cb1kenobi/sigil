@@ -1643,3 +1643,43 @@ describe('the reference config', () => {
     expect(readSigilConfig(dir).reference).toStrictEqual({ out: 'docs' });
   });
 });
+
+describe('annotations on a page (SIG-718)', () => {
+  it('should say what running a command does, where it said so', async () => {
+    const pages = referencePages(
+      await surface({
+        commands: {
+          plain: { run() {} },
+          status: { idempotent: true, readOnly: true, run() {} },
+          wipe: { destructive: true, run() {} },
+        },
+      })
+    );
+
+    expect(pageFor(pages, 'status.md')).toContain(
+      'Read-only: it changes nothing. Idempotent: running it again with the same input changes nothing more.'
+    );
+    expect(pageFor(pages, 'wipe.md')).toContain('Destructive: it may delete or overwrite data.');
+    expect(pageFor(pages, 'plain.md')).not.toMatch(/Read-only|Destructive|Idempotent/u);
+  });
+
+  it('should print nothing for a false, which reads the same as saying nothing', async () => {
+    const pages = referencePages(
+      await surface({
+        commands: { go: { destructive: false, idempotent: false, readOnly: false, run() {} } },
+      })
+    );
+    expect(pageFor(pages, 'go.md')).not.toMatch(/Read-only|Destructive|Idempotent/u);
+  });
+
+  it('should leave the snapshot alone, which records what argv accepts', async () => {
+    // an annotation is a claim about what the command does, not about what
+    // argv accepts, so declaring one is not a change to the surface a script
+    // relies on -- the line `desc` is on
+    const plain = snapshotJson(await surface({ commands: { go: { run() {} } } }));
+    const annotated = snapshotJson(
+      await surface({ commands: { go: { destructive: true, idempotent: true, run() {} } } })
+    );
+    expect(annotated).toBe(plain);
+  });
+});

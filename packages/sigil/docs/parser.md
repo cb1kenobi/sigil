@@ -172,20 +172,32 @@ declaring both throws.
 
 ### Command properties
 
-| Property   | Type                     | Notes                                                          |
-| ---------- | ------------------------ | -------------------------------------------------------------- |
-| `alias`    | `string \| string[]`     | Additional names, left out of help                             |
-| `args`     | `(string \| Argument)[]` | Positional arguments                                           |
-| `commands` | `object \| string`       | Subcommands, or a path to load them from                       |
-| `default`  | `boolean`                | Runs when argv named no command — see below                    |
-| `desc`     | `string`                 | Description for help                                           |
-| `format`   | `boolean \| string[]`    | Output formats this command presents — see below               |
-| `hidden`   | `boolean`                | Omit from help; a `!` name prefix sets it too                  |
-| `hooks`    | `object`                 | `init`, `parse`, `help`, `afterRun`, `beforeError` — see below |
-| `load`     | `() => Promise<unknown>` | The module as a function, for a bundled app                    |
-| `options`  | `object`                 | Options scoped to this command and its children                |
-| `path`     | `string`                 | A module to load the command from                              |
-| `run`      | `(state) => unknown`     | Handler invoked by `main()` when this command wins             |
+| Property      | Type                     | Notes                                                          |
+| ------------- | ------------------------ | -------------------------------------------------------------- |
+| `alias`       | `string \| string[]`     | Additional names, left out of help                             |
+| `args`        | `(string \| Argument)[]` | Positional arguments                                           |
+| `commands`    | `object \| string`       | Subcommands, or a path to load them from                       |
+| `default`     | `boolean`                | Runs when argv named no command — see below                    |
+| `desc`        | `string`                 | Description for help                                           |
+| `destructive` | `boolean`                | It may delete or overwrite something — see below               |
+| `format`      | `boolean \| string[]`    | Output formats this command presents — see below               |
+| `hidden`      | `boolean`                | Omit from help; a `!` name prefix sets it too                  |
+| `hooks`       | `object`                 | `init`, `parse`, `help`, `afterRun`, `beforeError` — see below |
+| `idempotent`  | `boolean`                | Running it again changes nothing more — see below              |
+| `load`        | `() => Promise<unknown>` | The module as a function, for a bundled app                    |
+| `options`     | `object`                 | Options scoped to this command and its children                |
+| `path`        | `string`                 | A module to load the command from                              |
+| `readOnly`    | `boolean`                | It changes nothing — see below                                 |
+| `run`         | `(state) => unknown`     | Handler invoked by `main()` when this command wins             |
+
+`readOnly`, `destructive` and `idempotent` are annotations: what running the
+command does, as its author says, for an agent or a person deciding whether to
+run it. Nothing enforces them. A value that is not a boolean throws where the
+schema is built, as a non-boolean `hidden` does, and so does a command that is
+both `readOnly` and `destructive` -- including when a placeholder says one and
+the module it loads says the other. Undeclared is not `false`: the command
+surface keeps the difference, and the `schema` command writes only what was
+declared, as MCP's `readOnlyHint`, `destructiveHint` and `idempotentHint`.
 
 A command is hidden if its name carries a `!` prefix **or** it declares
 `hidden: true`. The two are additive: either one alone is enough, and an

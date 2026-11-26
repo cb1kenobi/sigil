@@ -19,6 +19,9 @@ import { CommandRegistry } from './command-registry.js';
 import {
   defaultTypeMessage,
   hiddenTypeMessage,
+  ANNOTATIONS,
+  annotationConflictMessage,
+  annotationTypeMessage,
   type ParsedName,
   parseName,
 } from './declaration.js';
@@ -148,6 +151,20 @@ export async function initCommand(
 
   if (decl.default !== undefined && typeof decl.default !== 'boolean') {
     throw new TypeError(defaultTypeMessage(decl.name));
+  }
+
+  // what running the command does, as its author says (SIG-718). Asked of
+  // whatever is initialized, which for a lazily loaded command is the merge of
+  // its placeholder and its module -- so a placeholder's `readOnly` beside its
+  // module's `destructive` is the same contradiction, refused when the module
+  // loads
+  for (const key of ANNOTATIONS) {
+    if (decl[key] !== undefined && typeof decl[key] !== 'boolean') {
+      throw new TypeError(annotationTypeMessage(key, decl.name));
+    }
+  }
+  if (decl.readOnly === true && decl.destructive === true) {
+    throw new Error(annotationConflictMessage(decl.name));
   }
 
   const parsed = parseName(decl.name);

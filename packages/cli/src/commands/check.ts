@@ -54,6 +54,15 @@ import { command, type AnyCommand } from '@ttylabs/sigil';
 const check: AnyCommand = command({
   args: [{ desc: "The app's root, defaulting to the working directory", name: '[dir]' }],
   desc: 'Check an app without building it',
+  // it reads the app and reports, and writes nothing of its own -- `clean()` is
+  // the build's -- so an agent may run it freely, and as often as it likes
+  // (SIG-718). Measured rather than read: an app copied to a fresh directory is
+  // byte for byte unchanged after a check. The one exception is the app's, not
+  // this command's: it runs the app's own `tsc`, which writes a
+  // `tsconfig.tsbuildinfo` where the app's tsconfig sets `incremental` or
+  // `composite` -- a cache the app asked its compiler for, which its own
+  // `type-check` script writes too. Found by review
+  idempotent: true,
   options: {
     '--commands [dir]': {
       desc: "The app's command directory, when its entry does not say",
@@ -66,6 +75,8 @@ const check: AnyCommand = command({
       type: 'bool',
     },
   },
+
+  readOnly: true,
 
   run({ argv }) {
     const inspected = inspect({

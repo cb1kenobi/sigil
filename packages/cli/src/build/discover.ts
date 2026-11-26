@@ -1640,14 +1640,26 @@ function advice(key: string): string {
   return '';
 }
 
-/** What a command's module can declare for itself, and so what moving it helps. */
+/**
+ * What a command's module can declare for itself, and so what moving it helps.
+ *
+ * `destructive`, `idempotent` and `readOnly` are here rather than baked
+ * (SIG-718): they are read when the command surface is walked, which loads every
+ * module, so one declared in the module reaches a built app's `schema` command
+ * with no build step at all -- where baking a placeholder's would be a fourth
+ * kind of literal for this file to read for a property nothing reads before a
+ * load.
+ */
 const MODULE_OWNED: ReadonlySet<string> = new Set([
   'args',
+  'destructive',
   'examples',
   'format',
   'help',
   'hooks',
+  'idempotent',
   'options',
+  'readOnly',
   'run',
 ]);
 
