@@ -338,6 +338,23 @@ describe('formatLine()', () => {
     expect(formatLine(String, `${ESC}]0;title`)).toBe('\uFFFD]0;title');
   });
 
+  // SIG-724: a C1 introducer that something later closes was still a whole sequence
+  it('should keep the words between a pair of curly quotes decoded as Latin-1', () => {
+    expect(formatLine(String, `${C1(0x9d)}quoted words${C1(0x9c)} after`)).toBe(
+      '\uFFFDquoted words\uFFFD after'
+    );
+    const mojibake = Buffer.from('\u201cquoted words\u201d and more', 'utf8').toString('latin1');
+    expect(formatLine(String, mojibake)).toContain('quoted words');
+    expect(formatLine(String, mojibake)).toContain(' and more');
+    expect(formatLine(String, `m\u00c4${C1(0x9b)} sto`)).toBe('m\u00c4\uFFFD sto');
+    expect(formatLine(String, `na${C1(0x9b)}me`)).toBe('na\uFFFDme');
+    expect(formatLine(String, `${C1(0x90)}data${C1(0x9c)}text`)).toBe('\uFFFDdata\uFFFDtext');
+  });
+
+  it('should not close an ESC string with U+009C', () => {
+    expect(formatLine(String, `${ESC}]0;title${C1(0x9c)}text`)).toBe('\uFFFD]0;title\uFFFDtext');
+  });
+
   it('should still draw a styled string as its plain text', () => {
     expect(formatLine(String, `${ESC}[1mH${ESC}[22m`)).toBe('H');
     expect(formatLine(String, `${ESC}]8;;https://example.com\u0007link${ESC}]8;;\u0007`)).toBe(

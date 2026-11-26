@@ -13,7 +13,14 @@ export { codes, CSI, ESC, type StyleName } from './codes.js';
 export { type ColorLevel, type ColorSupportOptions, supportsColor } from './color-support.js';
 export { hexChannels } from './hex.js';
 export { supportsHyperlinks } from './hyperlinks.js';
-export { hasAnsi, hasIntroducer, matcher as ansiMatcher, strip, stripWellFormed } from './strip.js';
+export {
+  hasAnsi,
+  hasIntroducer,
+  matcher as ansiMatcher,
+  strip,
+  stripWellFormed,
+  type StripWellFormedOptions,
+} from './strip.js';
 export { type Styler, type Styles } from './style.js';
 
 /**

@@ -8026,7 +8026,9 @@ and not the stack overflow that one fixed: no spread was involved.
   line chart's crosshair readout already treat the same string. A result with no escape
   sequence in it (by `strip()`'s definition, which includes a bare C1 introducer such as
   U+0090 and an `ESC` followed by one byte -- and by `stripWellFormed()`'s since SIG-710,
-  below, which keeps the text after a lone one) is untouched, a tab included, which is why this is not `labelLine()`: that one
+  below, which keeps the text after a lone one; and since SIG-724 only an `ESC`-form
+  sequence is one at all, so a C1 character is not one and is drawn as `\uFFFD` instead)
+  is untouched, a tab included, which is why this is not `labelLine()`: that one
   collapses whitespace runs and trims, right for a label and a change to a `format()`
   result. `strip()` takes every escape sequence, so an OSC 8 hyperlink goes too. One
   definition for the chart and the page indicator, which differ only in what `format()`
@@ -8459,22 +8461,46 @@ have.
   escapes; everything else `strip()` would have matched is an introducer, drawn as the
   `\uFFFD` that `printable()` uses, and what follows it is read again. A C1 character
   `strip()` has no shape for (U+0080 to U+008F, U+0091 to U+0097, U+0099, U+009A,
-  U+009C) is replaced the same way, where `toDisplayLine()` dropped it. **An unterminated
+  U+009C) is replaced the same way, where `toDisplayLine()` dropped it -- and since
+  SIG-724 so is every one of them, introducers included (below). **An unterminated
   OSC is not removed** -- `ESC ] 0 ; title` at the end of a string draws `\uFFFD]0;title`
   -- and neither is one a `CAN` or `SUB` cancelled: a cell cannot carry a sequence out, so
   what it can do is keep a string that was never meant as one. What this does not
-  rescue is a C1 introducer or `ESC` that is followed by a byte the grammar takes as
-  its final: `'na\u009Bme'` is `CSI m` and draws `nae`, and `ESC` and a letter is a
-  two-byte sequence, and so is a C1 introducer that something later ends -- Latin-1 text
-  with a pair of curly quotes in it (U+009D, then a later U+009C) still loses the words
-  between them, and `'m\u00c4\u009b sto'` loses ` s`. Those are whole sequences and what
-  `strip()` has always done; the guard is for the introducer with nothing to introduce,
-  and treating every 8-bit C1 character as text is the wider rule, left to Chris
-  (SIG-710 follow-up). It scans in a loop and not a recursion, which review found
+  rescue is an `ESC` followed by a byte the grammar takes as its final: `ESC` and a letter
+  is a two-byte sequence and is removed as one. The C1 half of what SIG-710 left open is
+  SIG-724's, directly below. It scans in a loop and not a recursion, which review found
   overflowing the stack at about 2,000 lone U+009D, and in one pass over an unended
   string sequence, because resuming at each introducer inside it ran each to the end of
   the string: 100,000 lone U+009D took 10.8 s that way and 3 ms now. A control character that is not
   C1 or `ESC` (a bell, a `NUL`) is still dropped by `toDisplayLine()` after, not marked.
+  **Every 8-bit C1 character is text in `formatLine()`, and only the `ESC` form is a
+  sequence (SIG-724).** SIG-710 left a C1 introducer that something later ends as a
+  whole sequence, because that is how `strip()` reads it: Latin-1 text with a pair of
+  curly quotes (U+009D, then a later U+009C) lost the words between them, and
+  `'m\u00c4\u009b sto'` lost ` s`, U+009B, a space and an `s` being one CSI. Chris decided
+  that on a UTF-8 terminal nobody writes an 8-bit introducer on purpose and styling
+  arrives as `ESC [` and `ESC ]`, so `formatLine()` removes `ESC [` CSI, `ESC ]` OSC,
+  `ESC P`/`X`/`^`/`_` strings and a two-byte `ESC` sequence, and draws every U+0080 to
+  U+009F outside one of those as `\uFFFD` with the text around it kept (inside a whole `ESC`
+  string it goes with the string, as any payload byte does). `strip()` is unchanged, and so is the
+  default of `stripWellFormed()`, which is published and has a documented reading.
+  **The shape is an option on `stripWellFormed()`, `{ c1: 'text' }`**, read by
+  `grammar(complete, escOnly)` in `src/ansi/strip.ts`: the one grammar with the C1
+  spellings left off every alternative, where a separate function or a `formatLine()`
+  that marked C1 first would be a second copy of the shapes, or a rewrite of the string
+  before it is read that has to agree with them. **U+009C inside an `ESC` string is not a
+  terminator**, since it is a C1 character and so text: `ESC ] 0 ; t U+009C rest` is an
+  OSC that never ended and draws `\uFFFD]0;t\uFFFDrest`. It still ends the payload, as `CAN`
+  does -- the payload class is unchanged -- so a `BEL` further along cannot close a string a
+  U+009C interrupted and take the text between. The linear pass over an unended string
+  sequence is unchanged and holds for a run of C1: 100,000 lone U+009D took 10 ms, an
+  `ESC ]` over them 2.8 ms, and 30,000 quote pairs 5.5 ms, and `test/ansi/strip.test.ts`
+  asserts the first two, a CSI over 100,000 spaces and 20,000 words with a 2 s bound. The SIG-724 sabotage, each case failing where it
+  should: `formatLine()` without the option fails two, a U+009C that terminates fails
+  two, the CSI keeping its U+009B fails three, and ignoring the option fails six. Of the
+  places the grammar is read with the option, `whole` and `any` each fail nothing
+  alone, since the other still refuses what only a C1 form would match, and fail six
+  together.
   Pinned in `test/ansi/strip.test.ts` and `test/components/note.test.ts`, each case
   sabotaged: `formatLine()` back on `strip()` fails four, treating an unterminated
   sequence as whole fails nine, and each of the three SIG-709 sites back on

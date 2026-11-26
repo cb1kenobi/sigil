@@ -256,3 +256,90 @@ describe('stripWellFormed()', () => {
     expect(stripWellFormed(`a${C1(0x85)}b`, '')).toBe('ab');
   });
 });
+
+// SIG-724: the ESC form is the only one anybody writes on purpose, and a C1 character
+// in a string a person wrote is a Latin-1 decoding of UTF-8 punctuation, so it is text
+describe('stripWellFormed() with c1 read as text', () => {
+  const C1 = (code: number): string => String.fromCharCode(code);
+  const ST1 = C1(0x9c);
+  const MARK = '\uFFFD';
+  const text = (str: string): string => stripWellFormed(str, MARK, { c1: 'text' });
+
+  it('should keep the words between a pair of curly quotes read as Latin-1', () => {
+    expect(text(`${C1(0x9d)}quoted words${ST1} after`)).toBe(`${MARK}quoted words${MARK} after`);
+    // the same sequence read as a terminal does, which is the default and unchanged
+    expect(stripWellFormed(`${C1(0x9d)}quoted words${ST1} after`, MARK)).toBe(' after');
+    const mojibake = Buffer.from('\u201cquoted words\u201d and more', 'utf8').toString('latin1');
+    expect(text(mojibake)).not.toMatch(/[\u0080-\u009f]/u);
+    expect(text(mojibake)).toContain('quoted words');
+    expect(text(mojibake)).toContain(' and more');
+  });
+
+  it('should keep the text after a C1 CSI, which is a lone character here', () => {
+    expect(text(`m\u00c4${C1(0x9b)} sto`)).toBe(`m\u00c4${MARK} sto`);
+    expect(stripWellFormed(`m\u00c4${C1(0x9b)} sto`, MARK)).toBe('m\u00c4to');
+    expect(text(`na${C1(0x9b)}me`)).toBe(`na${MARK}me`);
+    expect(text(`${C1(0x90)}data${ST1}text`)).toBe(`${MARK}data${MARK}text`);
+  });
+
+  it('should mark every C1 character and keep everything around it', () => {
+    for (let code = 0x80; code <= 0x9f; code++) {
+      expect(text(`caf${C1(code)} rest ${C1(code)}x`), code.toString(16)).toBe(
+        `caf${MARK} rest ${MARK}x`
+      );
+    }
+  });
+
+  it('should still remove every ESC-form sequence that is whole', () => {
+    const whole = [
+      `${ESC}[31mred${ESC}[39m`,
+      `${ESC}[1;2;3H${ESC}[?25l${ESC}[2J`,
+      `${ESC}]8;;https://example.com${BEL}link${ESC}]8;;${BEL}`,
+      `${ESC}]0;title${ST}text`,
+      `${ESC}Pdata${ST}text${ESC}_apc${ST}${ESC}^pm${ST}${ESC}Xsos${ST}`,
+      `a${ESC}cb${ESC}7c${ESC}(0d`,
+    ];
+    for (const str of whole) {
+      expect(text(str), JSON.stringify(str)).toBe(stripWellFormed(str, MARK));
+    }
+    expect(text(`${ESC}[31mcaf${C1(0x9f)} rest${ESC}[39m`)).toBe(`caf${MARK} rest`);
+  });
+
+  // decided: U+009C is a C1 character, so it is text and not a terminator, and an OSC
+  // that only it would close is one that never ended
+  it('should not close an ESC string with U+009C', () => {
+    expect(text(`${ESC}]0;title${ST1}text`)).toBe(`${MARK}]0;title${MARK}text`);
+    expect(text(`${ESC}Pdata${ST1}text`)).toBe(`${MARK}Pdata${MARK}text`);
+    // it ends the payload and does not carry it on to a BEL that is further along
+    expect(text(`a${ESC}]0;t${ST1}x${BEL}y`)).toBe(`a${MARK}]0;t${MARK}x${BEL}y`);
+    // BEL and ESC \ still do
+    expect(text(`${ESC}]0;title${BEL}text`)).toBe('text');
+    expect(text(`${ESC}]0;title${ST}text`)).toBe('text');
+    // the default is unchanged
+    expect(stripWellFormed(`${ESC}]0;title${ST1}text`, MARK)).toBe('text');
+  });
+
+  it('should keep what the default keeps for an unended or lone ESC form', () => {
+    for (const str of [`caf${ESC}`, `a${ESC}[31`, `a${ESC}]0;title`, `a${ESC}${ESC}[31mb`]) {
+      expect(text(str), JSON.stringify(str)).toBe(stripWellFormed(str, MARK));
+    }
+  });
+
+  it('should read a long run of C1 characters in linear time and without a recursion', () => {
+    const run = C1(0x9d).repeat(100_000);
+    const started = performance.now();
+    expect(text(`a${run}b`)).toBe(`a${MARK.repeat(100_000)}b`);
+    expect(text(`${ESC}]${run}`)).toBe(`${MARK}]${MARK.repeat(100_000)}`);
+    expect(text(`${C1(0x9b)}${' '.repeat(100_000)}`)).toBe(`${MARK}${' '.repeat(100_000)}`);
+    const words = `word${C1(0x9f)}`.repeat(20_000);
+    expect(text(words)).toBe(`word${MARK}`.repeat(20_000));
+    // a bound and not a measurement: it was ten seconds when each was rescanned
+    expect(performance.now() - started).toBeLessThan(2_000);
+  });
+
+  it('should leave strip() as a terminal reads it', () => {
+    expect(strip(`${C1(0x9d)}quoted words${ST1} after`)).toBe(' after');
+    expect(strip(`m\u00c4${C1(0x9b)} sto`)).toBe('m\u00c4to');
+    expect(strip(`caf${C1(0x9f)} rest`)).toBe('caf');
+  });
+});
