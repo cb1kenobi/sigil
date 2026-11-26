@@ -172,7 +172,6 @@ describe('growthOf()', () => {
 
     const STEP = 50;
     const COLD = 5000;
-    const WARM = 10;
 
     // The module reads its clock at import to decide whether it is fine enough, so the
     // fake moves on every call until it is imported and by hand after. `cost(call,
@@ -211,33 +210,35 @@ describe('growthOf()', () => {
     const sized = (call: number, input: string, cold: number, warm: number): number =>
       call < cold ? COLD : warm * (input.length === 8 ? 8 : 1);
 
-    it.skipIf(typeof process.threadCpuUsage !== 'function')(
-      'should size the count warm, so a cold first read does not leave it at one',
-      async () => {
-        const clock = await fakeClock((call, input) => sized(call, input, 1, WARM));
+    // how many slow reads come first, and what a warm read of the small side costs in
+    // microseconds. One cold read leaves the count at one; a second is the warm-up's
+    // and leaves the sizing batch slow too, so that the measured batch of one read is
+    // under a step -- or, at 75 and 95, one step and a ratio of twelve and fifteen
+    // where it is eight. The ratio has to be eight whichever of those phases the
+    // fifty microsecond steps land a count in, which is why it is a table
+    const SHAPES: [number, number][] = [
+      [1, 10],
+      [2, 10],
+      [3, 10],
+      [3, 30],
+      [2, 75],
+      [2, 95],
+    ];
+
+    it.skipIf(typeof process.threadCpuUsage !== 'function').each(SHAPES)(
+      'should read a ratio of eight after %i slow reads of a read that then costs %i microseconds',
+      async (cold, warm) => {
+        const clock = await fakeClock((call, input) => sized(call, input, cold, warm));
         const ratio = clock.growthOf(clock.read, 'a', 'a'.repeat(8), 8, 'cold');
         expect(ratio).toBeGreaterThan(7.5);
         expect(ratio).toBeLessThan(8.5);
       }
     );
 
-    it.skipIf(typeof process.threadCpuUsage !== 'function')(
-      'should grow the count again when a measured batch reads nothing',
-      async () => {
-        // two slow reads, so that the warm one is not the only cold cost and the
-        // batch that sized the count is still a slow one: the measured batch of one
-        // read is then under a step
-        const clock = await fakeClock((call, input) => sized(call, input, 2, WARM));
-        const ratio = clock.growthOf(clock.read, 'a', 'a'.repeat(8), 8, 'colder');
-        expect(ratio).toBeGreaterThan(7.5);
-        expect(ratio).toBeLessThan(8.5);
-      }
-    );
-
-    it.skipIf(typeof process.threadCpuUsage !== 'function')(
-      'should size an awaited read warm and grow its count the same way',
-      async () => {
-        const clock = await fakeClock((call, input) => sized(call, input, 2, WARM));
+    it.skipIf(typeof process.threadCpuUsage !== 'function').each(SHAPES)(
+      'should read an awaited ratio of eight after %i slow reads of a read that then costs %i microseconds',
+      async (cold, warm) => {
+        const clock = await fakeClock((call, input) => sized(call, input, cold, warm));
         const ratio = await clock.growthOfAsync(
           async (input) => clock.read(input),
           'a',

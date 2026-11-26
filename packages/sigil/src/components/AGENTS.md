@@ -13362,28 +13362,43 @@ there is the bars, which are drawn on every line.
   clock being read, in the first seven runs and not after, so the call without a
   `limit` reads it as growth and the call with one reads past it.
 
-- **The read count is sized warm and grown again by a batch that reads nothing,
-  because one cold read decided it (SIG-727).** `markdown-malformed.test.ts`
-  failed on an Ubuntu job, node 24, in PR #725 -- a PR that changed nothing the
-  test reads -- with `the clock read nothing over 1 reads`, thrown by `ratioOf()`
-  and so by the harness and not the parser. `growthOf()` sized `smallReads` once, at
-  the start, by doubling it until one timed batch filled the span, and that first
-  batch is the code's first run: one cold read of a fast shape filled the span, the
-  count stayed at 1, and a warm read of it was under what the clock can tell from
-  none, so every small measurement was 0 and the best was 0. The count was a cost
-  the measured reads did not have. Two changes, each reproduced by a test that the
-  other does not make pass: the small side is read once, unmeasured, before the
-  count is sized, and a measured small batch that reads nothing doubles the count
-  and **throws away what was sampled**, since the best of a side is a minimum and a
-  zero in it is every later run's answer. The first alone leaves a batch that is
-  slow for a second reason (a collection, a lazily compiled branch) at 1; the second
-  alone would size the count on a cold read and spend runs finding that out.
-  `largeReadsFor()` is asked again with the new count, so both sides stay the same
-  work. A clock that never moves still ends at `MOST_READS` and says so. Tested on a
-  fake `process.threadCpuUsage()` that a read advances by exactly what it costs, in
+- **The read count is sized after a warm-up read and sized again by a batch that
+  does not fill the span, because one cold read decided it (SIG-727).**
+  `markdown-malformed.test.ts` failed on an Ubuntu job, node 24, in PR #725 -- a PR
+  that changed nothing the test reads -- with `the clock read nothing over 1
+  reads`, thrown by `ratioOf()` and so by the harness and not the parser.
+  `growthOf()` sized `smallReads` once, at the start, by doubling it until one
+  timed batch filled the span, and that first batch is the code's first run: one
+  cold read of a fast shape filled the span, the count stayed at 1, and a warm read
+  of it was under what the clock can tell from none, so every small measurement
+  was 0 and the best was 0. The count was a cost the measured reads did not have.
+
+  Two changes. The small side is read once, unmeasured, before the count is sized,
+  which takes away the cause for a read that is cold once. And a measured small
+  batch under **a quarter of the span** sizes the count again, by the same doubling
+  loop that sized it, and **throws away what was sampled**, since the best of a side
+  is a minimum and a zero in it is every later run's answer; `largeReadsFor()` is
+  asked again so both sides stay the same work, and the `EXTRA_MS` budget starts
+  over for the new count. Noise only adds, so a batch that short means the count
+  was sized on a cost the reads no longer have -- a slow second read, a collection,
+  a lazily compiled branch -- which a warm-up of one cannot see.
+
+  The first version of the second change doubled only until a batch read non-zero,
+  and review found what that costs: a batch of one or two clock steps is not a
+  span, so the ratio came back as 2 and 15 where it is 8 (a cold count of 3 with a
+  10 microsecond warm read, and a warm read of 95 against 50 microsecond steps),
+  and a deflated linear ratio is a quadratic that passes. It re-sizes to the span
+  now, and tests a table of shapes rather than the one whose count happened to land
+  where both sides quantize alike. With the regrow in place the warm-up is
+  **not independently pinned**: taking it out leaves every test green, because a
+  batch that short is caught whether or not the first read was cold. It stays for
+  being the cause rather than its repair, and for costing one read.
+
+  A clock that never moves still ends at `MOST_READS` and says so. Tested on a fake
+  `process.threadCpuUsage()` that a read advances by exactly what it costs, in
   whole steps of fifty microseconds, so nothing in it is a wall-clock bound: with
-  `growth.ts` as it was on `main` three of the four tests fail with the CI message,
-  and with either change taken out two of them still do.
+  `growth.ts` as it was on `main` 10 of the 25 tests in the file fail, with the CI
+  message, and with the regrow reduced to a zero check 4 do.
 
 - **The ticket's other lazy figure, 0.54 s for 128 KB, was the parser, and is
   left.** `parseMarkdown()` of 64,000 lazy lines took 8 ms unquoted and 493 ms
