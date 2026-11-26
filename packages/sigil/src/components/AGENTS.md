@@ -8027,7 +8027,8 @@ and not the stack overflow that one fixed: no spread was involved.
   sequence in it (by `strip()`'s definition, which includes a bare C1 introducer such as
   U+0090 and an `ESC` followed by one byte -- and by `stripWellFormed()`'s since SIG-710,
   below, which keeps the text after a lone one; and since SIG-724 only an `ESC`-form
-  sequence is one at all, so no C1 character is) is untouched, a tab included, which is why this is not `labelLine()`: that one
+  sequence is one at all, so a C1 character is not one and is drawn as `\uFFFD` instead)
+  is untouched, a tab included, which is why this is not `labelLine()`: that one
   collapses whitespace runs and trims, right for a label and a change to a `format()`
   result. `strip()` takes every escape sequence, so an OSC 8 hyperlink goes too. One
   definition for the chart and the page indicator, which differ only in what `format()`
@@ -8480,7 +8481,8 @@ have.
   that on a UTF-8 terminal nobody writes an 8-bit introducer on purpose and styling
   arrives as `ESC [` and `ESC ]`, so `formatLine()` removes `ESC [` CSI, `ESC ]` OSC,
   `ESC P`/`X`/`^`/`_` strings and a two-byte `ESC` sequence, and draws every U+0080 to
-  U+009F as `\uFFFD` with the text around it kept. `strip()` is unchanged, and so is the
+  U+009F outside one of those as `\uFFFD` with the text around it kept (inside a whole `ESC`
+  string it goes with the string, as any payload byte does). `strip()` is unchanged, and so is the
   default of `stripWellFormed()`, which is published and has a documented reading.
   **The shape is an option on `stripWellFormed()`, `{ c1: 'text' }`**, read by
   `grammar(complete, escOnly)` in `src/ansi/strip.ts`: the one grammar with the C1

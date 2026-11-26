@@ -144,8 +144,8 @@ export interface StripWellFormedOptions {
    * DCS, and U+009C ends a string, so a C1 introducer that something later ends is
    * a whole sequence and takes the text between. `'text'` removes only the `ESC`
    * form -- `ESC [`, `ESC ]`, `ESC P`, `ESC X`, `ESC ^`, `ESC _` and a two-byte
-   * `ESC` sequence -- and replaces every C1 character with the replacement, so
-   * none of them takes any text. A string sequence opened with `ESC` is then closed
+   * `ESC` sequence -- and replaces every C1 character outside one of those with the
+   * replacement, so none of them takes any text. A string sequence opened with `ESC` is then closed
    * by `BEL` or `ESC \` alone, and U+009C inside one is not a terminator.
    *
    * @default 'sequence'
@@ -207,7 +207,7 @@ export function stripWellFormed(
   replacement: string,
   options: StripWellFormedOptions = {}
 ): string {
-  const escOnly = options.c1 === 'text';
+  const escOnly = options?.c1 === 'text';
   if (!hasIntroducer(str)) {
     return str;
   }

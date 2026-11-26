@@ -2601,7 +2601,7 @@ escapes -- and replaces a lone `ESC` or C1 character, or a sequence cut off befo
 as the start of a sequence that never ends, and takes the rest of the string with it.
 A C1 introducer that something later ends is still a whole sequence there, so Latin-1 text with
 a pair of curly quotes (U+009D, U+009C) loses the words between them. `{ c1: 'text' }` reads
-only the `ESC` form as a sequence and replaces every C1 character, U+0080 to U+009F, with
+only the `ESC` form as a sequence and replaces every C1 character, U+0080 to U+009F, that is not inside one of those with
 `mark`, so no C1 character takes text and an `ESC ]` string is closed by `BEL` or `ESC \`
 alone. The default is unchanged.
 
