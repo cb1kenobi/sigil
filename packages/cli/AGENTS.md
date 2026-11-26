@@ -924,12 +924,15 @@ makes it testable with a fixture directory and no bundler at all.
     none while the runtime reads one through the spread. It asks `spellingIn()`
     now, with computed keys counted: a spelling of any kind is a `baseDir` (an
     accessor included, which the runtime reads and `lastPlain()` skipped), and
-    where there is none and a spread or a computed key may carry one the warning
-    says `a spread in the schema may carry a "baseDir" this cannot see`, at that
-    spread, with the same fix, written after it. "Sets no `baseDir`" is kept for a
-    schema nothing in can carry one. A `baseDir: undefined` is none, as it is to
-    the runtime, and a `baseDir` written before a spread still counts as one --
-    what the spread may replace it with is not a reason to say there is none.
+    where there is none -- or the last is `baseDir: undefined`, which is none, as
+    it is to the runtime -- and a spread or a computed key after it may carry one,
+    the warning says `a spread in the schema may carry a "baseDir" this cannot
+    see`, at the first such spread, with the same fix, written after the last of
+    them. A spread of a same-module `const` that visibly holds no `baseDir` (the
+    rule below) is not one that may carry it. "Sets no `baseDir`" is kept for a
+    schema nothing in can carry one. A `baseDir` written before a spread still
+    counts as one -- what the spread may replace it with is not a reason to say
+    there is none.
   - **An accessor or a method written after a plain `commands` or `locales` is the
     spelling that runs, and the build says so (SIG-730).** `lastPlain()` skips it
     by design, so `{ commands: './x', get commands() { ... } }` read `./x` and
@@ -961,7 +964,11 @@ makes it testable with a fixture directory and no bundler at all.
     no spread or computed key that may carry it and no spread of a name at all,
     which is not looked into twice -- and which occurs nowhere but as an object
     spread's operand or as the object of a member access with a **different**
-    static key. `mixin.tags.push('x')` cannot write `commands`.
+    static key, **and that member is not called**. `mixin.tags.push('x')` cannot
+    write `commands`; `mixin.valueOf().commands = x` can, because a called member
+    is handed the object as `this` and returns it, as do `mixin.set('commands',
+    x)`, `mixin.__defineGetter__(...)`, a tagged template and `new mixin.x()` --
+    refused whatever the key (review found all four, by running them).
     **A member assignment of that key keeps the warning, and so does a read of it
     and every use the build cannot follow** -- `mixin.commands = x`,
     `mixin['commands'] = x`, `mixin[k] = x`, `delete mixin.commands`,
@@ -969,7 +976,8 @@ makes it testable with a fixture directory and no bundler at all.
     rule `sealedObject()` already has, cheap side first: the app answers a warning
     by writing the key after the spread. An imported, exported, `let` or called
     mixin still warns, because the build cannot see what it holds. It is applied
-    **only to what may replace a spelling**, and not to `unspelledCarrier()` --
+    to what may replace a spelling, and to the `baseDir` carrier above, and **not**
+    to `unspelledCarrier()` --
     the question of what a spread may carry for a key spelled nowhere -- which
     would also have been correct and was left alone: asked there it moves the
     refusal a placeholder's `name`, `path` and `load` get for a const something

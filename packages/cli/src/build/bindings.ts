@@ -616,6 +616,7 @@ function onlySpread(
   // and so is a spread above the declaration, which throws from source. A module
   // with `with` or a direct `eval` can bind or write any name without saying so
   const allowed = new Set<unknown>([declarator.id]);
+  const called = new Set<unknown>();
   let used = false;
   walk(parsed.program, (node) => {
     if (node.type === 'WithStatement') {
@@ -633,8 +634,23 @@ function onlySpread(
         }
       }
     } else if (
+      node.type === 'CallExpression' ||
+      node.type === 'NewExpression' ||
+      node.type === 'TaggedTemplateExpression'
+    ) {
+      // a member that is *called* is handed the object as `this`: `mixin.valueOf()`
+      // returns it and `mixin.set('commands', x)` writes it, so it is a use the build
+      // cannot follow whatever the key is
+      const callee = unwrapShallow(
+        (node.type === 'TaggedTemplateExpression' ? node.tag : node.callee) as Expression
+      );
+      if (callee.type === 'MemberExpression') {
+        called.add(callee);
+      }
+    } else if (
       except !== undefined &&
       node.type === 'MemberExpression' &&
+      !called.has(node) &&
       node.object.type === 'Identifier' &&
       node.object.name === name &&
       otherKey(node, except)

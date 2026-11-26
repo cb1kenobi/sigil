@@ -1838,6 +1838,21 @@ export default { baseDir: import.meta.dirname, commands: { stale: './commands/a.
           undefined,
         ],
         [
+          'a baseDir of undefined followed by a spread that may carry one',
+          `let base = {};\nexport default { baseDir: undefined, ...base, commands: './commands' };`,
+          'a spread in the schema may carry a "baseDir"',
+        ],
+        [
+          'a baseDir of undefined and nothing after it',
+          `export default { baseDir: undefined, commands: './commands' };`,
+          'sets no "baseDir"',
+        ],
+        [
+          'a spread of a const that visibly holds no baseDir',
+          `const mixin = { name: 'x' };\nexport default { ...mixin, commands: './commands' };`,
+          'sets no "baseDir"',
+        ],
+        [
           'an accessor baseDir, which the runtime reads',
           `export default { get baseDir() { return import.meta.dirname; }, commands: './commands' };`,
           undefined,
@@ -1911,6 +1926,17 @@ export default { baseDir: import.meta.dirname, commands: { stale: './commands/a.
         ['an assign', `const mixin = { name: 'x' };\nObject.assign(mixin, other);`],
         ['a closure that calls it', `const mixin = { name: 'x' };\nconst f = () => mutate(mixin);`],
         ['a delete', `const mixin = { name: 'x' };\ndelete mixin.commands;`],
+        ['a method called on it', `const mixin = { name: 'x' };\nmixin.valueOf().commands = {};`],
+        [
+          'its own method called',
+          `const mixin = { set(k, v) { this[k] = v; } };\nmixin.set('commands', {});`,
+        ],
+        [
+          'an inherited setter called',
+          `const mixin = { name: 'x' };\nmixin.__defineGetter__('commands', () => ({}));`,
+        ],
+        ['a member tagged', `const mixin = { t() { this.commands = {}; } };\nmixin.t\`\`;`],
+        ['a member constructed', `const mixin = { name: 'x' };\nnew mixin.constructor();`],
         ['a literal that has commands', `const mixin = { commands: {} };`],
         ['a literal with an accessor', `const mixin = { get x() { return 1; } };`],
         ['a literal with a __proto__', `const mixin = { __proto__: other };`],

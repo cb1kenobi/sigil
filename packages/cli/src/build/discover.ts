@@ -39,7 +39,7 @@
  * from (`schemaModule()`) -- because running it would run the app.
  */
 
-import { schemasWith, sealedResolver, spellingIn } from './bindings.ts';
+import { lacksResolver, schemasWith, sealedResolver, spellingIn } from './bindings.ts';
 import { type Diagnostic, displayPath } from './diagnostic.ts';
 import { type CommandFacts, factsOf, type RoutedBy } from './extract.ts';
 import { translatedKey } from './i18n.ts';
@@ -52,6 +52,7 @@ import {
   literalString,
   literalType,
   loaderSpecifier,
+  mayCarry,
   objectLiteral,
   outermostDeclaring,
   PLACEHOLDER_KEYS,
@@ -580,19 +581,39 @@ export function readAppCommands(app: DiscoveredApp): {
     // reads it. What is not known is whether a spread or a computed key the build
     // cannot read carries one, which is said as that and not as there being none
     // (SIG-729)
-    const baseDir = spellingIn(parsed, schemas[0]!, 'baseDir', true);
-    if (!isAbsolute(asPath) && !baseDir.declared) {
+    const members = flatten(schemas[0]!, resolver);
+    const spelled = members.findLastIndex(
+      (member) => member.type !== 'SpreadElement' && propertyKey(member) === 'baseDir'
+    );
+    const last = spelled < 0 ? undefined : members[spelled];
+    // `baseDir: undefined` is none, as it is to the runtime
+    const unset =
+      last !== undefined &&
+      last.type !== 'SpreadElement' &&
+      last.kind === 'init' &&
+      !last.method &&
+      isUndefined(last.value);
+    // what may set it after the last spelling of it, and what it is known to hold
+    // nothing of is not asked about
+    const lacks = lacksResolver(parsed);
+    const carrier = members
+      .slice(spelled + 1)
+      .find(
+        (member) =>
+          (member.type === 'SpreadElement' || member.computed) && mayCarry(member, 'baseDir', lacks)
+      );
+    if (!isAbsolute(asPath) && (spelled < 0 || unset)) {
       const resolves =
         `this resolves it against ${displayPath(schemaDir)} ` +
         `while the runtime resolves it against the working directory`;
       diagnostics.push(
-        baseDir.carrier
+        carrier
           ? {
-              ...locate(parsed, baseDir.carrier.start),
+              ...locate(parsed, carrier.start),
               message:
-                `"commands" is a relative path and ${baseDir.carrier.type === 'SpreadElement' ? 'a spread' : 'a computed key'} ` +
+                `"commands" is a relative path and ${carrier.type === 'SpreadElement' ? 'a spread' : 'a computed key'} ` +
                 `in the schema may carry a "baseDir" this cannot see; if it does not, ${resolves}. ` +
-                `Add \`baseDir: import.meta.dirname\` to the schema, after it.`,
+                `Add \`baseDir: import.meta.dirname\` to the schema, after the last spread or computed key.`,
               severity: 'warning',
             }
           : {

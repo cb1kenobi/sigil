@@ -724,6 +724,16 @@ describe('extracting a command module', () => {
       expect(diagnostics).to.deep.equal([]);
     });
 
+    it('should leave the desc unknown once a method of the const is called, which is handed it', () => {
+      const { diagnostics, facts } = extractCommand(
+        'a.js',
+        `const mixin = { run() {} };\nmixin.valueOf().desc = 'late';\nexport default { desc: 'early', ...mixin };`
+      );
+
+      expect(facts).to.deep.equal({});
+      expect(diagnostics).to.have.lengthOf(1);
+    });
+
     it('should leave the desc unknown once something writes one to the const', () => {
       const { diagnostics, facts } = extractCommand(
         'a.js',
