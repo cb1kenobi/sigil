@@ -48,6 +48,18 @@
  *   being read more -- its best is its cost -- so a quadratic is still sixty-four
  *   and spends the whole budget saying so, where a linear one on a quiet machine
  *   is under the limit at seven and spends nothing.
+ * - **A count sized after a warm-up read, and sized again by a batch that does not
+ *   fill the span** (SIG-727). The count was decided once, by the first batch,
+ *   which is the code's first run and so a cold one: on a Linux job one cold read of
+ *   a fast shape filled the span, the count stayed at one, and a warm read of it
+ *   was under what the clock can tell from none -- `the clock read nothing over 1
+ *   reads`, from the harness and not the parser. The read is made once, unmeasured,
+ *   before the count is sized. And a measured batch that comes in under a quarter of
+ *   the span -- noise only adds, so that is a count sized on a cost the reads no
+ *   longer have -- sizes it again, the way it was sized the first time, and starts
+ *   the samples over: a best that holds a zero is zero for every run after it, and a
+ *   batch of one or two clock steps is not a span. A clock that never moves still
+ *   ends at {@link MOST_READS} and says so.
  */
 
 /** Milliseconds this thread has spent running, in the units the CPU clock keeps. */
@@ -125,7 +137,10 @@ const RUNS = 7;
  * read is under its limit after seven runs and nothing more is read, and a
  * quadratic spends it before the test fails. Counted from the first run and not
  * from the seventh, so that a read slow enough to have used it up in seven runs
- * is not read an eighth time on top of a failure already on its way to a timeout.
+ * is not read an eighth time on top of a failure already on its way to a timeout. A
+ * count sized again (SIG-727) before the seventh run starts it over, since what was
+ * sampled is gone; after it, it does not, so a late re-size cannot spend the budget
+ * again and again.
  */
 export const EXTRA_MS = 2000;
 
@@ -145,6 +160,17 @@ const settled = (bestSmall: number, bestLarge: number, limit: number): boolean =
  */
 const largeReadsFor = (smallReads: number, factor: number): number =>
   Math.max(1, Math.round(smallReads / factor));
+
+/**
+ * Whether a measured batch of the small side is too short to be a span and the
+ * count can still grow (SIG-727), in which case the count is sized again and what
+ * was sampled is thrown away: the best of a side is a minimum, and a zero in it is
+ * every later run's answer. The count was sized warm to fill `span`, and noise only
+ * adds, so a batch under a quarter of it was sized on a cost the reads no longer
+ * have. One definition for both forms, like {@link largeReadsFor}.
+ */
+const regrow = (elapsed: number, smallReads: number, span: number): boolean =>
+  elapsed < span / 4 && smallReads < MOST_READS;
 
 /** The ratio of the two best reads, or the error that says the clock read nothing. */
 function ratioOf(bestSmall: number, bestLarge: number, reads: number, label: string): number {
@@ -185,21 +211,37 @@ export function growthOf<Input = string>(
     }
     return now() - start;
   };
-  // The small read is repeated until it fills the span the first time it is
-  // asked, while the code is cold, which is a little more than it will fill once
-  // warm: the count is a way to a measurable span rather than a span itself.
+  // The first read is the code's cold one, and a count sized by it is a count for
+  // a cost the later reads do not have (SIG-727), so it is made and not timed.
+  read(small);
   let smallReads = 1;
   while (time(small, smallReads) < span && smallReads < MOST_READS) {
     smallReads *= 2;
   }
-  const largeReads = largeReadsFor(smallReads, factor);
+  let largeReads = largeReadsFor(smallReads, factor);
   let bestSmall = Infinity;
   let bestLarge = Infinity;
   // the budget is counted from the first run, so that a read whose seven runs
-  // already took longer than it has no extra ones
-  const until = performance.now() + EXTRA_MS;
+  // already took longer than it has no extra ones; a count sized again within the
+  // seven starts it over, one sized again after them does not (SIG-727)
+  let until = performance.now() + EXTRA_MS;
   for (let run = 1; ; run++) {
-    bestSmall = Math.min(bestSmall, time(small, smallReads) / smallReads);
+    const elapsed = time(small, smallReads);
+    if (regrow(elapsed, smallReads, span)) {
+      smallReads *= 2;
+      while (time(small, smallReads) < span && smallReads < MOST_READS) {
+        smallReads *= 2;
+      }
+      if (run < RUNS) {
+        until = performance.now() + EXTRA_MS;
+      }
+      largeReads = largeReadsFor(smallReads, factor);
+      bestSmall = Infinity;
+      bestLarge = Infinity;
+      run = 0;
+      continue;
+    }
+    bestSmall = Math.min(bestSmall, elapsed / smallReads);
     bestLarge = Math.min(bestLarge, time(large, largeReads) / largeReads);
     if (run >= RUNS) {
       if (settled(bestSmall, bestLarge, limit)) {
@@ -245,18 +287,36 @@ export async function growthOfAsync<Input = string>(
     }
     return now() - start;
   };
+  // made and not timed, for the reason {@link growthOf} gives (SIG-727)
+  await read(small);
   let smallReads = 1;
   while ((await time(small, smallReads)) < span && smallReads < MOST_READS) {
     smallReads *= 2;
   }
-  const largeReads = largeReadsFor(smallReads, factor);
+  let largeReads = largeReadsFor(smallReads, factor);
   let bestSmall = Infinity;
   let bestLarge = Infinity;
   // the budget is counted from the first run, so that a read whose seven runs
-  // already took longer than it has no extra ones
-  const until = performance.now() + EXTRA_MS;
+  // already took longer than it has no extra ones; a count sized again within the
+  // seven starts it over, one sized again after them does not (SIG-727)
+  let until = performance.now() + EXTRA_MS;
   for (let run = 1; ; run++) {
-    bestSmall = Math.min(bestSmall, (await time(small, smallReads)) / smallReads);
+    const elapsed = await time(small, smallReads);
+    if (regrow(elapsed, smallReads, span)) {
+      smallReads *= 2;
+      while ((await time(small, smallReads)) < span && smallReads < MOST_READS) {
+        smallReads *= 2;
+      }
+      if (run < RUNS) {
+        until = performance.now() + EXTRA_MS;
+      }
+      largeReads = largeReadsFor(smallReads, factor);
+      bestSmall = Infinity;
+      bestLarge = Infinity;
+      run = 0;
+      continue;
+    }
+    bestSmall = Math.min(bestSmall, elapsed / smallReads);
     bestLarge = Math.min(bestLarge, (await time(large, largeReads)) / largeReads);
     if (run >= RUNS) {
       if (settled(bestSmall, bestLarge, limit)) {
