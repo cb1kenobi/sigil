@@ -67,6 +67,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 - [Output formats](#output-formats) — `--json`, `--format`, and a serialized error
 - [Help](#help)
 - [Shell completion](#shell-completion) — `completion` installs it, `completion bash` prints it
+- [Describing the app to an agent](#describing-the-app-to-an-agent) — `schema` prints each command's input as JSON Schema
 - [Translating](#translating) — `__`, `__n`, catalogs, `SIGIL_LOCALE`
 - [Typed argv](#typed-argv)
 - [Testing](#testing) — `runCommand()`, `runOnTerminal()`, `createTestTerminal()`, `frame()`, `KEYS`
@@ -1546,6 +1547,58 @@ passing it works.
 
 A value your app would have to compute, which is the static script's own trade
 above.
+
+---
+
+## Describing the app to an agent
+
+A `schema` command is added to the root, the same way `completion` is. It prints
+every runnable command's input as JSON Schema, which is what an agent, an MCP
+server or a tool definition reads to call your app without parsing its help:
+
+```
+$ mycli schema
+{
+  "commands": [
+    {
+      "description": "Migrate the database",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "config": { "type": "string", "description": "Where the config is" },
+          "dryRun": { "type": "boolean", "default": false },
+          "target": { "type": "string" }
+        },
+        "required": ["target"],
+        "type": "object"
+      },
+      "path": ["db", "migrate"]
+    }
+  ],
+  "program": "mycli"
+}
+$ mycli schema db migrate     # that command, and anything under it
+```
+
+A property is named after the `argv` key `run()` reads, and a command's schema
+holds the options of every command above it, since those reach it too. Naming a
+command resolves it the way `help <command>` does, aliases, a `topicSeparator`
+and the "did you mean" included, and a hidden command is printed when it is
+named. What the mapping says and leaves out is under
+[`sigil/reference`](#sigilreference), and `sigil reference --json-schema` prints
+the same document from the toolchain.
+
+`schema.schema: false` adds nothing, and an app that declares its own `schema`
+command, or an alias of that name, keeps it. A command resolves before a
+positional value, so an app whose root reads one (`mycli <who>`) answers
+`mycli schema` with this command, as it answers `mycli completion` and
+`mycli help` with theirs; `schema: false` gives the word back.
+
+With no `name` on the schema, the document names the program the way help's
+usage line does: the script's own file name. A name that is more than one word,
+or holds a control character, gets no `schema` command at all, since a document
+that has to say what to type cannot say it.
 
 ---
 
@@ -8735,10 +8788,46 @@ inside the module that declares them. That is the same cost generating a
 completion script pays, for the same reason, and it is why this is a subpath
 nothing in the runtime imports: an app pays for it only by asking.
 
-What it records is what the app declared. `help`, `completion`, `--help` and
-`--version` are `parse()`'s own additions, so a surface built from a schema does
+What it records is what the app declared. `help`, `completion`, `schema`,
+`--help` and `--version` are `parse()`'s own additions, so a surface built from a schema does
 not have them — which is what keeps an app's snapshot moving when the app moves
 rather than when the framework does.
+
+```js
+import { commandSurface, inputSchema, inputSchemas } from '@ttylabs/sigil/reference';
+
+const surface = await commandSurface(schema);
+const doc = inputSchemas(surface);
+
+doc.commands[0];
+// { path: ['build'], description: 'Build the app',
+//   inputSchema: { $schema: '…/2020-12/schema', type: 'object',
+//                  properties: { entry: { type: 'string' }, minify: { type: 'boolean', default: false } },
+//                  required: ['entry'], additionalProperties: false } }
+```
+
+`inputSchemas(surface)` is every runnable command's input as a JSON Schema
+object, which is what MCP, the Anthropic and OpenAI tool definitions and the
+frameworks over them describe a tool with. `inputSchema(surface, command)` is
+one command's, and `inputSchemasJson(surface)` is the document as text, with
+every character `escapeControls()` would escape written as a `\u` escape so it is
+safe to print. A property is named after the `argv` destination, so what a
+caller sends and what `run()` reads are one vocabulary, and a command's schema
+holds the options of every command above it, since those resolve too.
+
+It describes the **typed** form, which `checkValue()` judges: `int` is an
+`integer` within the safe range, `bool` and `yesno` are `boolean`, `date` is a
+string matching the parser's own pattern, `choices` is an `enum` of the values
+the parser compares against, and `multiple` is an `array`. It is **sound rather
+than complete** — whatever it accepts, the parser takes — and the gaps are
+deliberate: a string where a type has a typed form, a `date` whose day does not
+exist (`2024-02-30` has the right shape), undeclared options
+(`additionalProperties` is `false`), and hidden commands and options unless
+`{ hidden: true }` is passed. `json` takes any value but a string, because a
+string sent to one is read as JSON text. The `--format` and `--json` a `format`
+declaration adds are left out, since they never reach `argv`.
+[`sigil reference --json-schema`](../cli#the-command-reference-and-the-surface-snapshot)
+prints the document.
 
 `byCodeUnit(a, b)` is the order the surface is written in: two strings compared
 by UTF-16 code unit, so `B` comes before `a` and the result is the same on every

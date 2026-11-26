@@ -1889,7 +1889,7 @@ describe('regressions', () => {
     // still share a spelling and still show which registration came last
     const slow = { init: () => new Promise<void>((resolve) => setTimeout(resolve, 0)) };
     const run = (): void => {};
-    const quiet = { completion: false, help: false, quiet: false } as const;
+    const quiet = { completion: false, schema: false, help: false, quiet: false } as const;
 
     it('should give a shared spelling to the later sibling when the earlier one is slower', async () => {
       const commands = {
@@ -2403,7 +2403,13 @@ describe('regressions', () => {
     // the command that lost a spelling stops listing it
     const run = (): void => {};
     const fixtures = path.join(__dirname, 'fixtures/alias-shared-label');
-    const bare = { completion: false, help: false, name: 'mycli', quiet: false } as const;
+    const bare = {
+      completion: false,
+      schema: false,
+      help: false,
+      name: 'mycli',
+      quiet: false,
+    } as const;
 
     /** The labels help's `Commands:` list prints for a context chain. */
     const helpLabels = (contexts: InternalCommand[]): string[] => {
@@ -2597,7 +2603,7 @@ describe('regressions', () => {
     // with "later" meaning the source. Every collision here is between two
     // *aliases*, never an alias and a name
     const run = (): void => {};
-    const quiet = { completion: false, help: false, quiet: false } as const;
+    const quiet = { completion: false, schema: false, help: false, quiet: false } as const;
 
     // `[target]` is where a refused `:` path lands, and a refused path is the
     // one that loads a command and then goes on to match at the same level --
@@ -2766,7 +2772,7 @@ describe('regressions', () => {
     // reads it until the command was already reached as `list`. Help read the
     // loaded module and printed `Alias: ls` beside a command `ls` refuses
     const dir = path.join(__dirname, 'fixtures/module-name-string');
-    const bare = { completion: false, name: 'mycli', quiet: false } as const;
+    const bare = { completion: false, schema: false, name: 'mycli', quiet: false } as const;
 
     /** The help screen for the command argv named, with its module loaded. */
     const screen = async (schema: Schema, argv: string[]): Promise<string> => {
@@ -3272,6 +3278,7 @@ describe('regressions', () => {
             },
           },
           completion: false,
+          schema: false,
           name: 'mycli',
           quiet: false,
         },

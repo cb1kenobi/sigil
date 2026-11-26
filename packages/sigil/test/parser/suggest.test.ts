@@ -349,8 +349,8 @@ describe('the candidate lists', () => {
       },
     });
 
-    // `help` and `completion` are in because the parser registers each as an
-    // ordinary subcommand of the root, and either is as typeable as any other --
+    // `help`, `completion` and `schema` are in because the parser registers each
+    // as an ordinary subcommand of the root, and each is as typeable as any other --
     // `hepl` is a typo worth answering. `secret` and `!bang` are out, because the
     // app said not to list them and a suggestion is a listing of one
     expect([...commandTokens(contexts[0])].sort()).toEqual([
@@ -359,6 +359,7 @@ describe('the candidate lists', () => {
       'help',
       'remove',
       'rm',
+      'schema',
     ]);
   });
 
@@ -517,8 +518,8 @@ describe('degenerate inputs', () => {
 
   it('should answer for a context with an empty registry', async () => {
     const { contexts } = await parse({ argv: [], schema: { options: { '--x': 'x' } } });
-    // the two the parser adds, and nothing is near either
-    expect(commandTokens(contexts[0])).toEqual(['help', 'completion']);
+    // the three the parser adds, and nothing is near any of them
+    expect(commandTokens(contexts[0])).toEqual(['help', 'completion', 'schema']);
     expect(unexpectedArgument('buidl', contexts[0])).toBe('Unexpected argument "buidl"');
   });
 

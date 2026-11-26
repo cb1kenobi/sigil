@@ -166,13 +166,17 @@ describe('the --help flag', () => {
   it('should add nothing when help is turned off', async () => {
     const state = await parse({
       argv: [],
-      schema: { completion: false, quiet: false, help: false, name: 'mycli' },
+      schema: { completion: false, schema: false, quiet: false, help: false, name: 'mycli' },
     });
     const { commands, options } = state.contexts[0][Internal];
     expect(options.find('--help')).toBeUndefined();
     expect(commands.find('help')).toBeUndefined();
     expect(
-      (await run({ completion: false, quiet: false, help: false, name: 'mycli' }, ['--help'])).out
+      (
+        await run({ completion: false, schema: false, quiet: false, help: false, name: 'mycli' }, [
+          '--help',
+        ])
+      ).out
     ).toBe('');
   });
 });
@@ -180,7 +184,13 @@ describe('the --help flag', () => {
 // the same two-reader check `--help` and `--quiet` make, pinned for the third
 // flag that `addFreeFlag()` adds
 describe('the --version flag', () => {
-  const base: Schema = { completion: false, help: false, name: 'mycli', quiet: false };
+  const base: Schema = {
+    completion: false,
+    schema: false,
+    help: false,
+    name: 'mycli',
+    quiet: false,
+  };
 
   it('should not replace an option that took the name version', async () => {
     const schema: Schema = {
@@ -358,7 +368,13 @@ describe('the completion command', () => {
 
   it('should say nothing in help for an app that turned it off', async () => {
     const { out } = await run(
-      { commands: { build: { desc: 'Build' } }, completion: false, quiet: false, name: 'mycli' },
+      {
+        commands: { build: { desc: 'Build' } },
+        completion: false,
+        schema: false,
+        quiet: false,
+        name: 'mycli',
+      },
       ['--help']
     );
 
@@ -509,7 +525,7 @@ describe('resolveHelp()', () => {
   it('should describe the state as it stands when there is no request', async () => {
     const state = await parse({
       argv: [],
-      schema: { completion: false, quiet: false, help: false, name: 'mycli' },
+      schema: { completion: false, schema: false, quiet: false, help: false, name: 'mycli' },
     });
     expect(await resolveHelp(state, { width: 40 })).toBe('Usage: mycli');
   });

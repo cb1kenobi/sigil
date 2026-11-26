@@ -64,6 +64,7 @@ const schema = {
   options: { '-v, --verbose': 'Say more' },
 
   completion: false,
+  schema: false,
   commands: {
     clean,
 

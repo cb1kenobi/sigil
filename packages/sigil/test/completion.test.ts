@@ -80,7 +80,7 @@ describe('completionSpec()', () => {
       },
     });
 
-    expect(paths(found)).toEqual(['', 'build', 'completion', 'deploy', 'help']);
+    expect(paths(found)).toEqual(['', 'build', 'completion', 'deploy', 'help', 'schema']);
     // a description is read off the *parent's* entry for a command, which is
     // the one place a shell shows one: you complete at a command rather than
     // displaying the one you are already in
@@ -89,6 +89,7 @@ describe('completionSpec()', () => {
       'Print a shell completion script',
       'ship it',
       'Show help for a command',
+      "Print each command's input as JSON Schema",
     ]);
   });
 
@@ -108,6 +109,7 @@ describe('completionSpec()', () => {
         B: { run(): void {} },
       },
       completion: false,
+      schema: false,
       help: false,
       quiet: false,
     });
@@ -127,6 +129,7 @@ describe('completionSpec()', () => {
         },
       },
       completion: false,
+      schema: false,
       help: false,
       quiet: false,
     });
@@ -183,6 +186,7 @@ describe('completionSpec()', () => {
         shown: { run(): void {} },
       },
       completion: false,
+      schema: false,
       help: false,
       quiet: false,
     });
@@ -194,7 +198,7 @@ describe('completionSpec()', () => {
     // the half eager loading buys: `hidden` is additive and a module may set
     // it, so a routed command that hides itself is listed by a catalog -- which
     // never imports anything -- and is not offered here
-    const schema: Schema = { commands: fixtures, completion: false, help: false };
+    const schema: Schema = { commands: fixtures, completion: false, schema: false, help: false };
     const parsed = await state(schema);
 
     expect(paths(await completionSpec(parsed))).toEqual(['', 'build', 'db', 'db migrate']);
@@ -207,7 +211,12 @@ describe('completionSpec()', () => {
   it('should not import a module whose placeholder is already hidden', async () => {
     // `hidden` in a commands.json is on the placeholder, so there is nothing to read: the
     // fixture counts its own imports and nothing is ever meant to pay one
-    const found = await spec({ commands: hiddenFixtures, completion: false, help: false });
+    const found = await spec({
+      commands: hiddenFixtures,
+      completion: false,
+      schema: false,
+      help: false,
+    });
 
     expect(paths(found)).toEqual(['', 'shown']);
     expect((globalThis as Record<string, unknown>).__sigilSecretImported).toBeUndefined();
@@ -218,7 +227,7 @@ describe('completionSpec()', () => {
     // `build.js`, and nothing lifts an option -- `sigil build` lifts `desc` and
     // `hidden` and stops there -- so a script that did not load would offer
     // `build` with the root's options and none of its own
-    const found = await spec({ commands: fixtures, completion: false, help: false });
+    const found = await spec({ commands: fixtures, completion: false, schema: false, help: false });
 
     expect(spellings(found, 'build')).toContain('--out');
     expect(at(found, '').subcommands).toEqual([
@@ -238,6 +247,7 @@ describe('completionSpec()', () => {
         outer: { load: () => Promise.resolve({ default: { desc: 'renamed', name: 'inner' } }) },
       },
       completion: false,
+      schema: false,
       help: false,
       quiet: false,
     });
@@ -259,6 +269,7 @@ describe('completionSpec()', () => {
         'remove, rm': { alias: 'del', desc: 'remove it', run(): void {} },
       },
       completion: false,
+      schema: false,
       help: false,
       quiet: false,
     });
@@ -288,6 +299,7 @@ describe('completionSpec()', () => {
         'ship, go': { desc: 'ship it', run(): void {} },
       },
       completion: false,
+      schema: false,
       help: false,
       quiet: false,
     });
@@ -314,6 +326,7 @@ describe('completionSpec()', () => {
           'build, ship': { desc: 'build it', run(): void {} },
         },
         completion: false,
+        schema: false,
         help: false,
         quiet: false,
       })
@@ -332,6 +345,7 @@ describe('completionSpec()', () => {
         },
       },
       completion: false,
+      schema: false,
       help: false,
       quiet: false,
     });
@@ -357,6 +371,7 @@ describe('completionSpec()', () => {
         },
       },
       completion: false,
+      schema: false,
       help: false,
       quiet: false,
     });
@@ -377,6 +392,7 @@ describe('completionSpec()', () => {
         fine: { desc: 'fine', run(): void {} },
       },
       completion: false,
+      schema: false,
       help: false,
       quiet: false,
     });
@@ -393,6 +409,7 @@ describe('completionSpec()', () => {
         [`two${ESC}lines, go`]: { desc: 'reachable', options: { '--force': 'force' }, run() {} },
       },
       completion: false,
+      schema: false,
       help: false,
       quiet: false,
     });
@@ -411,6 +428,7 @@ describe('completionSpec()', () => {
     const found = await spec({
       commands: { [`two${ESC}lines, run`]: { alias: 'go', run() {} } },
       completion: false,
+      schema: false,
       help: false,
       quiet: false,
     });
@@ -424,6 +442,7 @@ describe('completionSpec()', () => {
     const found = await spec({
       commands: { [`two${ESC}lines`]: { alias: 'go', run() {} } },
       completion: false,
+      schema: false,
       help: false,
       quiet: false,
     });
@@ -445,6 +464,7 @@ describe('completionSpec()', () => {
           [`two${ESC}lines, go`]: { options: { '--second': 'second' }, run() {} },
         },
         completion: false,
+        schema: false,
         help: false,
         quiet: false,
       })
@@ -454,6 +474,7 @@ describe('completionSpec()', () => {
   it('should leave a hidden option out', async () => {
     const found = await spec({
       completion: false,
+      schema: false,
       help: false,
       quiet: false,
       options: { '--shown': 'shown', '--secret': { desc: 'secret', hidden: true } },
@@ -477,6 +498,7 @@ describe('completionSpec()', () => {
     const found = await spec({
       commands: { build: { options: { '--out <dir>': 'out' }, run(): void {} } },
       completion: false,
+      schema: false,
       help: false,
       quiet: false,
       options: { '--config [file]': 'config' },
@@ -493,6 +515,7 @@ describe('completionSpec()', () => {
         build: { options: { '--mode [m]': { choices: ['fast'], desc: 'inner' } }, run(): void {} },
       },
       completion: false,
+      schema: false,
       help: false,
       quiet: false,
       options: { '--mode [m]': { choices: ['slow'], desc: 'outer' } },
@@ -507,6 +530,7 @@ describe('completionSpec()', () => {
   it('should offer both spellings of a negated flag', async () => {
     const found = await spec({
       completion: false,
+      schema: false,
       help: false,
       quiet: false,
       options: { '--no-color': 'no colour' },
@@ -518,6 +542,7 @@ describe('completionSpec()', () => {
   it('should offer the words a bool and a yesno take', async () => {
     const found = await spec({
       completion: false,
+      schema: false,
       help: false,
       quiet: false,
       options: {
@@ -546,6 +571,7 @@ describe('completionSpec()', () => {
     // choice check then refuses
     const found = await spec({
       completion: false,
+      schema: false,
       help: false,
       quiet: false,
       options: { '--y [v]': { choices: [true, false], desc: 'a yesno', type: 'yesno' } },
@@ -561,6 +587,7 @@ describe('completionSpec()', () => {
         { choices: ['b', 'c'], name: '[two]' },
       ],
       completion: false,
+      schema: false,
       help: false,
       quiet: false,
     });
@@ -585,6 +612,7 @@ describe('completionSpec()', () => {
         },
       },
       completion: false,
+      schema: false,
       help: false,
       quiet: false,
     });
@@ -607,6 +635,7 @@ describe('completionSpec()', () => {
         },
       },
       completion: false,
+      schema: false,
       help: false,
       quiet: false,
       options: { '--mode [m]': { choices: ['slow'], desc: 'root mode' } },
@@ -630,6 +659,7 @@ describe('completionSpec()', () => {
         },
       },
       completion: false,
+      schema: false,
       help: false,
       quiet: false,
     });
@@ -644,6 +674,7 @@ describe('completionSpec()', () => {
     // would type a token that is not the value
     const found = await spec({
       completion: false,
+      schema: false,
       help: false,
       quiet: false,
       options: { '--x [v]': { choices: [`a${ESC}b`, 'fine'], desc: 'x' } },
@@ -657,6 +688,7 @@ describe('completionSpec()', () => {
     // offering `true` and `false` would offer two tokens the parse rejects
     const found = await spec({
       completion: false,
+      schema: false,
       help: false,
       quiet: false,
       options: { '--b [v]': { choices: [], desc: 'nothing at all', type: 'bool' } },
@@ -672,6 +704,7 @@ describe('completionSpec()', () => {
     // first match and the second value is searched from part way in
     const found = await spec({
       completion: false,
+      schema: false,
       help: false,
       quiet: false,
       options: { '--x [v]': { choices: [`a${ESC}b`, `c${ESC}d`, 'fine'], desc: 'x' } },
@@ -683,6 +716,7 @@ describe('completionSpec()', () => {
   it('should not offer an empty value, which is a candidate nothing can pick', async () => {
     const found = await spec({
       completion: false,
+      schema: false,
       help: false,
       quiet: false,
       options: { '--x [v]': { choices: ['', 'fine'], desc: 'x' } },
@@ -695,7 +729,11 @@ describe('completionSpec()', () => {
     // a registry holds initialized commands and `initCommand()` hands one
     // straight back, so a declaration naming a command in its own subtree is a
     // cycle rather than a copy
-    const parsed = await state({ commands: { a: { run(): void {} } }, completion: false });
+    const parsed = await state({
+      commands: { a: { run(): void {} } },
+      completion: false,
+      schema: false,
+    });
     const a = parsed.contexts[0]![Internal].commands.find('a')!;
     a[Internal].commands.add(a);
 
@@ -945,7 +983,7 @@ describe('the completion command', () => {
   });
 
   it('should add nothing when the schema turns it off', async () => {
-    const parsed = await state({ completion: false });
+    const parsed = await state({ completion: false, schema: false });
 
     expect(parsed.contexts[0]![Internal].commands.find('completion')).toBeUndefined();
   });
@@ -1432,6 +1470,7 @@ describe('the scripts as shell programs', () => {
         },
       },
       completion: false,
+      schema: false,
       help: false,
       name: 'mycli',
       quiet: false,
@@ -1472,6 +1511,7 @@ describe('the scripts as shell programs', () => {
         other: { desc: 'other', options: { '--other': 'other' }, run() {} },
       },
       completion: false,
+      schema: false,
       help: false,
       name: 'mycli',
       quiet: false,
@@ -1759,6 +1799,7 @@ describe('the scripts as shell programs', () => {
       // doubled entry read as one thing in a zsh menu
       'cand:remove:remove it',
       'cand:rm:remove it',
+      "cand:schema:Print each command's input as JSON Schema",
     ]);
 
     expect(drive(['mycli', 'rm', '--'])).toContain('cand:--force:force');
@@ -1853,6 +1894,7 @@ describe('the scripts as shell programs', () => {
     expect(out.split('\n').filter((line) => line !== '')).toEqual([
       'cand:completion:Print a shell completion script',
       'cand:db:db',
+      "cand:schema:Print each command's input as JSON Schema",
       'cand:serve:serve',
       'cand:pub',
       'cand:priv',
@@ -1891,7 +1933,7 @@ describe('the scripts as shell programs', () => {
     const cases: [string[], string[]][] = [
       [
         ['mycli', ''],
-        ['build', 'completion', 'db', 'help', "it\\'s", 'remove', 'rm'],
+        ['build', 'completion', 'db', 'help', "it\\'s", 'remove', 'rm', 'schema'],
       ],
       [['mycli', 'b'], ['build']],
       [['mycli', 'db', ''], ['migrate']],
@@ -1928,7 +1970,7 @@ describe('the scripts as shell programs', () => {
       // the path stays at the root and the root's commands are what is offered
       [
         ['mycli', '--config', 'build', ''],
-        ['build', 'completion', 'db', 'help', "it\\'s", 'remove', 'rm'],
+        ['build', 'completion', 'db', 'help', "it\\'s", 'remove', 'rm', 'schema'],
       ],
       // nothing at all after the terminator, which is where extra arguments go
       [['mycli', 'build', '--', ''], []],
@@ -1964,13 +2006,13 @@ describe('the scripts as shell programs', () => {
       // still to come, so the skip has to survive it
       [
         ['mycli', '--config', '=', 'build', ''],
-        ['build', 'completion', 'db', 'help', "it\\'s", 'remove', 'rm'],
+        ['build', 'completion', 'db', 'help', "it\\'s", 'remove', 'rm', 'schema'],
       ],
       // a word that extends no known path is not a command, so the path stays
       // where it was rather than moving somewhere nothing is offered
       [
         ['mycli', 'nope', ''],
-        ['build', 'completion', 'db', 'help', "it\\'s", 'remove', 'rm'],
+        ['build', 'completion', 'db', 'help', "it\\'s", 'remove', 'rm', 'schema'],
       ],
       // a quote is in the default `COMP_WORDBREAKS`, and a word that is one,
       // or ends in one, is not a word the line was split at: `''` is an empty
@@ -1978,11 +2020,11 @@ describe('the scripts as shell programs', () => {
       // neighbour took the path with it
       [
         ['mycli', '--config', "''", ''],
-        ['build', 'completion', 'db', 'help', "it\\'s", 'remove', 'rm'],
+        ['build', 'completion', 'db', 'help', "it\\'s", 'remove', 'rm', 'schema'],
       ],
       [
         ['mycli', '--config', "a\\'", ''],
-        ['build', 'completion', 'db', 'help', "it\\'s", 'remove', 'rm'],
+        ['build', 'completion', 'db', 'help', "it\\'s", 'remove', 'rm', 'schema'],
       ],
       // a word is read as the value it spells, so a quoted command is one
       [['mycli', "'remove'", '--f'], ['--force']],
@@ -2084,6 +2126,7 @@ describe('a candidate inserted by a real interactive bash', () => {
       "it's": { options: { '--force': 'force' }, run(): void {} },
     },
     completion: false,
+    schema: false,
     help: false,
     name: 'mycli',
     options: {

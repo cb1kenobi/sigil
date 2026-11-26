@@ -138,6 +138,7 @@ Commands:
   completion  Print a shell completion script
   hello
   help        Show help for a command
+  schema      Print each command's input as JSON Schema
 
 Options:
   -v, --verbose  Say more
@@ -145,8 +146,9 @@ Options:
   -q, --quiet    Suppress progress, not results
 ```
 
-You did not write `--help`, `help`, `completion` or `--quiet`; every app gets
-them. `hello` has no description in that list because its description is inside
+You did not write `--help`, `help`, `completion`, `schema` or `--quiet`; every
+app gets them. `schema` prints what each command takes as JSON Schema, which is
+what an agent or a tool definition reads to call your app. `hello` has no description in that list because its description is inside
 its module, and listing the commands does not import every module. The built
 app shows all of the descriptions (see [Build it](#build-it)). To show them from
 source too, or to give a command an alias, describe the commands in a
@@ -416,6 +418,7 @@ Commands:
   deploy      Deploy a service
   hello       Say hello
   help        Show help for a command
+  schema      Print each command's input as JSON Schema
 
 Options:
   -v, --verbose  Say more

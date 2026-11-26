@@ -28,6 +28,7 @@ import { registerCompletion } from './completion.js';
 import { detectFormat } from './format.js';
 import { detectHelp, registerHelp } from './help.js';
 import { detectQuiet, registerQuiet } from './quiet.js';
+import { registerSchemaCommand } from './schema-command.js';
 import { resolveSettings } from './settings.js';
 import { unexpectedArgument, unknownOption } from './suggest.js';
 import { detectVersion, registerVersion } from './version.js';
@@ -160,6 +161,9 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
     // of the schema -- and it carries `needsNoValues` for that, which the two
     // validators below read
     await registerCompletion(state.contexts[0], schema);
+    // the same shape for the same reason: the document is printed out of the
+    // schema, so it carries `needsNoValues` too (SIG-717)
+    await registerSchemaCommand(state.contexts[0], schema);
 
     await initArgv(state);
     await parseArgv(state);

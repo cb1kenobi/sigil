@@ -77,8 +77,8 @@ describe('filesystem routing', () => {
       const result = await parse({ schema: { commands: routes } });
       const names = [...result.contexts[0][Internal].commands.keys()];
       expect(names).to.not.contain('.hidden-not-a-route');
-      // `completion` and `help` are the parser's own, added to the root
-      // alongside `--help`, and `routes-pkg` is `pkg/` under the name its own
+      // `completion`, `help` and `schema` are the parser's own, added to the
+      // root alongside `--help`, and `routes-pkg` is `pkg/` under the name its own
       // package.json gives it
       expect(names.sort()).to.deep.equal([
         'build',
@@ -91,6 +91,7 @@ describe('filesystem routing', () => {
         'only-index',
         'private-index',
         'routes-pkg',
+        'schema',
       ]);
     });
   });
@@ -792,7 +793,14 @@ describe('filesystem routing', () => {
       const result = await parse({ schema: { commands: ts } });
       const names = [...result.contexts[0][Internal].commands.keys()];
       expect(names).to.not.contain('deploy.d');
-      expect(names.sort()).to.deep.equal(['completion', 'deploy', 'help', 'pkg-ts', 'settings']);
+      expect(names.sort()).to.deep.equal([
+        'completion',
+        'deploy',
+        'help',
+        'pkg-ts',
+        'schema',
+        'settings',
+      ]);
     });
 
     it('should refuse a .ts and a .js claiming one name', async () => {
@@ -1043,7 +1051,7 @@ describe('filesystem routing', () => {
       // names it, which are the two places `resolveRoutes()` is asked from
       const root = await parse({ argv: [], schema: { commands: dir } });
       const own = (names: Iterable<string>) =>
-        [...names].filter((name) => name !== 'completion' && name !== 'help');
+        [...names].filter((name) => !['completion', 'help', 'schema'].includes(name));
       expect(own(root.contexts[0][Internal].commands.keys())).to.deep.equal(['B', 'a', 'ns']);
 
       const nested = await parse({ argv: ['ns'], schema: { commands: dir } });

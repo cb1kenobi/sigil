@@ -32,7 +32,7 @@ async function state(schema: Schema, argv: string[] = []): Promise<ParseState> {
     return await parse({
       argv,
       env: {},
-      schema: { completion: false, help: false, name: 'mycli', ...schema },
+      schema: { completion: false, schema: false, help: false, name: 'mycli', ...schema },
     });
   } catch (err) {
     // a parse that threw still carries the state it died with, which is where

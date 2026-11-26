@@ -692,6 +692,19 @@
           "env": [],
           "hidden": false,
           "long": [
+            "--json-schema"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": false,
+          "type": "bool"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
             "--out"
           ],
           "multiple": false,

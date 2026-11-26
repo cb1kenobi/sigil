@@ -26,7 +26,7 @@ async function help(schema: Schema, argv: string[] = [], width = 72) {
   try {
     state = await parse({
       argv,
-      schema: { completion: false, quiet: false, help: false, ...schema },
+      schema: { completion: false, schema: false, quiet: false, help: false, ...schema },
     });
   } catch (err) {
     state = stateFromError(err);
@@ -47,7 +47,7 @@ async function themed(schema: Schema, theme: string, sheets?: string[]) {
   try {
     state = await parse({
       argv: [],
-      schema: { completion: false, quiet: false, help: false, ...schema },
+      schema: { completion: false, schema: false, quiet: false, help: false, ...schema },
     });
   } catch (err) {
     state = stateFromError(err);
@@ -87,7 +87,7 @@ describe('the usage line', () => {
     const text = await help({ name: 'mycli' });
     const state = await parse({
       argv: [],
-      schema: { completion: false, quiet: false, help: false, name: 'mycli' },
+      schema: { completion: false, schema: false, quiet: false, help: false, name: 'mycli' },
     });
     expect(renderHelp(state, { name: 'other' }).split('\n')[0]).toBe('Usage: other');
     expect(text).toBeTruthy();
@@ -107,6 +107,7 @@ describe('the usage line', () => {
   it('should make the command optional when one of them is the default', async () => {
     const schema: Schema = {
       completion: false,
+      schema: false,
       quiet: false,
       help: false,
       name: 'mycli',
@@ -386,7 +387,7 @@ describe('the options sections', () => {
   it('should put the flags the parser owns under Global options at a subcommand', async () => {
     let state = await parse({
       argv: ['build'],
-      schema: { completion: false, ...schema },
+      schema: { completion: false, schema: false, ...schema },
     });
     const global = sectionOf(renderHelp(state, { width: 72 }), 'Global options');
     expect(global).toContain('  -q, --quiet    Suppress progress, not results');
@@ -925,7 +926,7 @@ describe('help against a light background', () => {
     };
     const state = await parse({
       argv: [],
-      schema: { completion: false, quiet: false, help: false, ...schema },
+      schema: { completion: false, schema: false, quiet: false, help: false, ...schema },
     });
     const dark = renderHelp(state, { colorLevel: 3, colorScheme: 'dark', width: 60 });
     const light = renderHelp(state, { colorLevel: 3, colorScheme: 'light', width: 60 });

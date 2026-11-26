@@ -13,6 +13,7 @@ await main({
   schema: {
     name: 'bundle',
     completion: false,
+    schema: false,
     commands: {
       build: {
         default: true,

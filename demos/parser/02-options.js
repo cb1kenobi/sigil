@@ -23,6 +23,7 @@ await main({
     name: 'options',
     desc: 'One of each kind of option',
     completion: false,
+    schema: false,
     commands: {
       show: {
         default: true,

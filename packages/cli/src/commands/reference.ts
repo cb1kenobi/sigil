@@ -64,7 +64,7 @@ import { appRuns } from './_inspect.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
 import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { writeOut } from '@ttylabs/sigil/output';
-import { commandSurface } from '@ttylabs/sigil/reference';
+import { commandSurface, inputSchemasJson } from '@ttylabs/sigil/reference';
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 
 /**
@@ -113,14 +113,14 @@ function shown(root: string, dir: string): string {
  * finding, in the one function whose whole job is to say the thing to do. Found
  * by review, twice.
  *
- * @param json - Whether the snapshot was asked for.
+ * @param form - Which artifact was asked for.
  * @param dir - What `[dir]` was given, which is `.` when it was not.
  * @param entry - What `--entry` was given, if it was.
  * @param out - What `--out` was given, if it was.
  * @returns The command.
  */
 function refreshed(
-  json: boolean,
+  form: Form,
   dir: string,
   entry: string | undefined,
   out: string | undefined
@@ -130,8 +130,8 @@ function refreshed(
   if (dir !== '.') {
     parts.push(word(dir));
   }
-  if (json) {
-    parts.push('--json');
+  if (form !== 'markdown') {
+    parts.push(`--${form}`);
   }
   if (entry !== undefined) {
     parts.push('--entry', word(entry));
@@ -142,6 +142,13 @@ function refreshed(
 
   return parts.join(' ');
 }
+
+/**
+ * The three artifacts over one surface: the markdown for a reader, the snapshot
+ * for a diff, and the input schemas for a machine that calls the app (SIG-717).
+ * Each flag is spelled as its form, which is what lets `refreshed()` print one.
+ */
+type Form = 'json' | 'json-schema' | 'markdown';
 
 /**
  * What a change says, and what to do about it.
@@ -174,13 +181,17 @@ function said(kind: Change['kind'], refresh: string): string {
  */
 const reference: AnyCommand = command({
   args: [{ desc: "The app's root, defaulting to the working directory", name: '[dir]' }],
-  desc: 'Write a markdown command reference, or a snapshot of the command surface',
+  desc: 'Write a markdown command reference, a snapshot of the command surface, or its input schemas',
   examples: [
     { label: 'Print the whole reference as one document', text: 'sigil reference' },
     { label: 'Write a page per command', text: 'sigil reference --out docs/reference' },
     {
       label: "Fail when the committed snapshot is not what the app's surface says",
       text: 'sigil reference --json --out command-surface.json --check',
+    },
+    {
+      label: 'Print what each command takes, for an agent or a tool definition',
+      text: 'sigil reference --json-schema',
     },
   ],
   options: {
@@ -195,30 +206,52 @@ const reference: AnyCommand = command({
       desc: 'Print a stable snapshot of the command surface rather than markdown',
       type: 'bool',
     },
+    '--json-schema': {
+      desc: "Print each runnable command's input as JSON Schema, for a tool that calls the app",
+      type: 'bool',
+    },
     '--out [path]': {
-      desc: 'Where it goes: a directory for the pages, a file for --json. Overrides sigil.json',
+      desc: 'Where it goes: a directory for the pages, a file for --json or --json-schema. Overrides sigil.json',
     },
   },
 
   async run({ argv }) {
     const cwd = String(argv.dir ?? '.');
-    const json = !!argv.json;
+
+    // refused before the app is loaded, since nothing it says changes the answer:
+    // the two are two documents and `--out` names one file
+    if (argv.json && argv.jsonSchema) {
+      throw new Error('Choose one of --json and --json-schema: each is a document of its own.');
+    }
+
+    const form: Form = argv.jsonSchema ? 'json-schema' : argv.json ? 'json' : 'markdown';
+    // one file rather than a page per command, which is what decides how
+    // `--out` is read below
+    const json = form !== 'markdown';
     const { app, schema } = await loadAppSchema({ cwd, entry: argv.entry as string | undefined });
     const surface = await commandSurface(schema);
+    const document = (): string =>
+      form === 'json-schema' ? inputSchemasJson(surface) : snapshotJson(surface);
 
     const config = readSigilConfig(app.root).reference ?? {};
-    const named = (argv.out as string | undefined) ?? (json ? config.snapshot : config.out);
+    // the input schemas have no `sigil.json` key yet: nothing has asked to commit
+    // one, and a key is easier to add than to take back
+    const named =
+      (argv.out as string | undefined) ??
+      (form === 'json' ? config.snapshot : form === 'markdown' ? config.out : undefined);
 
     if (named === undefined) {
       if (argv.check) {
         throw new Error(
-          `Nothing to check: name a destination with --out, or set "reference": { "${
-            json ? 'snapshot' : 'out'
-          }": "..." } in sigil.json.`
+          form === 'json-schema'
+            ? 'Nothing to check: name a destination with --out.'
+            : `Nothing to check: name a destination with --out, or set "reference": { "${
+                json ? 'snapshot' : 'out'
+              }": "..." } in sigil.json.`
         );
       }
 
-      writeOut(json ? snapshotJson(surface) : referenceDocument(surface));
+      writeOut(json ? document() : referenceDocument(surface));
       return;
     }
 
@@ -233,7 +266,7 @@ const reference: AnyCommand = command({
     // decides whether the answer is one document or many, which is the honest
     // statement rather than two flags for one idea
     const files: ReferenceFile[] = json
-      ? [{ body: snapshotJson(surface), file: basename(dest) }]
+      ? [{ body: document(), file: basename(dest) }]
       : referencePages(surface).map(({ body, file }) => ({ body, file }));
     const dir = json ? dirname(dest) : dest;
 
@@ -241,7 +274,7 @@ const reference: AnyCommand = command({
 
     if (argv.check && changes.length > 0) {
       const refresh = refreshed(
-        json,
+        form,
         cwd,
         argv.entry as string | undefined,
         argv.out as string | undefined

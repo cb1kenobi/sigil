@@ -177,7 +177,16 @@ sigil reference --out docs/reference             # a page per command
 sigil reference --json --out command-surface.json
 sigil reference --check                          # exit non-zero if the pages moved
 sigil reference --json --check                   # and the snapshot, which is a second run
+sigil reference --json-schema                    # each command's input, as JSON Schema
 ```
+
+`--json-schema` is the third artifact, and it is for a machine that **calls** the
+app rather than one that diffs it: every runnable command's input as a JSON
+Schema object, keyed by the `argv` destination, which is the shape MCP and the
+tool definitions of every agent framework take. It is one document, to stdout or
+to the file `--out` names, and `--check` compares it like the snapshot; it has no
+`sigil.json` key yet. What it says and what it deliberately leaves out is under
+[`sigil/reference`](../sigil#sigilreference).
 
 Two artifacts over one payload. The **markdown** is for reading: usage,
 arguments, options, aliases, examples and the subcommand list, with YAML front

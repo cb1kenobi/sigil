@@ -22,4 +22,4 @@ Lists the commands under it and takes no action of its own.
 | [`sigil check`](check.md) | Check an app without building it |
 | [`sigil new`](new.md) | Create a new app |
 | [`sigil package`](package.md) | Build an app and compile it into a single executable |
-| [`sigil reference`](reference.md) | Write a markdown command reference, or a snapshot of the command surface |
+| [`sigil reference`](reference.md) | Write a markdown command reference, a snapshot of the command surface, or its input schemas |

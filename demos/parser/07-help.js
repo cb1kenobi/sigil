@@ -15,6 +15,7 @@ await main({
     desc: 'What the help screen can do',
     options: { '-v, --verbose': 'Say more' },
     completion: false,
+    schema: false,
     commands: {
       build: {
         desc: 'Build the project',

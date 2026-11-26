@@ -101,6 +101,7 @@ await main({
       pl: () => Promise.resolve(pl),
     },
     completion: false,
+    schema: false,
     commands: {
       show: {
         default: true,

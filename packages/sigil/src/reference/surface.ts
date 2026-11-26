@@ -83,7 +83,8 @@ import {
   type Schema,
 } from '../types.js';
 import { byCodeUnit } from '../util/by-code-unit.js';
-import { escapeControls, withoutUnsafe } from '../util/escape-controls.js';
+import { escapeControls } from '../util/escape-controls.js';
+import { programNameProblem } from '../util/program-name.js';
 
 /** One positional argument, in the place it is typed. */
 export interface SurfaceArgument {
@@ -93,8 +94,32 @@ export interface SurfaceArgument {
    * list is never shorter than the declaration's (SIG-643). Empty where any value will do.
    */
   readonly choices: readonly string[];
+  /**
+   * The declared `choices` as the **values** the parser compares against, in
+   * declaration order, or `[]` where any value will do.
+   *
+   * `choices` is the list for a reader -- spelled as argv spells it, and escaped
+   * -- and a machine reader needs the other thing: the int `8080` rather than the
+   * token `"8080"`, and a choice holding a control character as the character
+   * rather than as `\x1B`. So this is what a JSON Schema `enum` is built from
+   * (SIG-717). **Never printed**, since it is exactly what the escaping is for.
+   */
+  readonly choiceValues: readonly unknown[];
+  /**
+   * What a value falls back to, where the declaration named one. Anything the
+   * schema put there, so a reader has to be ready for a function.
+   */
+  readonly default?: unknown;
   /** What it is for, exactly as the declaration resolved it. */
   readonly desc?: string;
+  /**
+   * The key `argv` holds its value under, which is the camelCased name.
+   *
+   * Recorded for a machine reader (SIG-717): a JSON Schema property is named
+   * after what `run()` reads, so a tool call's arguments and a command's `argv`
+   * are one vocabulary.
+   */
+  readonly dest: string;
   /**
    * The environment variables it reads, in declaration order.
    *
@@ -129,6 +154,11 @@ export interface SurfaceOption {
    */
   readonly choices: readonly string[];
   /**
+   * The declared `choices` as values rather than as tokens. See
+   * {@link SurfaceArgument.choiceValues}, which says why there are two lists.
+   */
+  readonly choiceValues: readonly unknown[];
+  /**
    * What a value falls back to, where the declaration named one and it is not a
    * flag's implied `false`.
    *
@@ -140,6 +170,12 @@ export interface SurfaceOption {
   readonly default?: unknown;
   /** What it is for, exactly as the declaration resolved it. */
   readonly desc?: string;
+  /**
+   * The key `argv` holds its value under. A valued option and its negated twin
+   * share one, which is how a machine reader pairs them. See
+   * {@link SurfaceArgument.dest}.
+   */
+  readonly dest: string;
   /**
    * The environment variables it reads, in declaration order.
    *
@@ -182,6 +218,13 @@ export interface SurfaceOption {
   readonly negate: boolean;
   /** Whether a run without it fails. */
   readonly required: boolean;
+  /**
+   * Whether it is the `--format` or `--json` a command's `format` declaration
+   * added. Its value never reaches `argv` -- it picks how the result is
+   * presented, not what the command does -- so it is not part of a command's
+   * input (SIG-717).
+   */
+  readonly selectsFormat: boolean;
   /** The short spellings that reach this option, in declaration order. */
   readonly short: readonly string[];
   /** Whether it consumes a value, which is `!isFlag`. */
@@ -347,7 +390,10 @@ function examplesOf(examples: unknown): SurfaceExample[] {
 function argumentOf(arg: InternalArgument): SurfaceArgument {
   return {
     choices: choicesOf(arg.type, arg.choices),
+    choiceValues: Array.isArray(arg.choices) ? [...arg.choices] : [],
+    default: arg.default,
     desc: typeof arg.desc === 'string' ? arg.desc : undefined,
+    dest: arg[Internal].dest,
     // an argument reads environment variables exactly as an option does --
     // `initArg()` stores `envs` and `envValue()` reads them with the same
     // first-wins rule -- and this recorded none of them, so `ENTRY=x mycli`
@@ -379,11 +425,12 @@ function argumentOf(arg: InternalArgument): SurfaceArgument {
  * @returns The record.
  */
 function optionOf(opt: InternalOption, registry: OptionRegistry): SurfaceOption {
-  const { envs, isFlag, long, short } = opt[Internal];
+  const { dest, envs, isFlag, long, selectsFormat, short } = opt[Internal];
   const reaches = (spelling: string): boolean => registry.find(spelling) === opt;
 
   return {
     choices: choicesOf(opt.type, opt.choices),
+    choiceValues: Array.isArray(opt.choices) ? [...opt.choices] : [],
     // help's own test: a flag's implied `false` is noise rather than
     // information, so it is dropped there and here. What a *reference* does
     // with this is print it, which is what help does; the snapshot drops it
@@ -392,6 +439,7 @@ function optionOf(opt: InternalOption, registry: OptionRegistry): SurfaceOption 
     // `--help` about the same declaration
     default: opt[Internal].impliedDefault ? undefined : opt.default,
     desc: typeof opt.desc === 'string' ? opt.desc : undefined,
+    dest,
     env: [...envs].map((name) => escapeControls(name)),
     group: typeof opt.group === 'string' ? opt.group : undefined,
     hidden: !!opt.hidden,
@@ -401,6 +449,7 @@ function optionOf(opt: InternalOption, registry: OptionRegistry): SurfaceOption 
     name: opt.name,
     negate: !!opt.negate,
     required: !!opt.required,
+    selectsFormat: !!selectsFormat,
     short: [...short].filter(reaches),
     takesValue: !isFlag,
     type: opt.type,
@@ -489,14 +538,16 @@ export async function commandSurface(schema: Schema): Promise<CommandSurface> {
   // a usage line the terminal drew reversed and wrote the character raw into a
   // front matter title and a snapshot. Refused rather than escaped, for the
   // reason above -- what reaches a page is the name
-  const unsafe = withoutUnsafe(program) !== program;
+  // the rule itself is `programNameProblem()`'s, because the `schema` command
+  // asks it too, to stay out of an app whose name this would refuse (SIG-717)
+  const problem = programNameProblem(program);
 
-  if (!program || /\s/u.test(program) || unsafe) {
+  if (problem) {
     throw new Error(
       `Cannot build a command reference: ${
-        program
-          ? `this app's name holds ${unsafe ? 'a control or format character' : 'whitespace'}, which a heading, a usage line and a front matter title cannot carry`
-          : 'this app declares no name'
+        problem === 'missing'
+          ? 'this app declares no name'
+          : `this app's name holds ${problem === 'unsafe' ? 'a control or format character' : 'whitespace'}, which a heading, a usage line and a front matter title cannot carry`
       }, and a reference has to say what to type. Set "name" on the schema to the command a user runs, which is one word.`
     );
   }

@@ -12,13 +12,14 @@ Each file opens with the commands worth trying. The parser demos run a sample
 argv when you give them none, so they do something on their own — pass your own
 arguments and yours are used instead.
 
-Almost every schema here says `completion: false`, which is the opt-out for the
-shell-completion command `parse()` adds to every app. It is off because no demo
-is **about** completion, so on a `--help` screen it is a row the file did not
-write — where `help` stays, because `07-help.js` is about exactly that. One demo
-keeps it and that is the interesting one: `10-palette.js` lists `completion`
-because the palette reads the **registry** rather than the declaration, so the
-one command the app never declared is the row that proves it.
+Almost every schema here says `completion: false, schema: false`, which is the
+opt-out for the shell-completion and JSON Schema commands `parse()` adds to every
+app. They are off because no demo is **about** them, so on a `--help` screen each
+is a row the file did not write — where `help` stays, because `07-help.js` is
+about exactly that. One demo keeps them and that is the interesting one:
+`10-palette.js` lists `completion` and `schema` because the palette reads the
+**registry** rather than the declaration, so the commands the app never declared
+are the rows that prove it.
 
 ## The parser
 
