@@ -2335,9 +2335,42 @@ export default {
         expect(at(list, 'y').module?.split(/[\\/]/).at(-1)).toBe('a.js');
         // `alias` is written before a spread that holds none either
         expect(at(list, 'x').alias).toEqual(['why']);
-        expect(diagnostics.map((d) => d.message)).toEqual([]);
+        // what else it holds is said, at the spread, as it is for a sealed one
+        expect(
+          diagnostics.map((d) => /the "(\w+)" command declares "(\w+)"/.exec(d.message)?.[0])
+        ).toEqual(['the "x" command declares "tags"', 'the "y" command declares "tags"']);
       });
     });
+
+    it.each([
+      ['an inline run', 'run() {}', ['run']],
+      ['options', "options: { '--force': { desc: 'x' } }", ['options']],
+      ['hooks and args', "hooks: {}, args: ['<x>']", ['hooks', 'args']],
+    ])(
+      'warned of what a spread of an unsealed const holding %s does not carry',
+      async (_what, held, keys) => {
+        // SIG-731, review. The const holds none of `name`, `path` and `load`, so it is no
+        // longer refused for them -- and that refusal was the only thing that said
+        // what else the const holds, which a built app does not carry. Silently
+        // building it was a built app that prints help where the app runs `run`
+        const source = `const shared = { ${held} };
+console.log(shared.run);
+export default {
+  baseDir: import.meta.dirname,
+  commands: { rm: { ...shared, path: './commands/a.js' } },
+};\n`;
+
+        await withSchema(source, (dir) => {
+          const { diagnostics } = readAppCommands(discoverApp(dir));
+
+          expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
+          expect(diagnostics.map((d) => /declares "(\w+)"/.exec(d.message)?.[1])).toEqual(keys);
+          expect(diagnostics.every((d) => d.line === 5 && d.message.includes('SIG-320'))).toBe(
+            true
+          );
+        });
+      }
+    );
 
     it.each([
       // [what the const is put through, the statement or declaration]

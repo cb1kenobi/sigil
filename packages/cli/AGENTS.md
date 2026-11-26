@@ -1030,6 +1030,16 @@ makes it testable with a fixture directory and no bundler at all.
     written to drive through a build: a const holding only `commands` is no
     carrier of the three, and builds with the warning for the `commands` it cannot
     see, which is the divergence that is real.
+    **What the refusal used to report and no longer can** (review): it was the
+    only thing that said what else the const holds, since `warnUnbaked()` reads
+    what `flatten()` resolves and a const `sealedObject()` gives up on is not
+    resolved. A const holding `run`, `options` or `hooks` that something reads a
+    member of built silently into an app that prints help where the app runs
+    `run`. `lackedLiteral()` in `bindings.ts` hands `warnUnbaked()` the literal
+    of such a const -- one that visibly holds none of `name`, `path` and `load`,
+    the shape that stopped being refused -- and its keys are reported at the
+    spread, as a sealed const's are. A const that holds one of the three is still
+    refused, and says nothing more.
   - **A placeholder whose only `commands` is an accessor or a method is
     `warnUnbaked()`'s, and its wording is the right one (SIG-732).** The build
     cannot run a getter, so the built app has none of the subcommands the runtime

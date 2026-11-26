@@ -401,6 +401,28 @@ export function lacksResolver(parsed: ParsedModule): Lacks {
   };
 }
 
+/**
+ * The object literal of a same-module `const` that visibly holds none of the
+ * keys that route and bundle a placeholder, `name`, `path` and `load` (SIG-731).
+ *
+ * A spread of one is no carrier of those three, so the refusal that used to
+ * report it is gone -- and that refusal was the only thing that reported what
+ * else the const holds, since `flatten()` reads only a const `sealedObject()`
+ * resolves. This is how `warnUnbaked()` reads the keys such a const holds, which
+ * are visible: `lacksResolver()` has already answered that it spells no accessor,
+ * spread or computed key.
+ *
+ * @param parsed - The module.
+ * @param name - The name that is spread.
+ * @returns The literal, or `undefined` where the name is not such a const.
+ */
+export function lackedLiteral(parsed: ParsedModule, name: string): ObjectExpression | undefined {
+  const lacks = lacksResolver(parsed);
+  return lacks(name, 'name') && lacks(name, 'path') && lacks(name, 'load')
+    ? declaredObject(parsed, name)?.object
+    : undefined;
+}
+
 function lacksKey(parsed: ParsedModule, name: string, key: string): boolean {
   const declared = declaredObject(parsed, name);
   if (!declared) {

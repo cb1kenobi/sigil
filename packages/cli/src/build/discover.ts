@@ -39,7 +39,13 @@
  * from (`schemaModule()`) -- because running it would run the app.
  */
 
-import { lacksResolver, schemasWith, sealedResolver, spellingIn } from './bindings.ts';
+import {
+  lackedLiteral,
+  lacksResolver,
+  schemasWith,
+  sealedResolver,
+  spellingIn,
+} from './bindings.ts';
 import { type Diagnostic, displayPath } from './diagnostic.ts';
 import { type CommandFacts, factsOf, type RoutedBy } from './extract.ts';
 import { translatedKey } from './i18n.ts';
@@ -1630,7 +1636,19 @@ function warnUnbaked(
   // what the object spells, as the build reads it: an unbaked key inside a
   // literal spread or under a computed key written as a string is as unbaked as
   // one written plainly
-  for (const property of flatten(object, sealedResolver(parsed))) {
+  // a spread of a const the resolver gave up on that visibly holds none of the
+  // three keys that route a placeholder is no longer refused, so what else it holds
+  // is said here, at the spread (SIG-731)
+  const members = flatten(object, sealedResolver(parsed)).flatMap((member) => {
+    const operand = member.type === 'SpreadElement' ? unwrapShallow(member.argument) : undefined;
+    const literal =
+      operand?.type === 'Identifier' ? lackedLiteral(parsed, operand.name) : undefined;
+    return literal
+      ? flatten(literal).map((property) => ({ at: member.start, property }))
+      : [{ at: member.start, property: member }];
+  });
+
+  for (const { at, property } of members) {
     if (property.type === 'SpreadElement') {
       continue;
     }
@@ -1651,7 +1669,7 @@ function warnUnbaked(
     }
 
     diagnostics.push({
-      ...locate(parsed, property.start),
+      ...locate(parsed, at),
       message: `the "${name}" command declares "${escapeControls(key)}" in the schema, which \`sigil build\` does not carry into a built app (SIG-320); it applies when the app runs from source and not after a build${advice(key)}`,
       severity: 'warning',
     });
