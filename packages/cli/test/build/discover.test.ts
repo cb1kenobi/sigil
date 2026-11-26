@@ -1931,6 +1931,51 @@ export default { baseDir: import.meta.dirname, commands: { stale: './commands/a.
       });
 
       it.each([
+        ['null', 'null'],
+        ['an empty string', "''"],
+        ['an empty template', '``'],
+        ['false', 'false'],
+        ['0', '0'],
+      ])(
+        'warned that a baseDir of %s sets none, as the runtime resolves from the working directory',
+        async (_what, value) => {
+          // SIG-733. `initCommand()` asks `baseDir ? resolve(baseDir, file) : file`, so
+          // a falsy `baseDir` is none to the runtime, as `undefined` is -- measured by
+          // running an app with each, from a directory its commands are not under,
+          // where relative `commands` were not found for any of them
+          const { diagnostics } = await read(
+            `export default { baseDir: ${value}, commands: './commands' };\n`
+          );
+
+          expect(messages(diagnostics)).toEqual([expect.stringContaining('sets no "baseDir"')]);
+          expect(diagnostics[0]).toMatchObject({ severity: 'warning' });
+        }
+      );
+
+      it.each([
+        ['a string', "'/srv/app'"],
+        ['a call', 'process.cwd()'],
+        ['a name', 'dir'],
+      ])('did not warn that a baseDir of %s sets none, which it may not', async (_what, value) => {
+        // only a literal that is falsy is known to be none
+        const { diagnostics } = await read(
+          `const dir = '/srv/app';\nexport default { baseDir: ${value}, commands: './commands' };\n`
+        );
+
+        expect(diagnostics).toEqual([]);
+      });
+
+      it('said a spread may carry the baseDir after a baseDir of null, as it does after undefined', async () => {
+        const { diagnostics } = await read(
+          `let base = {};\nexport default { baseDir: null, ...base, commands: './commands' };\n`
+        );
+
+        expect(messages(diagnostics)).toEqual([
+          expect.stringContaining('a spread in the schema may carry a "baseDir"'),
+        ]);
+      });
+
+      it.each([
         ['get', `get commands() { return { b: './commands/a.js' }; }`],
         ['set', `set commands(value) {}`],
         ['method', `commands() {}`],

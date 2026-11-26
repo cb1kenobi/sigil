@@ -1305,6 +1305,20 @@ describe('sigil build', () => {
       expect(built('a')).toStrictEqual(source('a'));
     }, 60_000);
 
+    it('should warn that a baseDir of null sets none, as the runtime reads it', async () => {
+      // SIG-733. From source the relative `commands` resolve against the working
+      // directory, which is not the app's, so the app fails to find them; the build
+      // resolves them against the schema and the built app works. That is the
+      // divergence the warning is for, and `null` is as much none as `undefined`
+      const { built, err, source } = await build('null-basedir');
+
+      expect(err).toContain('"commands" is a relative path and the schema sets no "baseDir"');
+      expect(process.exitCode).toBeFalsy();
+      expect(source('a').status).not.toBe(0);
+      expect(source('a').stdout).not.toBe('a ran\n');
+      expect(built('a').stdout).toBe('a ran\n');
+    }, 60_000);
+
     it('should warn that a getter after a plain commands replaces it, which the built app does not run', async () => {
       // the app runs the getter's `a` and `b`; the build can only read `old`, and the
       // warning is what says the two differ

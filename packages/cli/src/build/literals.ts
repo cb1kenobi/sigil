@@ -1057,3 +1057,29 @@ export function isUndefined(node: Expression): boolean {
     (value.type === 'UnaryExpression' && value.operator === 'void')
   );
 }
+
+/**
+ * Whether a node is a value the runtime reads as no base directory: `undefined`
+ * and every literal that is falsy, which is `null`, `''`, `false` and `0`.
+ *
+ * `initCommand()` asks `baseDir ? resolve(baseDir, file) : file`, so a `null` or
+ * an empty string leaves a relative path to be resolved against the working
+ * directory exactly as an absent one does -- measured by running it, for `null`,
+ * `''` and `undefined` alike (SIG-733). Only a literal is read: a name or a call
+ * that may be one is not known to be, and is a `baseDir` that is set.
+ *
+ * @param node - The value written for `baseDir`.
+ * @returns Whether the runtime takes it for none.
+ */
+export function isNoBaseDir(node: Expression): boolean {
+  if (isUndefined(node)) {
+    return true;
+  }
+
+  const value = unwrapShallow(node);
+  return value.type === 'Literal'
+    ? !('regex' in value) && !value.value
+    : value.type === 'TemplateLiteral' &&
+        value.expressions.length === 0 &&
+        value.quasis.every((quasi) => quasi.value.cooked === '');
+}

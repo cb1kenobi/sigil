@@ -1046,24 +1046,49 @@ makes it testable with a fixture directory and no bundler at all.
     module`, which is an error and so not silent but says the wrong thing, and a
     schema whose only `locales` is one is not claimed by `schemasWith()` at all,
     so the catalog check is skipped and `sigil check` says `no problems found`.
-    **A known divergence, not a rule: a built app carries none of the rest of what
-    a placeholder declares.** The runtime reads every property off a placeholder
-    (`initCommand()` copies the declaration and `loadCommand()` merges it over a
-    module that left the key `undefined`), and the baked tree holds `desc`,
-    `hidden`, `alias`, `default`, `name`, the module and a nested `commands` written
-    as an object literal. So `run` (an inline handler with no module prints help and
-    exits 0), `options`, `args`, `examples`, `format`, `hooks`, `help`,
-    custom data, and a nested `commands` given as a path or a list are
-    dropped, and a placeholder with `options: { '--force': { type: 'bool' } }` and
-    `args: [{ name: 'target' }]` answers `remove --force x` as
-    `{"force":true,"target":"x"}` from source and `{"force":"x"}` built. That is a
-    bug, tracked as SIG-320, and not something the design wants. What this ticket
-    did about it is the warning: `warnUnbaked()` in `discover.ts` names the command
-    and the property for each one, so the build no longer says nothing. Add a
-    property to the baked set and to `BAKED` together, and delete the warning for it
-    with the fix. A spread or a computed key can carry any of them and is reported
-    by nothing -- except `commands`, which a spread the build cannot read is warned
-    about (SIG-726).
+  - **`baseDir: null` is none, as the runtime reads it (SIG-733).**
+    `resolveDeclaredPath()` asks `baseDir ? resolve(baseDir, file) : file`, so
+    every falsy `baseDir` leaves a relative path to the working directory --
+    measured by running an app with `undefined`, `null` and `''` from a directory
+    its commands were not under: all three failed to find them, and with the real
+    directory all three ran. A non-string truthy `baseDir` throws from
+    `resolve()`, which is the runtime's. `isNoBaseDir()` in `literals.ts` is the
+    one definition: `undefined`, and a literal that is falsy -- `null`, `''`, an
+    empty template, `false`, `0`. Only a literal is read, since a name or a call
+    is not known to be falsy, and the warning is the same one `undefined` gets,
+    with the same carrier rule for a spread after it.
+
+  `sigil check` over `packages/cli` and every example under `examples/` was run
+  against all three and gained no warning and lost none (`system-monitor` has no
+  entry module, on `main` as here). Covered by `read a placeholder that spreads a
+  const visibly holding no name, path or load`, `refused a spread of a const put
+  through ...`, `should say a placeholder whose only commands is ... not carried
+  into a built app` and `warned that a baseDir of ... sets none` in
+  `test/build/discover.test.ts`, `should not say a spread may carry a desc nobody
+  wrote` in `test/build/extract.test.ts`, and built against source by
+  `test/build-command.test.ts` over `mixed` in `discover/placeholder-sealed`
+  (agrees with source), `placeholder-getter` and `null-basedir` in
+  `discover/shared-base` (the built form differs from the app, and the warning is
+  what says so).
+
+  **A known divergence, not a rule: a built app carries none of the rest of what
+  a placeholder declares.** The runtime reads every property off a placeholder
+  (`initCommand()` copies the declaration and `loadCommand()` merges it over a
+  module that left the key `undefined`), and the baked tree holds `desc`,
+  `hidden`, `alias`, `default`, `name`, the module and a nested `commands` written
+  as an object literal. So `run` (an inline handler with no module prints help and
+  exits 0), `options`, `args`, `examples`, `format`, `hooks`, `help`,
+  custom data, and a nested `commands` given as a path or a list are
+  dropped, and a placeholder with `options: { '--force': { type: 'bool' } }` and
+  `args: [{ name: 'target' }]` answers `remove --force x` as
+  `{"force":true,"target":"x"}` from source and `{"force":"x"}` built. That is a
+  bug, tracked as SIG-320, and not something the design wants. What this ticket
+  did about it is the warning: `warnUnbaked()` in `discover.ts` names the command
+  and the property for each one, so the build no longer says nothing. Add a
+  property to the baked set and to `BAKED` together, and delete the warning for it
+  with the fix. A spread or a computed key can carry any of them and is reported
+  by nothing -- except `commands`, which a spread the build cannot read is warned
+  about (SIG-726).
 
   **Settings are no longer one of the divergences, and a warning covers what is
   left of that one.** A built app used to lose every `settings` its own `main()`

@@ -45,6 +45,7 @@ import { type CommandFacts, factsOf, type RoutedBy } from './extract.ts';
 import { translatedKey } from './i18n.ts';
 import {
   flatten,
+  isNoBaseDir,
   isUndefined,
   isWrongType,
   lastPlain,
@@ -586,13 +587,14 @@ export function readAppCommands(app: DiscoveredApp): {
       (member) => member.type !== 'SpreadElement' && propertyKey(member) === 'baseDir'
     );
     const last = spelled < 0 ? undefined : members[spelled];
-    // `baseDir: undefined` is none, as it is to the runtime
+    // `baseDir: undefined` is none, as it is to the runtime, and so are `null` and
+    // an empty string, which it reads as falsy (SIG-733)
     const unset =
       last !== undefined &&
       last.type !== 'SpreadElement' &&
       last.kind === 'init' &&
       !last.method &&
-      isUndefined(last.value);
+      isNoBaseDir(last.value);
     // what may set it after the last spelling of it, and what it is known to hold
     // nothing of is not asked about
     const lacks = lacksResolver(parsed);
