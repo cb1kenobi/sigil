@@ -120,6 +120,12 @@
  * and two comments disagreeing about one number leave a later reader with no
  * way to tell which was measured.
  *
+ * `renameWithRetry()` and `renameWithRetrySync()` are the rename `writeAtomic()`
+ * ends in, published for a caller that moves a file into place without
+ * writing it -- `sigil package` installing a verified runtime (SIG-723) -- since
+ * a second copy of which codes Windows answers busy with, and for how long, is
+ * two answers to one question.
+ *
  * `physicalPath()` joined them later, and not for a store: `sigil build` asks
  * where a write to a path lands -- through every symlink on the way, with a
  * `..` read the way the kernel reads it, for a path that need not exist yet --
@@ -132,7 +138,15 @@
  * the rest needs (SIG-573).
  */
 
-export { isMissing, physicalPath, realPathOf, writeAtomic, writeAtomicSync } from './atomic.js';
+export {
+  isMissing,
+  physicalPath,
+  realPathOf,
+  renameWithRetry,
+  renameWithRetrySync,
+  writeAtomic,
+  writeAtomicSync,
+} from './atomic.js';
 export { Config, createConfig, createConfigSync, isWritableStore } from './config.js';
 export { isPlainObject, segments } from './dotted.js';
 export { overlay } from './merge.js';

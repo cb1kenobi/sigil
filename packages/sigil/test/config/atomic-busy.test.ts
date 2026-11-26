@@ -66,7 +66,8 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   };
 });
 
-const { writeAtomic, writeAtomicSync } = await import('../../src/config/atomic.js');
+const { renameWithRetry, renameWithRetrySync, writeAtomic, writeAtomicSync } =
+  await import('../../src/config/atomic.js');
 
 /** The most a busy rename may be retried: the schedule's own length. */
 const RETRIES = 7;
@@ -201,5 +202,48 @@ describe.each(walks)('a busy rename in %s', (_name, write) => {
     expect(attempts).to.equal(1);
     expect(waited).to.deep.equal([]);
     expect(existsSync(target)).to.equal(true);
+  });
+});
+
+/** The two published renames, which move a file that nobody wrote through `writeAtomic()` (SIG-723). */
+const renames = [
+  ['renameWithRetry', async (from: string, to: string) => renameWithRetry(from, to)],
+  ['renameWithRetrySync', async (from: string, to: string) => renameWithRetrySync(from, to)],
+] as const;
+
+describe.each(renames)('a busy rename in %s', (_name, move) => {
+  it('should be retried until it moves the file, and fail with its own code past the bound', async () => {
+    const from = join(root, 'download');
+    writeFileSync(from, 'verified');
+    asWindows();
+
+    script = ['EBUSY', 'EPERM'];
+    await move(from, target);
+
+    expect(attempts).to.equal(3);
+    expect(waited).to.deep.equal([10, 20]);
+    expect(readFileSync(target, 'utf8')).to.equal('verified');
+    expect(existsSync(from)).to.equal(false);
+
+    writeFileSync(from, 'again');
+    attempts = 0;
+    waited.length = 0;
+    script = Array.from({ length: 100 }, () => 'EACCES');
+
+    await expect(move(from, target)).rejects.toMatchObject({ code: 'EACCES' });
+
+    expect(attempts).to.equal(RETRIES + 1);
+    expect(waited.reduce((a, b) => a + b, 0)).to.equal(BOUND);
+    expect(readFileSync(from, 'utf8')).to.equal('again');
+  });
+
+  it('should not retry off Windows', async () => {
+    asPosix();
+    script = ['EBUSY'];
+
+    await expect(move(join(root, 'nothing'), target)).rejects.toMatchObject({ code: 'EBUSY' });
+
+    expect(attempts).to.equal(1);
+    expect(waited).to.deep.equal([]);
   });
 });

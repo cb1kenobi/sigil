@@ -8643,6 +8643,18 @@ swallows, `isMissing` is `ENOENT` and nothing else, `overlay` is the whole of
 of those is a recorded review finding, and it costs 102 bytes, because `json()`
 already uses four of the six and what is added is the export statements.
 
+`renameWithRetry(from, to)` and `renameWithRetrySync(from, to)` are `rename()`
+over a destination that may be briefly held: on Windows an `EPERM`, `EBUSY` or
+`EACCES` — what an antivirus scanner or an indexer holding the file answers with
+— is tried again after 10, 20, 40, 80, 160, 320 and 370 ms, which is a second in
+all, and every other error and every other platform fails on the first refusal.
+What is thrown is the last attempt's own error, code and all, and the sync one
+waits by blocking. It is what `writeAtomic` renames through, and what
+`sigil package` moves a verified runtime into place with. A destination that is
+held for good — read-only, or an executable that is running — answers with the
+same codes and costs the whole second before it fails. It was added without
+being reproduced on Windows.
+
 `physicalPath(path)` is the path the kernel would resolve `path` to -- every
 symlink on the way followed, a `..` after a symlinked directory read the way
 the kernel reads it rather than collapsed lexically -- for a path that need not
