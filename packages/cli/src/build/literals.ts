@@ -156,6 +156,14 @@ export function plainProperty(object: ObjectExpression, name: string): ObjectPro
 }
 
 /**
+ * Whether a name is a same-module object that visibly holds no `key`, and nothing
+ * can have written it since -- `lacksResolver()` in `bindings.ts` is the one
+ * place that is decided (SIG-730). A spread of such a name carries nothing of
+ * `key`, so it is not a spread that may replace one.
+ */
+export type Lacks = (name: string, key: string) => boolean;
+
+/**
  * Whether a spread or a computed key may set `key` on the object it sits in,
  * which is what decides whether a spelling of `key` written before it is the
  * one that runs.
@@ -191,13 +199,22 @@ export function plainProperty(object: ObjectExpression, name: string): ObjectPro
  * A plain property is not asked about: its key is its own, and the caller
  * reads it by name.
  *
+ * A spread of a name `lacks` says holds no `key` is not asked about either: it
+ * can be read for what it holds, which is nothing of this key (SIG-730).
+ *
  * @param property - A property of an object literal.
  * @param key - The key in question.
+ * @param lacks - Whether a name is a same-module object that visibly holds no
+ *   `key`, where the caller can say.
  * @returns Whether it may set `key`.
  */
-export function mayCarry(property: ObjectExpression['properties'][number], key: string): boolean {
+export function mayCarry(
+  property: ObjectExpression['properties'][number],
+  key: string,
+  lacks?: Lacks
+): boolean {
   if (property.type === 'SpreadElement') {
-    return carries(property.argument, key);
+    return carries(property.argument, key, lacks);
   }
 
   if (!property.computed) {
@@ -220,7 +237,7 @@ export function mayCarry(property: ObjectExpression['properties'][number], key: 
  * @param key - The key in question.
  * @returns Whether it may.
  */
-function carries(node: Expression, key: string): boolean {
+function carries(node: Expression, key: string, lacks?: Lacks): boolean {
   const spread = unwrapShallow(node);
 
   switch (spread.type) {
@@ -247,14 +264,16 @@ function carries(node: Expression, key: string): boolean {
       return typeof spread.value === 'string' && !('regex' in spread) && INDEX.test(key);
     case 'ConditionalExpression':
       // the test is never spread, only whichever arm it picks
-      return carries(spread.consequent, key) || carries(spread.alternate, key);
+      return carries(spread.consequent, key, lacks) || carries(spread.alternate, key, lacks);
     case 'LogicalExpression':
       // `a && b` is `b` or a falsy `a`, and a falsy value copies nothing --
       // `false`, `0`, `''`, `null` and `undefined` have no own string keys --
       // while `a || b` and `a ?? b` may be either operand
       return spread.operator === '&&'
-        ? carries(spread.right, key)
-        : carries(spread.left, key) || carries(spread.right, key);
+        ? carries(spread.right, key, lacks)
+        : carries(spread.left, key, lacks) || carries(spread.right, key, lacks);
+    case 'Identifier':
+      return !lacks?.(spread.name, key) && !isUndefined(spread);
     default:
       return !isUndefined(spread);
   }
@@ -472,38 +491,81 @@ export const PLACEHOLDER_KEYS: ReadonlySet<string> = new Set([
  * @param resolve - The object literal a name holds, where that is known.
  * @param computed - Whether a computed key that may be `key` is a carrier as
  *   well as a spread.
+ * @param lacks - Whether a name is a same-module object that visibly holds no
+ *   `key`, so that spreading it cannot replace one (SIG-730). Asked of what may
+ *   replace a spelling and not of what may carry a key spelled nowhere.
  * @returns The spelling that runs, `undefined` where the key is not declared;
- *   whether a later property may replace it; and a spread that may carry a key
- *   spelled nowhere.
+ *   whether a later property may replace it, and which; the accessor or method
+ *   that is the spelling when a plain one was written before it; and a spread
+ *   that may carry a key spelled nowhere.
  */
 export function spellingOf(
   object: ObjectExpression,
   key: string,
   resolve: ((name: string) => ObjectExpression | undefined) | undefined,
-  computed = false
+  computed = false,
+  lacks?: Lacks
 ): {
   carrier: SpreadElement | ObjectProperty | undefined;
   declared: ObjectProperty | undefined;
   replaced: boolean;
+  replacedBy: Member | undefined;
+  shadowedBy: ObjectProperty | undefined;
 } {
   // the members the object evaluates to, which is what the runtime registers:
   // a spread of a literal is what it holds and `['path']` is `path`
   const members = flatten(object, resolve);
   let found: ObjectProperty | undefined;
+  let plain: ObjectProperty | undefined;
   for (const property of members) {
     if (property.type !== 'SpreadElement' && propertyKey(property) === key) {
       found = property;
+      if (property.kind === 'init' && !property.method) {
+        plain = property;
+      }
     }
   }
 
-  const replaced = found !== undefined && members.lastIndexOf(found) < lastReplacing(members, key);
+  const replacing = lastReplacing(members, key, lacks);
+  const replaced = found !== undefined && members.lastIndexOf(found) < replacing;
+  // a plain spelling and then an accessor or a method of the same key: the
+  // accessor is the spelling that runs, and `found` is it, which a reader of a
+  // value cannot read -- while `lastPlain()` skips it and answers the plain one
+  // that came before (SIG-730)
+  const shadowedBy =
+    plain !== undefined && found !== plain && members.indexOf(plain) < members.indexOf(found!)
+      ? found
+      : undefined;
 
   // `undefined` is what the runtime reads as not declared
   const declared =
     found?.kind === 'init' && !found.method && isUndefined(found.value) && !replaced
       ? undefined
       : found;
-  return { carrier: unspelledCarrier(members, key, computed), declared, replaced };
+  return {
+    carrier: unspelledCarrier(members, key, computed),
+    declared,
+    replaced,
+    replacedBy: replaced ? members[replacing] : undefined,
+    shadowedBy,
+  };
+}
+
+/**
+ * What a reader says replaces the spelling of a key it read: the sentence's
+ * middle, for the two messages that say the build read a spelling the app may
+ * not run.
+ *
+ * A spread or a computed key *may* replace it, and an accessor or a method of
+ * the same key *does*, which is the difference between the two (SIG-730).
+ *
+ * @param spelling - What `spellingOf()` answered.
+ * @returns For example `a spread or a computed key, which may replace it`.
+ */
+export function replacerPhrase(spelling: { shadowedBy?: unknown; replaced?: boolean }): string {
+  return spelling.replaced || !spelling.shadowedBy
+    ? 'a spread or a computed key, which may replace it when the app runs'
+    : 'an accessor or a method of the same name, which replaces it when the app runs';
 }
 
 /**
@@ -587,10 +649,11 @@ const membersOf = (members: Members): readonly Member[] =>
  *
  * @param object - The object literal, or its flattened members.
  * @param key - The key in question.
+ * @param lacks - Whether a name is an object that visibly holds no `key`.
  * @returns Its index, or `-1` where nothing may replace the key.
  */
-export function lastReplacing(object: Members, key: string): number {
-  return membersOf(object).findLastIndex((property) => mayCarry(property, key));
+export function lastReplacing(object: Members, key: string, lacks?: Lacks): number {
+  return membersOf(object).findLastIndex((property) => mayCarry(property, key, lacks));
 }
 
 /**

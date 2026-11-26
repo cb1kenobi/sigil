@@ -39,7 +39,7 @@
  * from (`schemaModule()`) -- because running it would run the app.
  */
 
-import { schemasWith, sealedResolver } from './bindings.ts';
+import { schemasWith, sealedResolver, spellingIn } from './bindings.ts';
 import { type Diagnostic, displayPath } from './diagnostic.ts';
 import { type CommandFacts, factsOf, type RoutedBy } from './extract.ts';
 import { translatedKey } from './i18n.ts';
@@ -57,7 +57,7 @@ import {
   PLACEHOLDER_KEYS,
   plainProperty,
   propertyKey,
-  spellingOf,
+  replacerPhrase,
   stringList,
   unwrapShallow,
 } from './literals.ts';
@@ -549,13 +549,15 @@ export function readAppCommands(app: DiscoveredApp): {
   // runs (SIG-728)
   const resolver = sealedResolver(parsed);
   const declared = lastPlain(schemas[0]!, 'commands', resolver)!;
-  if (spellingOf(schemas[0]!, 'commands', resolver).replaced) {
+  const commandsSpelling = spellingIn(parsed, schemas[0]!, 'commands');
+  if (commandsSpelling.replaced || commandsSpelling.shadowedBy) {
     // a spread the build cannot read, after the `commands` that was read: it may
-    // carry its own, and the app runs the last. Said rather than guessed (SIG-728)
+    // carry its own, and the app runs the last -- and an accessor of the same key
+    // does carry one, which `lastPlain()` leaves out. Said rather than guessed
+    // (SIG-728, SIG-730)
     diagnostics.push({
       ...locate(parsed, declared.start),
-      message:
-        '"commands" is written before a spread or a computed key, which may replace it when the app runs, so what is read here may not be the app\'s commands; pass --commands to say which command directory to check',
+      message: `"commands" is written before ${replacerPhrase(commandsSpelling)}, so what is read here may not be the app's commands; pass --commands to say which command directory to check`,
       severity: 'warning',
     });
   }
@@ -574,15 +576,33 @@ export function readAppCommands(app: DiscoveredApp): {
     // A warning rather than an error because the *built* app is genuinely
     // fine, and an app that only ever ships bundled is not wrong. What is
     // wrong is this command having nothing to say about it.
-    if (!isAbsolute(asPath) && !lastPlain(schemas[0]!, 'baseDir', resolver)) {
-      diagnostics.push({
-        ...locate(parsed, declared.value.start),
-        message:
-          `"commands" is a relative path and the schema sets no "baseDir", so this resolves it ` +
-          `against ${displayPath(schemaDir)} while the runtime resolves it against the working ` +
-          `directory. Add \`baseDir: import.meta.dirname\` to the schema.`,
-        severity: 'warning',
-      });
+    // a `baseDir` spelled in any way counts, an accessor included: the runtime
+    // reads it. What is not known is whether a spread or a computed key the build
+    // cannot read carries one, which is said as that and not as there being none
+    // (SIG-729)
+    const baseDir = spellingIn(parsed, schemas[0]!, 'baseDir', true);
+    if (!isAbsolute(asPath) && !baseDir.declared) {
+      const resolves =
+        `this resolves it against ${displayPath(schemaDir)} ` +
+        `while the runtime resolves it against the working directory`;
+      diagnostics.push(
+        baseDir.carrier
+          ? {
+              ...locate(parsed, baseDir.carrier.start),
+              message:
+                `"commands" is a relative path and ${baseDir.carrier.type === 'SpreadElement' ? 'a spread' : 'a computed key'} ` +
+                `in the schema may carry a "baseDir" this cannot see; if it does not, ${resolves}. ` +
+                `Add \`baseDir: import.meta.dirname\` to the schema, after it.`,
+              severity: 'warning',
+            }
+          : {
+              ...locate(parsed, declared.value.start),
+              message:
+                `"commands" is a relative path and the schema sets no "baseDir", so ${resolves}. ` +
+                `Add \`baseDir: import.meta.dirname\` to the schema.`,
+              severity: 'warning',
+            }
+      );
     }
 
     return {
@@ -989,7 +1009,7 @@ function placeholderSpelling(
   declared: ObjectProperty | undefined;
   replaced: boolean;
 } {
-  return spellingOf(object, key, sealedResolver(parsed), computed);
+  return spellingIn(parsed, object, key, computed);
 }
 
 /**
