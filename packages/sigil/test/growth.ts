@@ -137,7 +137,10 @@ const RUNS = 7;
  * read is under its limit after seven runs and nothing more is read, and a
  * quadratic spends it before the test fails. Counted from the first run and not
  * from the seventh, so that a read slow enough to have used it up in seven runs
- * is not read an eighth time on top of a failure already on its way to a timeout.
+ * is not read an eighth time on top of a failure already on its way to a timeout. A
+ * count sized again (SIG-727) before the seventh run starts it over, since what was
+ * sampled is gone; after it, it does not, so a late re-size cannot spend the budget
+ * again and again.
  */
 export const EXTRA_MS = 2000;
 
@@ -219,7 +222,8 @@ export function growthOf<Input = string>(
   let bestSmall = Infinity;
   let bestLarge = Infinity;
   // the budget is counted from the first run, so that a read whose seven runs
-  // already took longer than it has no extra ones
+  // already took longer than it has no extra ones; a count sized again within the
+  // seven starts it over, one sized again after them does not (SIG-727)
   let until = performance.now() + EXTRA_MS;
   for (let run = 1; ; run++) {
     const elapsed = time(small, smallReads);
@@ -228,7 +232,9 @@ export function growthOf<Input = string>(
       while (time(small, smallReads) < span && smallReads < MOST_READS) {
         smallReads *= 2;
       }
-      until = performance.now() + EXTRA_MS;
+      if (run < RUNS) {
+        until = performance.now() + EXTRA_MS;
+      }
       largeReads = largeReadsFor(smallReads, factor);
       bestSmall = Infinity;
       bestLarge = Infinity;
@@ -291,7 +297,8 @@ export async function growthOfAsync<Input = string>(
   let bestSmall = Infinity;
   let bestLarge = Infinity;
   // the budget is counted from the first run, so that a read whose seven runs
-  // already took longer than it has no extra ones
+  // already took longer than it has no extra ones; a count sized again within the
+  // seven starts it over, one sized again after them does not (SIG-727)
   let until = performance.now() + EXTRA_MS;
   for (let run = 1; ; run++) {
     const elapsed = await time(small, smallReads);
@@ -300,7 +307,9 @@ export async function growthOfAsync<Input = string>(
       while ((await time(small, smallReads)) < span && smallReads < MOST_READS) {
         smallReads *= 2;
       }
-      until = performance.now() + EXTRA_MS;
+      if (run < RUNS) {
+        until = performance.now() + EXTRA_MS;
+      }
       largeReads = largeReadsFor(smallReads, factor);
       bestSmall = Infinity;
       bestLarge = Infinity;

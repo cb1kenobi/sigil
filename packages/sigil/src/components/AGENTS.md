@@ -13379,7 +13379,9 @@ there is the bars, which are drawn on every line.
   loop that sized it, and **throws away what was sampled**, since the best of a side
   is a minimum and a zero in it is every later run's answer; `largeReadsFor()` is
   asked again so both sides stay the same work, and the `EXTRA_MS` budget starts
-  over for the new count. Noise only adds, so a batch that short means the count
+  over for the new count if that happens before the seventh run -- after it, it
+  does not, so a late re-size cannot turn a ratio failure into a timeout by
+  spending the budget again and again. Noise only adds, so a batch that short means the count
   was sized on a cost the reads no longer have -- a slow second read, a collection,
   a lazily compiled branch -- which a warm-up of one cannot see.
 
