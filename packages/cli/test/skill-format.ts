@@ -9,13 +9,14 @@ import { expect } from 'vitest';
 
 /**
  * A `SKILL.md`'s front matter, as its keys and values. Every value the format
- * takes is a string on one line, so a line is a key.
+ * takes is a string on one line, so a line is a key. Either line ending, because
+ * a committed `SKILL.md` is checked out with CRLF on Windows.
  *
  * @param markdown - The file.
  * @returns The keys and values.
  */
 export function frontMatter(markdown: string): Map<string, string> {
-  const block = /^---\n([\s\S]*?)\n---\n/.exec(markdown)?.[1];
+  const block = /^---\n([\s\S]*?)\n---\n/.exec(markdown.replace(/\r\n/g, '\n'))?.[1];
   if (block === undefined) {
     throw new Error('no front matter');
   }
