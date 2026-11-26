@@ -24,6 +24,22 @@ export type AppOptions = {
    */
   importModule?: (url: string) => Promise<unknown>;
   /**
+   * Values for the command's options and arguments, keyed by destination -- the
+   * keys `argv` holds them under -- given as data rather than as tokens
+   * (SIG-721).
+   *
+   * What a tool call carries: an MCP server, or anything else that holds the
+   * input as JSON, hands it over here instead of turning it back into argv,
+   * which loses what argv cannot say -- a positional value starting with a dash
+   * is read as an option. Each value is judged as a typed one is, by
+   * `checkValue()` against the declared type, then by `choices` and the required
+   * checks like anything argv wrote, and a value that fails is the same
+   * `invalid-value` usage error. It outranks argv, the environment and a
+   * `default` for its destination. A key no option or argument of the command
+   * declares is an `unknown-option` usage error.
+   */
+  input?: Record<string, unknown>;
+  /**
    * The locale to render the framework's own messages in, which outranks
    * every environment variable.
    *
@@ -670,6 +686,8 @@ export interface ParseOptions {
   argv?: string[];
   env?: Record<string, string | undefined>;
   cwd?: string;
+  /** See {@link AppOptions.input}. */
+  input?: Record<string, unknown>;
   schema?: Schema;
   settings?: Settings;
 }

@@ -102,6 +102,7 @@ await main({
   schema?: Schema,
   settings?: Settings,
   importModule?: (url: string) => Promise<unknown>, // defaults to node's import()
+  input?: Record<string, unknown>, // values by destination, given as data
 });
 ```
 
@@ -120,6 +121,20 @@ modules, a package's entry — and is handed the module's `file:` URL. Under
 vitest, `(url) => import(url)` written in the test file is vite's import, which
 compiles a `.tsx` or `.jsx` component a command imports where node's refuses it.
 The [Testing guide](docs/testing.md#a-full-screen-app) has the recipe.
+
+`input` gives the command's options and arguments as data rather than as argv,
+keyed by destination -- the keys `argv` holds them under, which are the property
+names of the command's JSON Schema. It is what a tool call carries, and it is how
+[`@ttylabs/mcp`](../mcp) hands an agent's arguments to a command: argv cannot say
+a positional that starts with a dash, and `input` can. Each value is judged as a
+typed one is -- `checkValue()` against the declared type, then `choices` and the
+required checks -- so one that fails is the same `invalid-value` usage error, and
+a key nothing declares is `unknown-option`. It outranks argv, the environment and
+a `default` for its destination.
+
+```js
+await main({ argv: ['go'], input: { n: -5, port: 8080 }, schema });
+```
 
 ### `errorHandler`, `renderError`, `errorExitCode`, `errorMessage`
 

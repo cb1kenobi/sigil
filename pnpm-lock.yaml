@@ -484,6 +484,31 @@ importers:
         specifier: 5.1.1
         version: 5.1.1(@types/node@26.6.6)(@vitest/coverage-v8@5.1.1)(vite@8.2.2(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.1))
 
+  packages/mcp:
+    dependencies:
+      '@ttylabs/sigil':
+        specifier: workspace:*
+        version: link:../sigil
+    devDependencies:
+      '@types/node':
+        specifier: 26.6.6
+        version: 26.6.6
+      '@vitest/coverage-v8':
+        specifier: 5.1.1
+        version: 5.1.1(vitest@5.1.1)
+      rimraf:
+        specifier: 6.1.4
+        version: 6.1.4
+      tsdown:
+        specifier: 0.23.7
+        version: 0.23.7(typescript@7.0.2)
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: 5.1.1
+        version: 5.1.1(@types/node@26.6.6)(@vitest/coverage-v8@5.1.1)(vite@8.2.2(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.1))
+
   packages/screenshot:
     dependencies:
       '@ttylabs/sigil':

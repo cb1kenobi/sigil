@@ -416,6 +416,7 @@ describe('@ttylabs/cli', () => {
       'packages/cli/package.json',
       'packages/config-xml/package.json',
       'packages/config-yaml/package.json',
+      'packages/mcp/package.json',
       'packages/screenshot/package.json',
       'website/package.json',
       ...examples,
@@ -431,7 +432,7 @@ describe('@ttylabs/cli', () => {
       // a path that stopped resolving would pass this suite by checking
       // nothing, which is the failure mode a list of paths has
       expect(examples.length).toBeGreaterThan(0);
-      expect(manifests).toHaveLength(8 + examples.length);
+      expect(manifests).toHaveLength(9 + examples.length);
       for (const { json, path } of manifests) {
         expect(json.name, `${path} has no name`).toBeDefined();
       }
@@ -829,6 +830,7 @@ describe('@ttylabs/cli', () => {
         '@ttylabs/cli',
         '@ttylabs/config-xml',
         '@ttylabs/config-yaml',
+        '@ttylabs/mcp',
         '@ttylabs/screenshot',
         '@ttylabs/sigil',
       ]);
@@ -1099,6 +1101,7 @@ describe('@ttylabs/cli', () => {
       '@ttylabs/cli#build',
       '@ttylabs/config-xml#build',
       '@ttylabs/config-yaml#build',
+      '@ttylabs/mcp#build',
       '@ttylabs/screenshot#build',
     ];
 
@@ -1134,6 +1137,14 @@ describe('@ttylabs/cli', () => {
       // the same shape, for the same reason: `tsdown` over
       // `tsconfig.build.json` and nothing else
       '@ttylabs/config-yaml#build': [
+        'package.json',
+        'tsconfig.build.json',
+        'tsconfig.json',
+        'tsdown.config.ts',
+      ],
+      // the same shape, for the same reason: `tsdown` over
+      // `tsconfig.build.json` and nothing else
+      '@ttylabs/mcp#build': [
         'package.json',
         'tsconfig.build.json',
         'tsconfig.json',
@@ -1220,9 +1231,12 @@ describe('@ttylabs/cli', () => {
 
     it('should report the tasks and the field this suite means to check', () => {
       // a taskId that stopped resolving would pass the rest of this block by
-      // checking nothing, which is the failure mode a list of names has
+      // checking nothing, which is the failure mode a list of names has. At
+      // least what the `reads` row names and one source file: a fixed count was
+      // a proxy for that, and `@ttylabs/mcp` is a package small enough to fall
+      // under it while resolving perfectly well
       for (const taskId of published) {
-        expect(hashed(taskId).length).toBeGreaterThan(10);
+        expect(hashed(taskId).length, taskId).toBeGreaterThan(reads[taskId]?.length ?? 0);
       }
 
       // and the `reads` table is the only oracle the assertion below has, so a

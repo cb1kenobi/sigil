@@ -109,6 +109,7 @@ async function runMain(opts: AppOptions): Promise<ParseState | unknown> {
     const parseOpts = {
       argv: opts.argv || process.argv.slice(2),
       env: process.env,
+      input: opts.input,
       schema: opts.schema,
       settings,
     };
