@@ -13362,6 +13362,29 @@ there is the bars, which are drawn on every line.
   clock being read, in the first seven runs and not after, so the call without a
   `limit` reads it as growth and the call with one reads past it.
 
+- **The read count is sized warm and grown again by a batch that reads nothing,
+  because one cold read decided it (SIG-727).** `markdown-malformed.test.ts`
+  failed on an Ubuntu job, node 24, in PR #725 -- a PR that changed nothing the
+  test reads -- with `the clock read nothing over 1 reads`, thrown by `ratioOf()`
+  and so by the harness and not the parser. `growthOf()` sized `smallReads` once, at
+  the start, by doubling it until one timed batch filled the span, and that first
+  batch is the code's first run: one cold read of a fast shape filled the span, the
+  count stayed at 1, and a warm read of it was under what the clock can tell from
+  none, so every small measurement was 0 and the best was 0. The count was a cost
+  the measured reads did not have. Two changes, each reproduced by a test that the
+  other does not make pass: the small side is read once, unmeasured, before the
+  count is sized, and a measured small batch that reads nothing doubles the count
+  and **throws away what was sampled**, since the best of a side is a minimum and a
+  zero in it is every later run's answer. The first alone leaves a batch that is
+  slow for a second reason (a collection, a lazily compiled branch) at 1; the second
+  alone would size the count on a cold read and spend runs finding that out.
+  `largeReadsFor()` is asked again with the new count, so both sides stay the same
+  work. A clock that never moves still ends at `MOST_READS` and says so. Tested on a
+  fake `process.threadCpuUsage()` that a read advances by exactly what it costs, in
+  whole steps of fifty microseconds, so nothing in it is a wall-clock bound: with
+  `growth.ts` as it was on `main` three of the four tests fail with the CI message,
+  and with either change taken out two of them still do.
+
 - **The ticket's other lazy figure, 0.54 s for 128 KB, was the parser, and is
   left.** `parseMarkdown()` of 64,000 lazy lines took 8 ms unquoted and 493 ms
   under 99 quotes, on both builds. Every level of quote asks `interrupts()` of

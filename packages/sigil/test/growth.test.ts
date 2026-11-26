@@ -158,6 +158,113 @@ describe('growthOf()', () => {
     expect(now() - start).toBeGreaterThan(0);
   });
 
+  // SIG-727: `the clock read nothing over 1 reads`, from a fast shape on an Ubuntu job.
+  // The count was sized by the first batch, which is the code's cold run, so one cold
+  // read filled the span and the warm reads that were then measured, one at a time,
+  // were under what the clock can tell from none. The clock here is a fake one that a
+  // read advances by exactly what it costs, in whole steps of fifty microseconds, so
+  // that what is asserted is the count and the ratio and nothing about a machine
+  describe('on a clock that moves in steps of fifty microseconds', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+      vi.resetModules();
+    });
+
+    const STEP = 50;
+    const COLD = 5000;
+    const WARM = 10;
+
+    // The module reads its clock at import to decide whether it is fine enough, so the
+    // fake moves on every call until it is imported and by hand after. `cost(call,
+    // input)` is the microseconds a read takes; `call` counts from zero
+    const fakeClock = async (
+      cost: (call: number, input: string) => number
+    ): Promise<{
+      growthOf: typeof growthOf;
+      growthOfAsync: typeof growthOfAsync;
+      read: (input: string) => number;
+      reads: () => number;
+    }> => {
+      let us = 0;
+      let ticking = true;
+      let calls = 0;
+      vi.spyOn(process, 'threadCpuUsage').mockImplementation(() => {
+        if (ticking) {
+          us += STEP;
+        }
+        return { system: 0, user: Math.floor(us / STEP) * STEP };
+      });
+      vi.resetModules();
+      const fake = await import('./growth.js');
+      ticking = false;
+      return {
+        growthOf: fake.growthOf,
+        growthOfAsync: fake.growthOfAsync,
+        read: (input) => {
+          us += cost(calls++, input);
+          return input.length;
+        },
+        reads: () => calls,
+      };
+    };
+    // a large read costs eight times a small one, so that the ratio is eight
+    const sized = (call: number, input: string, cold: number, warm: number): number =>
+      call < cold ? COLD : warm * (input.length === 8 ? 8 : 1);
+
+    it.skipIf(typeof process.threadCpuUsage !== 'function')(
+      'should size the count warm, so a cold first read does not leave it at one',
+      async () => {
+        const clock = await fakeClock((call, input) => sized(call, input, 1, WARM));
+        const ratio = clock.growthOf(clock.read, 'a', 'a'.repeat(8), 8, 'cold');
+        expect(ratio).toBeGreaterThan(7.5);
+        expect(ratio).toBeLessThan(8.5);
+      }
+    );
+
+    it.skipIf(typeof process.threadCpuUsage !== 'function')(
+      'should grow the count again when a measured batch reads nothing',
+      async () => {
+        // two slow reads, so that the warm one is not the only cold cost and the
+        // batch that sized the count is still a slow one: the measured batch of one
+        // read is then under a step
+        const clock = await fakeClock((call, input) => sized(call, input, 2, WARM));
+        const ratio = clock.growthOf(clock.read, 'a', 'a'.repeat(8), 8, 'colder');
+        expect(ratio).toBeGreaterThan(7.5);
+        expect(ratio).toBeLessThan(8.5);
+      }
+    );
+
+    it.skipIf(typeof process.threadCpuUsage !== 'function')(
+      'should size an awaited read warm and grow its count the same way',
+      async () => {
+        const clock = await fakeClock((call, input) => sized(call, input, 2, WARM));
+        const ratio = await clock.growthOfAsync(
+          async (input) => clock.read(input),
+          'a',
+          'a'.repeat(8),
+          8,
+          'awaited'
+        );
+        expect(ratio).toBeGreaterThan(7.5);
+        expect(ratio).toBeLessThan(8.5);
+      }
+    );
+
+    it.skipIf(typeof process.threadCpuUsage !== 'function')(
+      'should still say the clock read nothing when it never moves',
+      async () => {
+        const clock = await fakeClock(() => 0);
+        expect(() => clock.growthOf(clock.read, 'a', 'a'.repeat(8), 8, 'stuck')).toThrow(
+          /stuck: the clock read nothing over 4096 reads/
+        );
+        expect(clock.reads()).toBeGreaterThan(4096);
+        await expect(
+          clock.growthOfAsync(async (input) => clock.read(input), 'a', 'a'.repeat(8), 8, 'stuck')
+        ).rejects.toThrow(/stuck: the clock read nothing over 4096 reads/);
+      }
+    );
+  });
+
   describe('on a platform whose CPU clock bills in ticks', () => {
     afterEach(() => {
       vi.restoreAllMocks();
