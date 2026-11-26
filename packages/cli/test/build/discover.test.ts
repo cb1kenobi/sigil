@@ -1211,6 +1211,33 @@ export default {
       });
     });
 
+    it("should tell a placeholder's annotations to move into the module, which a build keeps", async () => {
+      // SIG-718. They are read when the surface is walked, which loads every
+      // module, so the module is where they survive a build -- and the advice
+      // says so rather than only that they are dropped
+      const source = `export default {
+  baseDir: import.meta.dirname,
+  commands: {
+    go: { path: './commands/go.js', destructive: false, idempotent: true, readOnly: true },
+  },
+};\n`;
+
+      await withSchema(source, (dir) => {
+        writeFileSync(join(dir, 'src', 'commands', 'go.js'), 'export default { run() {} };\n');
+        const { diagnostics } = readAppCommands(discoverApp(dir));
+
+        expect(diagnostics.map((d) => /declares "(\w+)"/.exec(d.message)?.[1])).toStrictEqual([
+          'destructive',
+          'idempotent',
+          'readOnly',
+        ]);
+        for (const d of diagnostics) {
+          expect(d.severity).toBe('warning');
+          expect(d.message).toContain("declare it in the command's module instead");
+        }
+      });
+    });
+
     it('should warn about every property of a placeholder it does not bake', () => {
       const app = discoverApp(join(apps, 'unbaked'));
       const { diagnostics } = readAppCommands(app);

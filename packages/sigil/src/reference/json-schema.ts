@@ -99,8 +99,30 @@ export interface InputSchemaOptions {
   readonly under?: readonly string[];
 }
 
+/**
+ * What a command declares about running it, in MCP's own words (SIG-718).
+ *
+ * MCP's tool annotations rather than sigil's property names, because this is
+ * the document a tool definition is built from: an MCP server hands the object
+ * over as it is, and every other reader is no worse off for the `Hint`.
+ * A hint the command did not declare is absent rather than `false`, because
+ * MCP gives an absent one a default of its own -- `destructiveHint` is `true`
+ * unless said otherwise -- and writing `false` would be a claim the author
+ * never made.
+ */
+export interface ToolAnnotations {
+  readonly destructiveHint?: boolean;
+  readonly idempotentHint?: boolean;
+  readonly readOnlyHint?: boolean;
+}
+
 /** One runnable command and what it takes. */
 export interface CommandInputSchema {
+  /**
+   * What running it does, where the command declared any of it. Absent where
+   * it declared none, so a command that says nothing reads the same as before.
+   */
+  readonly annotations?: ToolAnnotations;
   /** What it is for, exactly as the declaration resolved it. */
   readonly description?: string;
   /** Its input, as an object schema keyed by `argv` destination. */
@@ -451,6 +473,22 @@ export function inputSchema(
 }
 
 /**
+ * A command's annotations as MCP names them, for spreading into its entry: an
+ * `annotations` key only where there is at least one.
+ *
+ * @param cmd - The command.
+ * @returns The key and its value, or nothing.
+ */
+function annotationsOf(cmd: SurfaceCommand): { annotations?: ToolAnnotations } {
+  const hints: ToolAnnotations = {
+    ...(cmd.destructive === undefined ? {} : { destructiveHint: cmd.destructive }),
+    ...(cmd.idempotent === undefined ? {} : { idempotentHint: cmd.idempotent }),
+    ...(cmd.readOnly === undefined ? {} : { readOnlyHint: cmd.readOnly }),
+  };
+  return Object.keys(hints).length > 0 ? { annotations: hints } : {};
+}
+
+/**
  * Every runnable command of an app, and the input each one takes.
  *
  * A command with no handler is left out, since there is nothing to call: a
@@ -475,6 +513,7 @@ export function inputSchemas(
     commands: surface.commands
       .filter((cmd) => cmd.runnable && below(cmd) && (!cmd.hidden || opts.hidden || named(cmd)))
       .map((cmd) => ({
+        ...annotationsOf(cmd),
         ...(cmd.desc ? { description: cmd.desc } : {}),
         inputSchema: inputSchema(surface, cmd, opts),
         path: cmd.path,

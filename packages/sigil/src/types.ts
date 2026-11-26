@@ -222,6 +222,16 @@ export interface Command<
    */
   commands?: string | (string | AnyCommand)[] | Record<string, string | AnyCommand>;
   default?: boolean;
+  /**
+   * Whether running it may destroy something: delete or overwrite data, rather
+   * than only add to it (SIG-718). An annotation for whoever decides whether to
+   * run the command -- an agent, a person approving an agent -- and not a check:
+   * the parser enforces nothing. It reaches the command surface, the JSON Schema
+   * document as MCP's `destructiveHint`, and the markdown reference. Left out,
+   * nothing is said either way. Contradicts `readOnly: true`, so declaring both
+   * throws.
+   */
+  destructive?: boolean;
   /** What the command is for, as help prints it. See {@link DescThunk}. */
   desc?: string | DescThunk;
   examples?: CommandExample | CommandExample[];
@@ -270,6 +280,12 @@ export interface Command<
   help?: string | HelpRenderer;
   hidden?: boolean;
   /**
+   * Whether running it twice with the same input has no effect beyond running
+   * it once, so a caller may retry it (SIG-718). An annotation, like
+   * `destructive`, and MCP's `idempotentHint`.
+   */
+  idempotent?: boolean;
+  /**
    * The command's module, as a function that imports it.
    *
    * `path` said the same thing as a file to read, and a bundled app has no
@@ -309,6 +325,13 @@ export interface Command<
   name?: string;
   options?: O;
   path?: string;
+  /**
+   * Whether it changes nothing: no file, no remote state, no setting (SIG-718).
+   * The question an agent's permission system asks first, which is why it is
+   * worth declaring on every command that can say yes. An annotation, like
+   * `destructive`, and MCP's `readOnlyHint`.
+   */
+  readOnly?: boolean;
   run?: CommandRunHandler<InferArgv<O, A>> | null;
 }
 
@@ -1060,6 +1083,17 @@ export interface Schema {
    * would be repeating a known-wrong type.
    */
   run?: CommandRunHandler<any>;
+  /**
+   * Whether the root's own `run` changes nothing, may destroy something, or may
+   * be retried safely: {@link Command.readOnly}, {@link Command.destructive} and
+   * {@link Command.idempotent}, declared on the schema because the schema is the
+   * root command and a single-command app has nowhere else to say it (SIG-718).
+   */
+  readOnly?: boolean;
+  /** See {@link Schema.readOnly}. */
+  destructive?: boolean;
+  /** See {@link Schema.readOnly}. */
+  idempotent?: boolean;
   /**
    * How the parser and `main()` behave for this app: unknown options, extra
    * arguments, the error handler, the help exit code and the rest of

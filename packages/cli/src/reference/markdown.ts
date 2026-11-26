@@ -890,6 +890,24 @@ function page(
     lines.push('', 'Lists the commands under it and takes no action of its own.');
   }
 
+  // what running it does, where the author said (SIG-718), beside the usage line
+  // for the reason `default` and `runnable` are: it is a fact about invoking the
+  // command. Only a `true` is printed. "Not destructive" is what a reader assumes
+  // of most commands and reads as noise, while an undeclared value and a `false`
+  // would be one sentence apart on the page and indistinguishable to the reader
+  // -- the surface and the JSON Schema keep the difference, which is where a
+  // machine reads it
+  const effects = [
+    ...(cmd.readOnly ? ['Read-only: it changes nothing.'] : []),
+    ...(cmd.destructive ? ['Destructive: it may delete or overwrite data.'] : []),
+    ...(cmd.idempotent
+      ? ['Idempotent: running it again with the same input changes nothing more.']
+      : []),
+  ];
+  if (effects.length > 0) {
+    lines.push('', effects.join(' '));
+  }
+
   // the listed tokens rather than every one, which is help's rule: an alias the
   // `alias` property declared answers without being advertised, and a
   // reference is a listing. The snapshot keeps it, because it still reaches the

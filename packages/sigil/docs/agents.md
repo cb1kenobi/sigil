@@ -21,6 +21,10 @@ which provides the `sigil` command.
 - `--help`, `help`, `completion`, `schema` and `--quiet` are generated from the
   schema, and `sigil build` adds `--version`. Don't write them by hand. `schema`
   prints each command's input as JSON Schema, for an agent to call the app with.
+- Declare `readOnly: true` on a command module that changes nothing,
+  `destructive: true` on one that can delete or overwrite, and `idempotent: true`
+  on one that is safe to retry. An agent decides whether to run a command from
+  these, and `schema` hands them over.
 - Wrap a command in `command()` from `@ttylabs/sigil`, so that `argv` is typed
   from its format strings. Dashed names are camel-cased: `--dry-run` is
   `argv.dryRun`.

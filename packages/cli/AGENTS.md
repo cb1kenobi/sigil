@@ -7972,6 +7972,26 @@ two packages is one definition in the package both depend on.
   those too and wrote a document that did not parse.
 - **No `sigil.json` key.** Nothing has asked to commit one yet, and a key is easier
   to add than to take back, so `--check` needs `--out`.
+- **A command's annotations ride in the document as MCP's own hints (SIG-718).**
+  `readOnly`, `destructive` and `idempotent` on a command reach the surface as
+  declared, `undefined` kept apart from `false`, and an entry's `annotations` as
+  `readOnlyHint`, `destructiveHint` and `idempotentHint` -- MCP's names, because
+  this is the document a tool definition is built from, and only the declared
+  ones, because MCP defaults an absent hint itself (`destructiveHint` to `true`)
+  and a written `false` would be a claim nobody made. They are **module-owned
+  rather than baked**: the surface loads every module, so a module's declaration
+  reaches a built app's `schema` with no build step, and one on a placeholder is
+  the SIG-320 warning with "declare it in the command's module instead". The
+  markdown page prints a sentence per `true` only. The snapshot leaves them out,
+  as it leaves `desc` out, since they are not what argv accepts. Not shown in
+  help: a lazily loaded command is listed by name until its module loads, so a
+  marker would appear on some commands and not others for a reason the reader
+  cannot see. Not read from `commands.json` either: that file exists to describe
+  a route before its module loads, and nothing that reads an annotation reads it
+  before a load. `readOnly` beside `destructive` is refused, and on the merge, so
+  a placeholder's one and its module's other are refused together.
+  `annotations-build.test.ts` builds a fixture that declares them and asserts the
+  built app and the source print the same document.
 - **A built app prints the same document with `mycli schema`**, a command `parse()`
   adds to the root as it adds `completion`, decided by Chris over
   `--help --format json`. `registerSchemaCommand()` in

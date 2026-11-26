@@ -182,6 +182,10 @@ function said(kind: Change['kind'], refresh: string): string {
 const reference: AnyCommand = command({
   args: [{ desc: "The app's root, defaulting to the working directory", name: '[dir]' }],
   desc: 'Write a markdown command reference, a snapshot of the command surface, or its input schemas',
+  // the same surface writes the same files, so a second run changes nothing
+  // more. Not `readOnly`, which only `--check` is, and not declared
+  // `destructive` either way: what it overwrites is its own output (SIG-718)
+  idempotent: true,
   examples: [
     { label: 'Print the whole reference as one document', text: 'sigil reference' },
     { label: 'Write a page per command', text: 'sigil reference --out docs/reference' },
