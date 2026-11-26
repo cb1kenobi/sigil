@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 301 keys, which is what a catalog has to carry to translate sigil's own
+ * 303 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -42,6 +42,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Back to the top',
   'Back to {0}',
   'Cancelled',
+  'Cannot ask "{0}" without a terminal; pass {1}',
   'Cannot delete "{0}": it is set in {1}, which is read-only.\n  Set it in {2} to override the value, or\n  remove it from {3}.',
   'Cannot open an editor for "{0}": set $VISUAL or $EDITOR',
   'Cannot prompt for "{0}" because the input is not a terminal',
@@ -115,6 +116,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Invalid pattern: {0}',
   'Invalid string: {0}',
   'Invalid value "{0}" for {1}',
+  'Invalid value "{0}" for {1}: {2}',
   'Invalid value for "{0}" in {1}: {2}',
   'It will add a block to {0}',
   'It will remove the block from {0}',
