@@ -450,7 +450,10 @@ export default {
         const alias = 'the built app will not answer to the alias the app runs with';
         const isDefault = 'the built app will not run it when argv names no command';
         expect(
-          withoutPlacement(diagnostics, ['async', 'number']).map((d) => [d.severity, d.message])
+          withoutPlacement(diagnostics, ['async', 'number'])
+            // a spread may carry `commands` too, which is asked in its own test (SIG-726)
+            .filter((d) => !d.message.includes('"commands"'))
+            .map((d) => [d.severity, d.message])
         ).toStrictEqual([
           ['warning', before('async', 'desc', 'the built app will list it by name alone')],
           // `base` is a name, so it may carry a `hidden` too, and the two keys
@@ -518,7 +521,10 @@ export default {
         });
 
         expect(
-          withoutPlacement(diagnostics, ['quiet']).map((d) => [d.severity, d.message])
+          withoutPlacement(diagnostics, ['quiet'])
+            // a spread may carry `commands` too, which is asked in its own test (SIG-726)
+            .filter((d) => !d.message.includes('"commands"'))
+            .map((d) => [d.severity, d.message])
         ).toStrictEqual([
           ['error', runtime.refused],
           ['error', runtime['!secret']],
@@ -668,7 +674,10 @@ export default {
           TypeError
         );
         expect(
-          withoutPlacement(diagnostics, ['spread']).map((d) => [d.severity, d.message])
+          withoutPlacement(diagnostics, ['spread'])
+            // a spread may carry `commands` too, which is asked in its own test (SIG-726)
+            .filter((d) => !d.message.includes('"commands"'))
+            .map((d) => [d.severity, d.message])
         ).toStrictEqual([
           [
             'warning',
@@ -1301,8 +1310,9 @@ export default {
         const isDefault = 'the built app will not run it when argv names no command';
         expect(
           withoutPlacement(diagnostics, ['purge', 'stage', 'carried'])
-            // `desc` and `hidden` say what they always said about a spread
-            .filter((d) => !/"(?:desc|hidden)"/.test(d.message))
+            // `desc` and `hidden` say what they always said about a spread, and
+            // `commands` is asked in its own test (SIG-726)
+            .filter((d) => !/"(?:commands|desc|hidden)"/.test(d.message))
             .map((d) => [d.severity, d.message])
         ).toStrictEqual([
           // each refused where the runtime refuses, and nowhere else
@@ -1651,6 +1661,167 @@ export default {
         // spelled after it and is not an error
         expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
         expect(at(list, 'twice').module?.split(/[\\/]/).at(-1)).toBe('a.js');
+      });
+    });
+
+    it('read a spread of a const carrying options, args and a handler, which no build reads', async () => {
+      // SIG-725. A shared base is most often one carrying `options`, and every
+      // array or object in it made the const unreadable -- including the ones the
+      // build never looks inside. What it takes off a placeholder is named, so the
+      // const resolves, and the keys it does not carry are still said
+      const source = `const shared = {
+  args: [{ name: 'target' }],
+  hooks: { init() {} },
+  options: { '--force': { type: 'bool' } },
+  path: './commands/a.js',
+};
+export default {
+  baseDir: import.meta.dirname,
+  commands: { one: { ...shared, desc: 'one' } },
+};\n`;
+
+      await withSchema(source, (dir) => {
+        const { commands, diagnostics } = readAppCommands(discoverApp(dir));
+        const list = commands?.kind === 'inline' ? commands.commands : [];
+
+        expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
+        expect(at(list, 'one').module?.split(/[\\/]/).at(-1)).toBe('a.js');
+        // what is not carried into a built app is said, once per key, at the
+        // spread the author wrote rather than the declaration it came from
+        const unbaked = diagnostics.filter((d) => d.message.includes('does not carry'));
+        expect(unbaked.map((d) => /declares "(\w+)"/.exec(d.message)?.[1])).toEqual([
+          'args',
+          'hooks',
+          'options',
+        ]);
+        const line = source.split('\n').findIndex((each) => each.includes('...shared')) + 1;
+        expect(unbaked.map((d) => d.line)).toEqual([line, line, line]);
+      });
+    });
+
+    it('refused a spread of a const whose alias or another key the build reads is an array or object, as it always did', async () => {
+      // SIG-725. A shallow copy shares an array or an object with the const, so
+      // a key the build read and a hook then changed would be one it had baked
+      // the other value of. Only those keys keep a const refused
+      for (const held of [
+        "alias: ['b']",
+        // (`commands` is the same refusal and is asserted on the guard itself: a
+        // schema module holding one is read as a second schema)
+        "name: ['b']",
+        'hidden: []',
+        "desc: { text: 'x' }",
+      ]) {
+        const source = `const base = { ${held}, path: './commands/a.js' };
+export default {
+  baseDir: import.meta.dirname,
+  commands: { x: { ...base } },
+};\n`;
+
+        await withSchema(source, (dir) => {
+          const { commands, diagnostics } = readAppCommands(discoverApp(dir));
+          const list = commands?.kind === 'inline' ? commands.commands : [];
+          const errors = diagnostics.filter((d) => d.severity === 'error').map((d) => d.message);
+
+          expect(errors, held).toHaveLength(1);
+          expect(errors[0], held).toContain(
+            'the "x" command spreads another object, which may carry its "name", "path" or "load"'
+          );
+          expect(at(list, 'x').module, held).toBeUndefined();
+        });
+      }
+    });
+
+    it('pointed a refusal about what a const carried at the spread, and not at the const', async () => {
+      // SIG-725. The error is about the command, and the line to change is the
+      // spread that brought the const in -- `at` took the earliest position of what
+      // it quoted, which was the declaration, at the top of the file
+      const source = [
+        `const base = { name: 'later', path: './commands/a.js' };`,
+        ``,
+        `let mixin = {};`,
+        ``,
+        `export default {`,
+        `  baseDir: import.meta.dirname,`,
+        `  commands: {`,
+        `    x: {`,
+        `      ...base,`,
+        `      ...mixin,`,
+        `    },`,
+        `  },`,
+        `};`,
+        ``,
+      ].join('\n');
+
+      await withSchema(source, (dir) => {
+        const { diagnostics } = readAppCommands(discoverApp(dir));
+        const errors = diagnostics.filter((d) => d.severity === 'error');
+
+        // `name`, `path` are written before a spread that may replace them
+        expect(errors).toHaveLength(1);
+        expect(errors[0]!.message).toContain('writes "name" and "path" before a spread');
+        expect(errors[0]).toMatchObject({ column: 7, line: 9 });
+      });
+    });
+
+    it('read a placeholder’s nested commands through its spreads, and said where it could not', async () => {
+      // SIG-726. `commands` was read off the properties written in the literal, so
+      // a spread that carried the subcommands -- or replaced the ones written -- was
+      // not seen at all: the built app had one set of subcommands and the app
+      // another, and nothing said so
+      const source = `let mixin = {};
+const defaults = { hidden: false };
+export default {
+  baseDir: import.meta.dirname,
+  commands: {
+    plain: { path: './commands/a.js', commands: { sub: { path: './commands/a.js' } } },
+    after: { ...defaults, path: './commands/a.js', commands: { sub: { path: './commands/a.js' } } },
+    literal: { path: './commands/a.js', commands: { old: { path: './commands/a.js' } }, ...{ commands: { fresh: { path: './commands/a.js' } } } },
+    carried: { ...mixin, name: 'carried', path: './commands/a.js' },
+    written: { commands: { sub: { path: './commands/a.js' } }, ...mixin, name: 'written', path: './commands/a.js' },
+    undef: { commands: undefined, ...mixin, name: 'undef', path: './commands/a.js' },
+  },
+};\n`;
+
+      await withSchema(source, (dir) => {
+        const { commands, diagnostics } = readAppCommands(discoverApp(dir));
+        const list = commands?.kind === 'inline' ? commands.commands : [];
+        const subs = (name: string) =>
+          (at(list, name).commands ?? []).map((command) => command.name);
+
+        expect(subs('plain')).toEqual(['sub']);
+        // a const nothing else touches is read, so what is written after it runs
+        expect(subs('after')).toEqual(['sub']);
+        // the spread of a literal is what runs, so `old` is dead and `fresh` is not
+        expect(subs('literal')).toEqual(['fresh']);
+        // a spread it cannot read may carry them: said, and nothing baked in their
+        // place. One that may replace the ones written is said too, and what is
+        // written is kept -- a mixin that carries none is the usual one, and a
+        // built app without subcommands the app has is the worse way to be wrong
+        expect(subs('carried')).toEqual([]);
+        expect(subs('written')).toEqual(['sub']);
+        // ...but only where something is written: `undefined` is not, so what the
+        // spread carries is the question and the answer is the one for a carrier
+        expect(subs('undef')).toEqual([]);
+
+        const warned = diagnostics
+          // (`undef` is also one of the keys the build does not carry, which is SIG-320's)
+          .filter((d) => d.message.includes('"commands"') && !d.message.includes('does not carry'))
+          .map((d) => [d.severity, d.message]);
+        expect(warned).toEqual([
+          [
+            'warning',
+            'the "carried" command spreads another object, which may carry a "commands" this cannot see; the built app will not have its subcommands',
+          ],
+          [
+            'warning',
+            'the "written" command\'s "commands" is written before a spread or a computed key, which may replace it when the app runs; the built app has the subcommands as written',
+          ],
+          [
+            'warning',
+            'the "undef" command\'s "commands" is written before a spread or a computed key, which may replace it when the app runs, so it cannot be read at build time; the built app will not have its subcommands',
+          ],
+        ]);
+        expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
       });
     });
 

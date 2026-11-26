@@ -922,6 +922,129 @@ describe('extracting a command module', () => {
       expect(routing(`alias: 'database'`, 'db')[0]?.message).toContain('./path/to/this-file');
     });
 
+    describe('through a spread', () => {
+      // SIG-726. `unroutable()` read the keys written in the literal and nothing a
+      // spread carried, so `{ ...base, run }` with a `name` in `base` was said
+      // nothing about, though the runtime reads the name through the spread
+      const routed = (source: string) =>
+        extractCommand('list.js', source, { name: 'list' }).routing;
+
+      it('should read a name, an alias and a default a literal spread carries', () => {
+        const [name, alias, fallback, ...rest] = routed(
+          `export default { ...{ name: 'list, ls', alias: 'l', default: true }, run() {} };`
+        );
+        expect(rest).to.deep.equal([]);
+        expect(name?.message).toContain('"name" declares "ls", which does not route');
+        expect(alias?.message).toContain('"alias" declares "l", which does not route');
+        expect(fallback?.message).toContain('"default" has no effect here');
+      });
+
+      it('should read them off a const nothing else touches, and point at the spread', () => {
+        const source = [
+          `const base = { alias: 'ls' };`,
+          ``,
+          `export default {`,
+          `  desc: 'x',`,
+          `  ...base,`,
+          `  run() {},`,
+          `};`,
+        ].join('\n');
+        const [alias, ...rest] = routed(source);
+        expect(rest).to.deep.equal([]);
+        expect(alias?.message).toContain('"alias" declares "ls", which does not route');
+        // the `alias` is the const's text, and the line the author can change is
+        // the spread that brought it in, not the declaration at the top
+        expect(alias).to.include({ column: 3, line: 5 });
+      });
+
+      it('should say a spread it cannot read may carry them, and name which', () => {
+        for (const declaration of [
+          `let base = { name: 'x' };`,
+          `const base = { name: 'x' };\nbase.name = 'list, ls';`,
+          `const base = load();`,
+        ]) {
+          const [warning, ...rest] = routed(
+            `${declaration}\nexport default { ...base, run() {} };`
+          );
+          expect(rest, declaration).to.deep.equal([]);
+          expect(warning?.severity).to.equal('warning');
+          expect(warning?.message).toContain(
+            'the default export spreads another object, which may carry "name", "alias" or "default" this cannot see'
+          );
+          expect(warning?.message).toContain('so none of them can route from here');
+          expect(warning?.column, declaration).to.equal('export default { '.length + 1);
+        }
+      });
+
+      it('should not ask about a key that is written, or a spread that cannot carry one', () => {
+        // `name` is spelled after the spread, so only the other two are unknown
+        const [warning, ...rest] = routed(`export default { ...base(), name: 'list' };`);
+        expect(rest).to.deep.equal([]);
+        expect(warning?.message).toContain('may carry "alias" or "default" this cannot see');
+        // nothing a literal spreads can carry what it does not hold
+        expect(routed(`export default { ...{ run() {} }, ...{ desc: 'x' } };`)).to.deep.equal([]);
+        // a primitive and an array spread indices, which are not these keys
+        expect(routed(`export default { ...[1, 2], ...'ab', run() {} };`)).to.deep.equal([]);
+      });
+
+      it('should say a spelling written before a spread may be replaced by it', () => {
+        // the written spelling is what it is, and what a later spread may replace
+        // is one more thing it may carry
+        const [warning, ...rest] = routed(`export default { name: 'list', ...m, run() {} };`);
+        expect(rest).to.deep.equal([]);
+        expect(warning?.message).toContain(
+          'may carry "name", "alias" or "default" this cannot see'
+        );
+        // `undefined` is not declared, so a spread after it is the same question
+        const undefinedName = routed(
+          `export default { name: undefined, ...m, alias: 'x', default: false };`
+        ).find((each) => each.message.includes('may carry'));
+        expect(undefinedName?.message).toContain('may carry "name" this cannot see');
+      });
+
+      it('should ask each spread for what it can carry, and point at it', () => {
+        const source = [
+          `export default {`,
+          `  ...(on && { alias: 'q' }),`,
+          `  ...m,`,
+          `  run() {},`,
+          `};`,
+        ].join('\n');
+        const [conditional, other, ...rest] = routed(source);
+        expect(rest).to.deep.equal([]);
+        // the conditional can carry an alias and nothing else, and `m` all three
+        expect(conditional?.message).toContain('may carry "alias" this cannot see');
+        expect(conditional).to.include({ column: 3, line: 2 });
+        expect(other?.message).toContain('may carry "name", "alias" or "default" this cannot see');
+        expect(other).to.include({ column: 3, line: 3 });
+      });
+
+      it('should say each of two spreads may carry what the module does not spell', () => {
+        const [first, second, ...rest] = routed(`export default { name: 'list', ...a, ...b };`);
+        expect(rest).to.deep.equal([]);
+        for (const warning of [first, second]) {
+          expect(warning?.message).toContain(
+            'may carry "name", "alias" or "default" this cannot see'
+          );
+        }
+        expect(first?.column).to.be.lessThan(second!.column!);
+      });
+
+      it('should say a computed key may be one of them, and read one written as a string', () => {
+        const [computed] = routed(`export default { [key]: 1, run() {} };`);
+        expect(computed?.message).toContain('has a computed key, which may carry "name"');
+        const [quoted, ...rest] = routed(`export default { ['name']: 'list, ls' };`);
+        expect(rest).to.deep.equal([]);
+        expect(quoted?.message).toContain('"name" declares "ls"');
+      });
+
+      it('should still say nothing for a module that spreads and repeats its route', () => {
+        expect(
+          routed(`export default { ...{ name: 'list', alias: [] }, run() {} };`)
+        ).to.deep.equal([]);
+      });
+    });
+
     describe('in a walked directory', () => {
       // SIG-324. A walked route has no schema key to put a spelling on, and the
       // `commands.json` beside it is the place that routes one -- so that is

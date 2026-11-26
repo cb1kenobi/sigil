@@ -1024,6 +1024,8 @@ describe('sigil build', () => {
       ['viaload'],
       ['aliased'],
       ['sh'],
+      // a const carrying `options` and `args`, which the build never reads (SIG-725)
+      ['withopts'],
       [],
       ['--help'],
     ]) {
@@ -1034,6 +1036,7 @@ describe('sigil build', () => {
     expect(source('renamed').stdout).toBe('a ran\n');
     expect(source('viaload').stdout).toBe('b ran\n');
     expect(source('sh').stdout).toBe('a ran\n');
+    expect(source('withopts').stdout).toBe('a ran\n');
     expect(source().stdout).toBe('a ran\n');
     expect(source('--help').stdout).toMatch(/^\s+aliased\b.*Shared words$/m);
     expect(source('--help').stdout).not.toMatch(/^\s+named$/m);
@@ -1129,6 +1132,9 @@ describe('sigil build', () => {
     ['name-mutated', 'later', 'spreads another object, which may carry its "name"'],
     ['path-passed', 'x', 'spreads another object, which may carry its "path" or "load"'],
     ['load-captured', 'x', 'spreads another object, which may carry its "path" or "load"'],
+    // SIG-725: the array the const holds is written through a copy, by a name that
+    // is not the const's, and the app answers to `x` for it
+    ['alias-pushed', 'x', 'spreads another object, which may carry its "path" or "load"'],
     ['both', undefined, 'Cannot combine "load" with "path" in the "x" command'],
   ])(
     'should refuse %s, which has that one thing wrong with it, and no other',
@@ -1163,6 +1169,44 @@ describe('sigil build', () => {
     },
     60_000
   );
+
+  it('should say what a spread may carry into a routed module and into a nested commands, and build', async () => {
+    // SIG-726. A module is read after argv has matched the name it is routed by, so
+    // a name, an alias or a default it takes from a spread routes nothing from
+    // source and nothing from a build; and a placeholder's subcommands are what the
+    // built tree holds. Neither is a build that is wrong, so both are said and
+    // neither fails it: the app and the built app agree
+    const app = join(fixtures, 'discover', 'placeholder-routed');
+    const { err } = await sigil('build', app, '--out', out, '--no-sourcemap');
+
+    expect(process.exitCode).toBeFalsy();
+    expect(err).not.toContain(': error: ');
+    // at the spread of the const, in the module, and not at its declaration above
+    expect(err).toMatch(
+      /a\.js:6:3: warning: "alias" declares "ay", which does not route: this module is loaded only after argv has matched "a"/
+    );
+    expect(err).toContain(
+      'the "b" command spreads another object, which may carry a "commands" this cannot see; the built app will not have its subcommands'
+    );
+
+    const spawn = (file: string, argv: string[]) => {
+      const { status, stderr, stdout } = spawnSync(process.execPath, [file, ...argv], {
+        cwd: tmpdir(),
+        encoding: 'utf-8',
+      });
+      return { status, stderr, stdout };
+    };
+    for (const argv of [['a'], ['b'], ['ay']]) {
+      const built = spawn(join(out, 'placeholder-routed.mjs'), argv);
+      const source = spawn(join(app, 'dev.ts'), argv);
+      expect(built.status, argv.join(' ')).toBe(source.status);
+      expect(built.stdout, argv.join(' ')).toBe(source.stdout);
+    }
+
+    // and the alias the warning is about really routes nothing
+    expect(spawn(join(app, 'dev.ts'), ['ay']).status).not.toBe(0);
+    expect(spawn(join(app, 'dev.ts'), ['a']).stdout).toBe('a ran\n');
+  }, 60_000);
 
   it('should refuse a package the schema points at whose names it cannot read', async () => {
     // SIG-332. From source such a package answers to whatever its module

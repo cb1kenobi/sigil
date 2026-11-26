@@ -9,6 +9,8 @@ const pathed = { path: './commands/a.js' };
 const loaded = { load: () => import('./commands/b.js') };
 const routing = { alias: 'sh', default: true };
 const words = { desc: 'Shared words', hidden: false };
+// carrying options and args, which the build never reads, is not a reason to refuse it (SIG-725)
+const shape = { options: { '--force': { type: 'bool' } }, args: ['[target]'] };
 
 export default {
   name: 'placeholder-sealed',
@@ -19,5 +21,6 @@ export default {
     viaload: { ...loaded },
     // the default command, answering to `sh`, described by a const of its own
     aliased: { ...words, ...routing, ...pathed },
+    withopts: { ...shape, ...pathed },
   },
 };

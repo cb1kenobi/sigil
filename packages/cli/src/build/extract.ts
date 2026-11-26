@@ -73,16 +73,17 @@ import {
   lastReplacing,
   literalBoolean,
   literalOf,
+  mayCarry,
   literalString,
-  plainProperty,
   propertyKey,
+  spellingOf,
   stringList,
   unspelledCarrier,
   unwrapShallow,
 } from './literals.ts';
 import { locate, parseModule, type ParsedModule } from './parse-module.ts';
 import { escapeControls } from '@ttylabs/sigil/error-handler';
-import type { ObjectExpression } from 'oxc-parser';
+import type { ObjectExpression, ObjectProperty, SpreadElement } from 'oxc-parser';
 
 /** What a command module says about itself, read statically. */
 export interface CommandFacts {
@@ -442,10 +443,17 @@ function unroutable(
   const target = routedBy.index ? './path/to/this-directory' : './path/to/this-file';
   const warn = (start: number, message: string) =>
     diagnostics.push({ ...locate(parsed, start), message, severity: 'warning' });
-  /** The property, unless it is absent or `undefined`, which the runtime reads as absent. */
+  // what the module spells, read as a placeholder is -- through `flatten()` and
+  // the resolver, so `...{ name: 'x' }` and a spread of a const nothing else
+  // touches are what they spell (SIG-726)
+  const resolver = sealedResolver(parsed);
+  const spelled = (key: string) => spellingOf(object, key, resolver, true);
+  /** The property, unless it is absent, `undefined` (which the runtime reads as absent) or not a value. */
   const declared = (key: string) => {
-    const property = plainProperty(object, key);
-    return property && !isUndefined(property.value) ? property : undefined;
+    const property = spelled(key).declared;
+    return property && property.kind === 'init' && !property.method && !isUndefined(property.value)
+      ? property
+      : undefined;
   };
   /** Spellings written twice are one spelling, and are said once. */
   const quoted = (spellings: readonly string[]) =>
@@ -508,6 +516,42 @@ function unroutable(
       fallback.start,
       `"default" has no effect here: this module is read only after argv has matched "${shownRoute}", ` +
         `so it cannot make the command the default; ${advice}`
+    );
+  }
+
+  // what a spread or a computed key this cannot read may carry is not known, and
+  // the module is the one place an author is told that none of it can route. A
+  // warning and not the error a placeholder's `name` gets: the built app and the
+  // app run from source agree here -- neither routes by it -- so nothing diverges
+  // and no build is wrong, only what the author expected may be (SIG-726)
+  const unknown = new Map<SpreadElement | ObjectProperty, Array<'alias' | 'default' | 'name'>>();
+  const members = flatten(object, resolver);
+  for (const key of ['name', 'alias', 'default'] as const) {
+    // whatever comes after the last spelling of the key may set it, and after
+    // nothing at all where it is not spelled: every such spread, since each may
+    // carry any of them
+    const spelling = members.findLastIndex(
+      (member) => member.type !== 'SpreadElement' && propertyKey(member) === key
+    );
+    for (const member of members.slice(spelling + 1)) {
+      if ((member.type === 'SpreadElement' || member.computed) && mayCarry(member, key)) {
+        unknown.set(member, [...(unknown.get(member) ?? []), key]);
+      }
+    }
+  }
+
+  for (const [carrier, keys] of [...unknown].sort(([a], [b]) => a.start - b.start)) {
+    const quoted = keys.map((key) => `"${key}"`);
+    const list =
+      quoted.length > 1 ? `${quoted.slice(0, -1).join(', ')} or ${quoted.at(-1)}` : quoted[0]!;
+    const fixes = [
+      ...(keys.some((key) => key !== 'default') ? [declareSpellings([])] : []),
+      ...(keys.includes('default') ? [advice] : []),
+    ];
+    warn(
+      carrier.start,
+      `the default export ${carrier.type === 'SpreadElement' ? 'spreads another object' : 'has a computed key'}, which may carry ${list} this cannot see: ` +
+        `this module is read only after argv has matched "${shownRoute}", so none of them can route from here; if it does carry one, ${fixes.join('; ')}`
     );
   }
 
