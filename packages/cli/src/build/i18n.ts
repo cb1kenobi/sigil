@@ -28,6 +28,7 @@ import {
   reachable,
   schemasWith,
   sealedResolver,
+  spellingIn,
   unwrap,
 } from './bindings.ts';
 import type { Diagnostic } from './diagnostic.ts';
@@ -39,7 +40,7 @@ import {
   loaderSpecifier,
   objectLiteral,
   propertyKey,
-  spellingOf,
+  replacerPhrase,
 } from './literals.ts';
 import { MODULE_RE, type ParsedModule, parseModule, position } from './parse-module.ts';
 import { schemaModule } from './schema-module.ts';
@@ -403,16 +404,16 @@ export function readAppCatalogs(app: DiscoveredApp): AppCatalogs {
   const own = lastPlain(schemas[0]!, 'locales', resolver)!;
   const declared = objectLiteral(own.value);
 
-  if (spellingOf(schemas[0]!, 'locales', resolver).replaced) {
+  const spelling = spellingIn(parsed, schemas[0]!, 'locales');
+  if (spelling.replaced || spelling.shadowedBy) {
     // the catalogs the app loads are the last `locales` spelled, which a spread
-    // after this one may be (SIG-728)
+    // after this one may be, and an accessor of the key is (SIG-728, SIG-730)
     const { column, line } = position(parsed.source, own.start);
     diagnostics.push({
       column,
       file,
       line,
-      message:
-        '"locales" is written before a spread or a computed key, which may replace it when the app runs, so the catalogs checked here may not be the app\'s',
+      message: `"locales" is written before ${replacerPhrase(spelling)}, so the catalogs checked here may not be the app's`,
       severity: 'warning',
     });
   }

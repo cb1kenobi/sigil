@@ -63,7 +63,7 @@
  * never written.
  */
 
-import { sealedResolver } from './bindings.ts';
+import { lacksResolver, sealedResolver, spellingIn } from './bindings.ts';
 import type { Diagnostic } from './diagnostic.ts';
 import { translatedKey } from './i18n.ts';
 import {
@@ -76,7 +76,6 @@ import {
   mayCarry,
   literalString,
   propertyKey,
-  spellingOf,
   stringList,
   unspelledCarrier,
   unwrapShallow,
@@ -222,7 +221,7 @@ export function factsOf(parsed: ParsedModule, routedBy?: RoutedBy): Extracted {
   // what a literal spells wherever it is asked (SIG-433, SIG-434)
   const members = flatten(object, sealedResolver(parsed));
   const replacing: Record<string, number> = Object.fromEntries(
-    LIFTED.map((key) => [key, lastReplacing(members, key)])
+    LIFTED.map((key) => [key, lastReplacing(members, key, lacksResolver(parsed))])
   );
 
   // and a key written twice is its last spelling, so only that one is read:
@@ -447,7 +446,7 @@ function unroutable(
   // the resolver, so `...{ name: 'x' }` and a spread of a const nothing else
   // touches are what they spell (SIG-726)
   const resolver = sealedResolver(parsed);
-  const spelled = (key: string) => spellingOf(object, key, resolver, true);
+  const spelled = (key: string) => spellingIn(parsed, object, key, true);
   /** The property, unless it is absent, `undefined` (which the runtime reads as absent) or not a value. */
   const declared = (key: string) => {
     const property = spelled(key).declared;

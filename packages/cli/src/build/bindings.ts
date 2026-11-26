@@ -25,11 +25,14 @@ import {
   flatten,
   lastPlain,
   literalOf,
+  mayCarry,
   objectLiteral,
   outermostWhere,
   PLACEHOLDER_KEYS,
   propertyKey,
+  spellingOf,
   unwrapShallow,
+  type Lacks,
 } from './literals.ts';
 import { type ParsedModule } from './parse-module.ts';
 import { walk } from './walk.ts';
@@ -317,6 +320,104 @@ export function sealedResolver(
 }
 
 /**
+ * `spellingOf()` over what this module can show: a spread of a `const` that is
+ * only ever spread is its literal's members, and a spread of one that visibly
+ * holds no `key` is not a spread that may carry it.
+ *
+ * The one place the two resolvers are handed to `spellingOf()`, so the schema's
+ * `commands`, `locales` and `baseDir`, a placeholder's seven keys and its nested
+ * `commands`, and what a routed module declares cannot come to read a spread
+ * differently (SIG-730).
+ *
+ * @param parsed - The module the object is in.
+ * @param object - The object literal.
+ * @param key - The key in question.
+ * @param computed - Whether a computed key that may be `key` is a carrier.
+ * @returns What `spellingOf()` answers.
+ */
+export function spellingIn(
+  parsed: ParsedModule,
+  object: ObjectExpression,
+  key: string,
+  computed = false
+): ReturnType<typeof spellingOf> {
+  return spellingOf(object, key, sealedResolver(parsed), computed, lacksResolver(parsed));
+}
+
+/** What `lacksResolver()` answered per module, name and key. */
+const lacking = new WeakMap<ParsedModule, Map<string, boolean>>();
+
+/**
+ * Whether a name is a same-module `const` whose object literal visibly holds no
+ * `key`, and that nothing in the module can have written one to (SIG-730).
+ *
+ * `sealedObject()` answers the larger question -- what the const holds, as far as
+ * it can be read, which is a reason to bake a value out of it. This is the
+ * smaller one, and the one that may be answered for a const `sealedObject()` gives
+ * up on: a spread of an object that spells no `commands` cannot replace one, and
+ * saying it may is a warning about nothing. It stays a **question about one
+ * key**, which is why it can be answered for a const that holds an array under
+ * another or is read for another. The binding is
+ *
+ * - a `const` of the module's own that is not exported, and bound once, so a
+ *   use of the name is the declaration's (`declaredObject()`);
+ * - initialized with an object literal whose members, read as the object they
+ *   make, do not spell `key` -- no property, no `__proto__` (which a spread
+ *   does not copy and a member write could use), no accessor of any key, which
+ *   runs when it is spread and does what the build cannot read, and no spread or computed
+ *   key that may carry it, a spread of a name inside it included, which is not
+ *   looked into twice; and
+ * - named nowhere except as an object spread's operand or as the object of a
+ *   member access with a **different** static key that is not called, tagged or
+ *   constructed. `base.options.push(x)` cannot write `commands`; `base.commands =
+ *   x`, `base[k] = x`, `Object.assign(base, x)`, `mutate(base)` and
+ *   `base.valueOf().commands = x` -- a called member is handed the object as
+ *   `this` -- can, or might, and any of them keeps the warning. A member
+ *   access of `key` is refused even where it only reads, which is the cheap side
+ *   to be wrong on, as it is for `sealedObject()`.
+ *
+ * An imported or an exported base is not this module's to read, so it is
+ * `undefined` here and still warns.
+ *
+ * @param parsed - The module.
+ * @returns The question, per name and key.
+ */
+export function lacksResolver(parsed: ParsedModule): Lacks {
+  return (name, key) => {
+    let cache = lacking.get(parsed);
+    if (!cache) {
+      cache = new Map();
+      lacking.set(parsed, cache);
+    }
+
+    const id = JSON.stringify([name, key]);
+    let answer = cache.get(id);
+    if (answer === undefined) {
+      answer = lacksKey(parsed, name, key);
+      cache.set(id, answer);
+    }
+
+    return answer;
+  };
+}
+
+function lacksKey(parsed: ParsedModule, name: string, key: string): boolean {
+  const declared = declaredObject(parsed, name);
+  if (!declared) {
+    return false;
+  }
+
+  const spells = flatten(declared.object).some((member) =>
+    member.type === 'SpreadElement' || member.computed
+      ? mayCarry(member, key)
+      : // a getter runs when the object is spread, and what a function does is not
+        // read here: it is given up on whatever key it is called
+        member.kind !== 'init' || propertyKey(member) === key || propertyKey(member) === '__proto__'
+  );
+  return !spells && onlySpread(parsed, name, declared.declarator, key);
+}
+
+/**
  * The object literals that are the schema when the build asks for the one that
  * declares `key`, which is `commands` for the command tree and `locales` for the
  * catalogs (SIG-728).
@@ -500,15 +601,25 @@ function sealedObjectOf(parsed: ParsedModule, name: string): ObjectExpression | 
  * @param parsed - The module.
  * @param name - The binding.
  * @param declarator - Its declaration.
+ * @param except - A key whose accesses are the only ones that matter, where the
+ *   question is about one key: a member access of any other static key is then
+ *   allowed too, unless it is called, tagged or constructed, which hands the
+ *   object over as `this` (SIG-730).
  * @returns Whether every use of it is a spread.
  */
-function onlySpread(parsed: ParsedModule, name: string, declarator: VariableDeclarator): boolean {
+function onlySpread(
+  parsed: ParsedModule,
+  name: string,
+  declarator: VariableDeclarator,
+  except?: string
+): boolean {
   // every occurrence of the name but its declaration and an object spread's
   // operand is a use that might write -- or might hand the object to something
   // that does. A JSX name is an occurrence too (`<base.path />` reads a member),
   // and so is a spread above the declaration, which throws from source. A module
   // with `with` or a direct `eval` can bind or write any name without saying so
   const allowed = new Set<unknown>([declarator.id]);
+  const called = new Set<unknown>();
   let used = false;
   walk(parsed.program, (node) => {
     if (node.type === 'WithStatement') {
@@ -526,6 +637,34 @@ function onlySpread(parsed: ParsedModule, name: string, declarator: VariableDecl
         }
       }
     } else if (
+      node.type === 'CallExpression' ||
+      node.type === 'NewExpression' ||
+      node.type === 'TaggedTemplateExpression'
+    ) {
+      // a member that is *called* is handed the object as `this`: `mixin.valueOf()`
+      // returns it and `mixin.set('commands', x)` writes it, so it is a use the build
+      // cannot follow whatever the key is
+      // through a parenthesized optional chain too, which `unwrapShallow()` does not
+      // look through and which keeps `this`: `(mixin?.valueOf)()`
+      let callee = unwrapShallow(
+        (node.type === 'TaggedTemplateExpression' ? node.tag : node.callee) as Expression
+      );
+      while (callee.type === 'ChainExpression') {
+        callee = unwrapShallow(callee.expression as Expression);
+      }
+      if (callee.type === 'MemberExpression') {
+        called.add(callee);
+      }
+    } else if (
+      except !== undefined &&
+      node.type === 'MemberExpression' &&
+      !called.has(node) &&
+      node.object.type === 'Identifier' &&
+      node.object.name === name &&
+      otherKey(node, except)
+    ) {
+      allowed.add(node.object);
+    } else if (
       (node.type === 'Identifier' || node.type === 'JSXIdentifier') &&
       (node.name === 'eval' || (node.name === name && !allowed.has(node)))
     ) {
@@ -536,6 +675,18 @@ function onlySpread(parsed: ParsedModule, name: string, declarator: VariableDecl
   });
 
   return !used;
+}
+
+/** Whether a member access names a static key that is neither `key` nor `__proto__`. */
+function otherKey(node: Node & { computed: boolean; property: Node }, key: string): boolean {
+  const name = node.computed
+    ? node.property.type === 'Literal' && typeof node.property.value === 'string'
+      ? node.property.value
+      : undefined
+    : node.property.type === 'Identifier'
+      ? node.property.name
+      : undefined;
+  return name !== undefined && name !== key && name !== '__proto__';
 }
 
 /**

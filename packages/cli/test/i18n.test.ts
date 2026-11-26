@@ -325,6 +325,37 @@ describe('reading an app`s catalogs', () => {
       ]);
     });
 
+    it('should warn that an accessor after the locales replaces them, which the check cannot read (SIG-730)', async () => {
+      const read = await withSchema(
+        `export default { locales: { ${loader('fr')} }, get locales() { return {}; } };\n`
+      );
+
+      expect(read.diagnostics.map((d) => d.message)).toEqual([
+        expect.stringContaining(
+          '"locales" is written before an accessor or a method of the same name, which replaces it when the app runs'
+        ),
+      ]);
+    });
+
+    it('should not warn about a spread of a const that visibly holds no locales (SIG-730)', async () => {
+      const read = await withSchema(
+        `const mixin = { name: 'x', tags: [] };\nmixin.tags.push('y');\nexport default { locales: { ${loader('fr')} }, ...mixin };\n`
+      );
+
+      expect(read.diagnostics).toEqual([]);
+      expect(read.catalogs.map((c) => c.locale)).toEqual(['fr']);
+    });
+
+    it('should warn about the same const once a locales is written to it (SIG-730)', async () => {
+      const read = await withSchema(
+        `const mixin = { name: 'x' };\nmixin.locales = {};\nexport default { locales: { ${loader('fr')} }, ...mixin };\n`
+      );
+
+      expect(read.diagnostics.map((d) => d.message)).toEqual([
+        expect.stringContaining('"locales" is written before a spread or a computed key'),
+      ]);
+    });
+
     it('should keep reading a base the build cannot show is only spread as the first schema, as it did', async () => {
       // SIG-728. An exported base may be changed by whoever imports it, so it is not
       // a part of the schema and the first of the two literals is what is read
