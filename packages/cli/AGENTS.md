@@ -6151,7 +6151,11 @@ about what a valid app is would be the worse half of the feature.
   error is thrown, and the `catch` around the executable's rename sees exactly what
   it saw before, so the in-use fallback above, the removal of the entry and the
   `finally` that removes the scratch directory run as they did; the test compares
-  the cache listing after a retried failure with the one after an un-retried one.
+  the cache listing after a retried failure with the one after an un-retried one,
+  and both outcomes of the in-use fallback are pinned after a spent bound.
+  `download()` is `async` but synchronous inside -- `spawnSync()` for `tar`, sync
+  writes -- so the blocking variant is the honest one, and the second it can
+  block is no new kind of stall.
   The price is the same one the sigil entry records and lands here: a rename over
   an executable another build is **running** answers `EPERM` or `EACCES` for as
   long as it runs, so that case now waits the whole second before the fallback

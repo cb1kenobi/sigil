@@ -589,8 +589,9 @@ export async function renameWithRetry(from: string, to: string): Promise<void> {
  *
  * `Atomics.wait()` on a private buffer sleeps the thread without spinning and
  * without a dependency, which is how `renderer/app.ts` already waits in its own
- * synchronous exit path. Blocking is the point here: this is the save an exit
- * handler makes, and it has nowhere to yield to.
+ * synchronous exit path. Blocking is the point: the save an exit handler makes
+ * has nowhere to yield to, and the toolchain's runtime install is synchronous
+ * all the way down.
  *
  * @param from - The file to move.
  * @param to - Where it goes, replacing what is there.

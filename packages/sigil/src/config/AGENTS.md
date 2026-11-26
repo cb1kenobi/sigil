@@ -1937,8 +1937,9 @@ failed to close.
   fix is the same retry rather than a copy of it -- the code set and the schedule
   are one decision, and a second spelling of either is how the two would come to
   disagree -- so `renameWithRetry()` and `renameWithRetrySync()` are exported from
-  `@ttylabs/sigil/config` beside `writeAtomic()`, under the names the private ones
-  had before they were renamed to say what they do. Both are published because the
+  `@ttylabs/sigil/config` beside `writeAtomic()`, named for what they do rather
+  than for where `writeAtomic()` uses them (they were the private `renameInto()`
+  and `renameIntoSync()`). Both are published because the
   pair is one decision, as `writeAtomicSync` rides with `writeAtomic`; the async
   one has no caller outside `writeAtomic()` today. Nothing about the schedule, the
   codes or the **not reproduced on Windows** above changed, and it is still true of

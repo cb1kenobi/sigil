@@ -38,6 +38,9 @@ const nativeFetch = globalThis.fetch;
 /** Every `renameSync` the module makes, and whether the record already sat beside its target. */
 const renames: { record: boolean; to: string }[] = [];
 
+/** The delays `Atomics.wait` was asked for, which is how the retry is observed without sleeping. */
+const waited: number[] = [];
+
 /** Runs before each rename, so a test can make one fail the way Windows does. */
 let beforeRename: ((to: string) => void) | undefined;
 
@@ -156,10 +159,24 @@ describe('verifying a runtime against its own origin', () => {
     rmSync(join(box, 'cache'), { force: true, recursive: true });
     renames.length = 0;
     beforeRename = undefined;
+    waited.length = 0;
+
+    // nothing in this file may sleep: on Windows the `refuse()` cases below are
+    // retried, and an unstubbed wait is a second of wall clock each
+    vi.spyOn(Atomics, 'wait').mockImplementation(((
+      _array: Int32Array,
+      _index: number,
+      _value: number,
+      ms?: number
+    ) => {
+      waited.push(ms ?? 0);
+      return 'timed-out';
+    }) as typeof Atomics.wait);
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   describe('node', () => {
@@ -722,9 +739,6 @@ describe('verifying a runtime against its own origin', () => {
   describe('a rename Windows refuses as busy', () => {
     const origPlatform = Object.getOwnPropertyDescriptor(process, 'platform') as PropertyDescriptor;
 
-    /** The delays the retry was asked to wait, in order. */
-    const waited: number[] = [];
-
     /** What the next renames to a target answer with, one entry per attempt. */
     let script: string[] = [];
 
@@ -759,21 +773,10 @@ describe('verifying a runtime against its own origin', () => {
       renames.filter((one) => one.to === join(cached('node'), name)).length;
 
     beforeEach(() => {
-      waited.length = 0;
       script = [];
-      vi.spyOn(Atomics, 'wait').mockImplementation(((
-        _array: Int32Array,
-        _index: number,
-        _value: number,
-        ms?: number
-      ) => {
-        waited.push(ms ?? 0);
-        return 'timed-out';
-      }) as typeof Atomics.wait);
     });
 
     afterEach(() => {
-      vi.restoreAllMocks();
       Object.defineProperty(process, 'platform', origPlatform);
     });
 
@@ -839,6 +842,43 @@ describe('verifying a runtime against its own origin', () => {
       // no scratch directory, no binary, and the record exactly where it was
       expect(left()).toEqual(today);
       expect(left().some((one) => one.includes('.partial-'))).toBe(false);
+    });
+
+    it.each([
+      ['use what is there when it answers to the record', 'REAL', true],
+      ['fail and remove the entry when it does not', 'SOMETHING ELSE', false],
+    ])('should still %s after the bound is spent', async (_what, content, used) => {
+      const bytes = archive('node', 'REAL');
+      origin({ bytes, digest: sha256(bytes) });
+      const binary = join(cached('node'), NAME('node'));
+      // the other build's file is there on every attempt, as it would be
+      busy(
+        NAME('node'),
+        Array.from({ length: 100 }, () => 'EPERM'),
+        'win32'
+      );
+      const refuse = beforeRename;
+      beforeRename = (to) => {
+        if (to === binary) {
+          writeFileSync(to, content);
+        }
+        refuse?.(to);
+      };
+
+      const outcome = await resolve('node', VERSION, TARGET).then(
+        (path) => path,
+        (error: Error) => error
+      );
+
+      expect(tried(NAME('node'))).toBe(8);
+      expect(waited).toEqual([10, 20, 40, 80, 160, 320, 370]);
+      if (used) {
+        expect(outcome).toBe(binary);
+        expect(readFileSync(binary, 'utf-8')).toBe(content);
+      } else {
+        expect(outcome).toMatchObject({ code: 'EPERM' });
+        expect(existsSync(cached('node'))).toBe(false);
+      }
     });
 
     it.each(['EPERM', 'EBUSY', 'EACCES'])('should not retry %s off Windows', async (code) => {
