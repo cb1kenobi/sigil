@@ -14,6 +14,8 @@ Write a markdown command reference, a snapshot of the command surface, or its in
 sigil reference [options] [dir]
 ```
 
+Idempotent: running it again with the same input changes nothing more.
+
 ## Arguments
 
 | Argument | Type | Description |

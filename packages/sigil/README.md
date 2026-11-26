@@ -603,6 +603,15 @@ hook already are that moment.
 | `path`                        | a module to load the command from, resolved from the file that declared it       |
 | `load`                        | that module as a function -- `() => import('./build.js')` -- for a bundled app   |
 | `examples`                    | `{ label, text }` pairs for help                                                 |
+| `readOnly`, `destructive`     | it changes nothing, or it may delete or overwrite something; not both            |
+| `idempotent`                  | running it again with the same input changes nothing more                        |
+
+`readOnly`, `destructive` and `idempotent` say what running the command does,
+for an agent or a person deciding whether to let it run. The parser enforces
+none of them. They reach [`schema`](#describing-the-app-to-an-agent) as MCP's
+`readOnlyHint`, `destructiveHint` and `idempotentHint`, and the reference page
+for the command. Declare them in the command's module: `sigil build` carries
+the module, and warns about one declared on a placeholder in the schema.
 
 ### Running one command from another
 

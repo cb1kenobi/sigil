@@ -264,10 +264,22 @@ export interface SurfaceCommand {
   readonly default: boolean;
   /** What it is for, exactly as the declaration resolved it. */
   readonly desc?: string;
+  /**
+   * Whether running it may destroy something, as the declaration said, or
+   * `undefined` where it said nothing (SIG-718). Undeclared and `false` are
+   * kept apart, because "the author says it destroys nothing" is information
+   * and "the author did not say" is not.
+   */
+  readonly destructive?: boolean;
   /** The examples it declared. */
   readonly examples: readonly SurfaceExample[];
   /** Whether help leaves it out. It is still reachable. */
   readonly hidden: boolean;
+  /**
+   * Whether running it again has no further effect, as the declaration said.
+   * See {@link SurfaceCommand.destructive}.
+   */
+  readonly idempotent?: boolean;
   /**
    * The tokens of `tokens` a listing shows, in the same order: every one but a
    * spelling only the `alias` property declared. Empty for the root.
@@ -296,6 +308,11 @@ export interface SurfaceCommand {
    * the root itself.
    */
   readonly path: readonly string[];
+  /**
+   * Whether it changes nothing, as the declaration said. See
+   * {@link SurfaceCommand.destructive}.
+   */
+  readonly readOnly?: boolean;
   /**
    * Whether the declaration has a handler of its own.
    *
@@ -457,6 +474,18 @@ function optionOf(opt: InternalOption, registry: OptionRegistry): SurfaceOption 
 }
 
 /**
+ * An annotation as the surface records it: the boolean the declaration gave,
+ * or `undefined`. `initCommand()` has refused anything else by the time this
+ * reads it, so the narrowing is for the type.
+ *
+ * @param value - What the command carries.
+ * @returns The annotation.
+ */
+function annotationOf(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+/**
  * One command, as the surface records it.
  *
  * @param cmd - The loaded command.
@@ -479,11 +508,14 @@ function commandOf(
     args: internal.args.map(argumentOf),
     default: fallback,
     desc: typeof cmd.desc === 'string' ? cmd.desc : undefined,
+    destructive: annotationOf(cmd.destructive),
     examples: examplesOf(cmd.examples),
     hidden: !!cmd.hidden,
+    idempotent: annotationOf(cmd.idempotent),
     listed,
     options: [...internal.options.values()].map((opt) => optionOf(opt, internal.options)),
     path,
+    readOnly: annotationOf(cmd.readOnly),
     runnable: typeof cmd.run === 'function',
     tokens,
   };

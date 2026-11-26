@@ -32,6 +32,7 @@ export {
   type InputSchemaDocument,
   type InputSchemaOptions,
   type JsonSchema,
+  type ToolAnnotations,
 } from './json-schema.js';
 
 // the order the surface is written in, published so that the toolchain sorts

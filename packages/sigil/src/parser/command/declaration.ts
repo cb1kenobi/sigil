@@ -110,6 +110,38 @@ export function hiddenTypeMessage(name: string): string {
   return `Expected hidden to be a boolean in "${escapeControls(name)}" command`;
 }
 
+/** What a command declares about what running it does (SIG-718). */
+export const ANNOTATIONS = ['readOnly', 'destructive', 'idempotent'] as const;
+
+/** One of {@link ANNOTATIONS}. */
+export type Annotation = (typeof ANNOTATIONS)[number];
+
+/**
+ * What an annotation that is not a boolean is refused with: `hidden`'s message,
+ * for `hidden`'s reason -- a value that cannot mean anything fails where it was
+ * written rather than reading as truthy.
+ *
+ * @param key - The annotation.
+ * @param name - The name string as declared, which is what the runtime names.
+ * @returns The message.
+ */
+export function annotationTypeMessage(key: Annotation, name: string): string {
+  return `Expected ${key} to be a boolean in "${escapeControls(name)}" command`;
+}
+
+/**
+ * What a command declaring itself both read-only and destructive is refused
+ * with. A command that changes nothing cannot destroy anything, so the pair is
+ * a contradiction rather than two facts, and an agent handed both would have to
+ * guess which one the author meant.
+ *
+ * @param name - The name string as declared.
+ * @returns The message.
+ */
+export function annotationConflictMessage(name: string): string {
+  return `Cannot declare the "${escapeControls(name)}" command both readOnly and destructive: a command that changes nothing cannot destroy anything`;
+}
+
 /**
  * What a `default` that is not a boolean is refused with.
  *
