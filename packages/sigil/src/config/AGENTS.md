@@ -1892,7 +1892,7 @@ failed to close.
   the scenario above: where the destination exists and is held, it gives up at
   once. Ours retries whether or not the destination exists, because a held
   existing file is the case the ticket names. So
-  `renameInto()` and `renameIntoSync()` in `atomic.ts` retry them on `win32`
+  `renameWithRetry()` and `renameWithRetrySync()` in `atomic.ts` retry them on `win32`
   with a fixed backoff of 10, 20, 40, 80, 160, 320 and 370 ms -- seven retries,
   summing to the 1,000 ms bound -- and every other errno and every other
   platform fail on the first refusal, as before.
@@ -1929,6 +1929,22 @@ failed to close.
   retried save leaves its temp file in the directory for up to the second, which
   the watcher below does not mind: it never reads an event, compares the file's
   bytes, and the target does not change until the rename lands.
+
+  **The retrying rename is published, because a second caller turned up
+  (SIG-723).** `sigil package` moves a downloaded and verified runtime into the
+  cache with two `renameSync()` calls of its own, and an antivirus scan holding
+  the target for a moment failed the install and threw the download away. The
+  fix is the same retry rather than a copy of it -- the code set and the schedule
+  are one decision, and a second spelling of either is how the two would come to
+  disagree -- so `renameWithRetry()` and `renameWithRetrySync()` are exported from
+  `@ttylabs/sigil/config` beside `writeAtomic()`, under the names the private ones
+  had before they were renamed to say what they do. Both are published because the
+  pair is one decision, as `writeAtomicSync` rides with `writeAtomic`; the async
+  one has no caller outside `writeAtomic()` today. Nothing about the schedule, the
+  codes or the **not reproduced on Windows** above changed, and it is still true of
+  the second caller: the cli's tests stage it with a mocked `renameSync`
+  (`runtimes-integrity.test.ts`), which reaches the retry because `vi.mock` of
+  `node:fs` covers the built chunk the cli imports it from.
 
 ### A config watcher that survives our own atomic write
 

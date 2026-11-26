@@ -548,18 +548,31 @@ function isBusy(error: unknown): boolean {
 }
 
 /**
- * `rename()` over the target, retried while Windows says the target is busy.
+ * `rename()` over the target, retried while Windows says the target is busy
+ * (SIG-415, SIG-723).
  *
- * One definition of the retry, in the only place in the package that renames a
- * file into place: the completion installer's rc and script writes and every
- * store go through `writeAtomic()`.
+ * On `win32` an `EPERM`, `EBUSY` or `EACCES` is tried again after 10, 20, 40,
+ * 80, 160, 320 and 370 ms, so a scanner or indexer that holds the destination
+ * for a moment costs the caller a moment rather than the whole operation. Every
+ * other errno, and every other platform, fails on the first refusal. A hold that
+ * is permanent -- a read-only destination, an executable another process is
+ * running -- answers with the same codes and costs the whole second before it
+ * fails.
+ *
  * What it throws is the **last** attempt's own error, code and all, rather than
  * one made here, so the caller's cleanup and `inertError()` see what Node said.
+ * `writeAtomic()` renames through it, and so does the toolchain's runtime
+ * install, which is the reason it is published: a second copy of the code set
+ * and the schedule is two answers to one question. Not reproduced on Windows.
+ *
+ * @param from - The file to move.
+ * @param to - Where it goes, replacing what is there.
+ * @throws What `rename()` raised on the last attempt.
  */
-async function renameInto(temp: string, real: string): Promise<void> {
+export async function renameWithRetry(from: string, to: string): Promise<void> {
   for (let attempt = 0; ; attempt++) {
     try {
-      await rename(temp, real);
+      await rename(from, to);
       return;
     } catch (e: unknown) {
       const wait = BUSY_BACKOFF_MS[attempt];
@@ -572,17 +585,21 @@ async function renameInto(temp: string, real: string): Promise<void> {
 }
 
 /**
- * `renameInto()` for a caller that cannot await, which waits by blocking.
+ * `renameWithRetry()` for a caller that cannot await, which waits by blocking.
  *
  * `Atomics.wait()` on a private buffer sleeps the thread without spinning and
  * without a dependency, which is how `renderer/app.ts` already waits in its own
  * synchronous exit path. Blocking is the point here: this is the save an exit
  * handler makes, and it has nowhere to yield to.
+ *
+ * @param from - The file to move.
+ * @param to - Where it goes, replacing what is there.
+ * @throws What `renameSync()` raised on the last attempt.
  */
-function renameIntoSync(temp: string, real: string): void {
+export function renameWithRetrySync(from: string, to: string): void {
   for (let attempt = 0; ; attempt++) {
     try {
-      renameSync(temp, real);
+      renameSync(from, to);
       return;
     } catch (e: unknown) {
       const wait = BUSY_BACKOFF_MS[attempt];
@@ -660,7 +677,7 @@ async function save(path: string, text: string): Promise<void> {
     if (keep.uid !== undefined && keep.gid !== undefined) {
       await chown(temp, keep.uid, keep.gid);
     }
-    await renameInto(temp, real);
+    await renameWithRetry(temp, real);
   } catch (e: unknown) {
     await unlink(temp).catch(() => undefined);
     throw e;
@@ -716,7 +733,7 @@ function saveSync(path: string, text: string): void {
     if (keep.uid !== undefined && keep.gid !== undefined) {
       chownSync(temp, keep.uid, keep.gid);
     }
-    renameIntoSync(temp, real);
+    renameWithRetrySync(temp, real);
   } catch (e: unknown) {
     try {
       unlinkSync(temp);

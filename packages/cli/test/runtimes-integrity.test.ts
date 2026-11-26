@@ -713,4 +713,154 @@ describe('verifying a runtime against its own origin', () => {
       expect(existsSync(cached('node'))).toBe(false);
     });
   });
+
+  // SIG-723. A rename Windows refuses as busy is retried, because a scanner
+  // that holds the target for a moment must not throw away a download that has
+  // already been verified. Nothing waits: `Atomics.wait` is stubbed to record
+  // the delay it was asked for, and the platform is spoofed per test because the
+  // retry reads it per call. Not reproduced on Windows.
+  describe('a rename Windows refuses as busy', () => {
+    const origPlatform = Object.getOwnPropertyDescriptor(process, 'platform') as PropertyDescriptor;
+
+    /** The delays the retry was asked to wait, in order. */
+    const waited: number[] = [];
+
+    /** What the next renames to a target answer with, one entry per attempt. */
+    let script: string[] = [];
+
+    /**
+     * Refuses renames into `name` with the scripted codes, then lets one through,
+     * on the platform the retry is to see.
+     *
+     * The platform is spoofed for the one rename and put back for everything
+     * else, because the rest of `runtimes.ts` reads it too: a host that says
+     * `win32` looks for `node.exe` in a `.tar.gz` of `node`.
+     */
+    function busy(name: string, codes: string[], platform: string): void {
+      script = codes;
+      beforeRename = (to) => {
+        if (to !== join(cached('node'), name)) {
+          return;
+        }
+
+        const code = script.shift();
+        if (code === undefined) {
+          Object.defineProperty(process, 'platform', origPlatform);
+          return;
+        }
+
+        Object.defineProperty(process, 'platform', { ...origPlatform, value: platform });
+        throw Object.assign(new Error(`${code}: refused, rename`), { code });
+      };
+    }
+
+    /** How many renames into `name` were attempted. */
+    const tried = (name: string): number =>
+      renames.filter((one) => one.to === join(cached('node'), name)).length;
+
+    beforeEach(() => {
+      waited.length = 0;
+      script = [];
+      vi.spyOn(Atomics, 'wait').mockImplementation(((
+        _array: Int32Array,
+        _index: number,
+        _value: number,
+        ms?: number
+      ) => {
+        waited.push(ms ?? 0);
+        return 'timed-out';
+      }) as typeof Atomics.wait);
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+      Object.defineProperty(process, 'platform', origPlatform);
+    });
+
+    it.each([
+      ['the executable', NAME('node')],
+      ['the record', 'sigil-verified.json'],
+    ])(
+      'should keep the download when the rename of %s is busy for a moment',
+      async (_what, name) => {
+        const bytes = archive('node', 'REAL');
+        origin({ bytes, digest: sha256(bytes) });
+        busy(name, ['EBUSY', 'EPERM', 'EACCES'], 'win32');
+
+        const path = await resolve('node', VERSION, TARGET);
+
+        expect(tried(name)).toBe(4);
+        expect(waited).toEqual([10, 20, 40]);
+        expect(readFileSync(path, 'utf-8')).toBe('REAL');
+        expect(existsSync(join(cached('node'), 'sigil-verified.json'))).toBe(true);
+      }
+    );
+
+    /** What a failed install leaves under the cache, as a sorted listing of every path. */
+    function left(): string[] {
+      const walk = (dir: string): string[] =>
+        readdirSync(dir, { withFileTypes: true }).flatMap((one) => {
+          const at = join(dir, one.name);
+          return one.isDirectory() ? [at, ...walk(at)] : [at];
+        });
+
+      return walk(join(box, 'cache')).sort();
+    }
+
+    it('should fail with the original code and leave what it always left, once the bound is spent', async () => {
+      const bytes = archive('node', 'REAL');
+      origin({ bytes, digest: sha256(bytes) });
+
+      // the baseline: the same refusal where nothing is retried
+      busy(
+        NAME('node'),
+        Array.from({ length: 100 }, () => 'EPERM'),
+        'linux'
+      );
+      await expect(resolve('node', VERSION, TARGET)).rejects.toMatchObject({ code: 'EPERM' });
+      Object.defineProperty(process, 'platform', origPlatform);
+      const today = left();
+      expect(tried(NAME('node'))).toBe(1);
+      expect(waited).toEqual([]);
+
+      rmSync(join(box, 'cache'), { force: true, recursive: true });
+      renames.length = 0;
+      busy(
+        NAME('node'),
+        Array.from({ length: 100 }, () => 'EPERM'),
+        'win32'
+      );
+
+      await expect(resolve('node', VERSION, TARGET)).rejects.toMatchObject({ code: 'EPERM' });
+
+      expect(tried(NAME('node'))).toBe(8);
+      expect(waited).toEqual([10, 20, 40, 80, 160, 320, 370]);
+      expect(waited.reduce((a, b) => a + b, 0)).toBe(1000);
+      // no scratch directory, no binary, and the record exactly where it was
+      expect(left()).toEqual(today);
+      expect(left().some((one) => one.includes('.partial-'))).toBe(false);
+    });
+
+    it.each(['EPERM', 'EBUSY', 'EACCES'])('should not retry %s off Windows', async (code) => {
+      const bytes = archive('node', 'REAL');
+      origin({ bytes, digest: sha256(bytes) });
+      busy(NAME('node'), [code], 'linux');
+
+      await expect(resolve('node', VERSION, TARGET)).rejects.toMatchObject({ code });
+
+      expect(tried(NAME('node'))).toBe(1);
+      expect(waited).toEqual([]);
+    });
+
+    it('should not retry a code that is not busy', async () => {
+      const bytes = archive('node', 'REAL');
+      origin({ bytes, digest: sha256(bytes) });
+      busy(NAME('node'), ['ENOSPC'], 'win32');
+
+      await expect(resolve('node', VERSION, TARGET)).rejects.toMatchObject({ code: 'ENOSPC' });
+
+      expect(tried(NAME('node'))).toBe(1);
+      expect(waited).toEqual([]);
+    });
+  });
 });

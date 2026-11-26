@@ -6141,6 +6141,24 @@ about what a valid app is would be the worse half of the feature.
   the same verified bytes there, so `download()` uses what is there if
   `distrust()` accepts it and fails, with removal of the entry attempted, if not.
 
+  **Both renames into the cache retry what Windows refuses as busy (SIG-723).**
+  The record's rename and the executable's go through `renameWithRetrySync()` from
+  `@ttylabs/sigil/config`, the retry `writeAtomic()` renames through (SIG-415): on
+  `win32` only, `EPERM`, `EBUSY` and `EACCES` are tried again for about a second
+  in all, so an antivirus scan or an indexer holding the target for a moment does
+  not throw away an archive that has already passed verification. The cli does not
+  carry a copy. **What a final failure leaves is unchanged**: the last attempt's own
+  error is thrown, and the `catch` around the executable's rename sees exactly what
+  it saw before, so the in-use fallback above, the removal of the entry and the
+  `finally` that removes the scratch directory run as they did; the test compares
+  the cache listing after a retried failure with the one after an un-retried one.
+  The price is the same one the sigil entry records and lands here: a rename over
+  an executable another build is **running** answers `EPERM` or `EACCES` for as
+  long as it runs, so that case now waits the whole second before the fallback
+  decides to use what is there. **Not reproduced on Windows**, like SIG-415 and
+  for the same reason: the tests stage it with a mocked `renameSync` and a stubbed
+  `Atomics.wait`, spoofing the platform for the one rename.
+
   **The scratch directory is `mkdtempSync()`'s, and the archive holds one
   executable.** It was `<version>.partial-<pid>`, which a process killed
   mid-extraction leaves behind and a later one with the same pid -- ordinary in a

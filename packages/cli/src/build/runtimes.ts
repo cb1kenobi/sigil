@@ -60,6 +60,7 @@ import {
   type Target,
 } from './compile.ts';
 import { isInside } from './discover.ts';
+import { renameWithRetrySync } from '@ttylabs/sigil/config';
 import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { cache } from '@ttylabs/sigil/paths';
 import { isFreshStamp } from '@ttylabs/sigil/updates';
@@ -73,7 +74,6 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
-  renameSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -938,12 +938,14 @@ async function download(runtime: Runtime, version: string, target?: Target): Pro
 
     // written beside and renamed in rather than written in place: a write in
     // place truncates first, and a build reading the record in that window
-    // would take a good entry for a bad one and remove it
+    // would take a good entry for a bad one and remove it. Both renames retry
+    // what Windows refuses as busy (SIG-723): a scanner holding the target for
+    // a moment must not throw away a download that has already been verified
     writeFileSync(join(partial, RECORD), `${JSON.stringify(record, null, 2)}\n`);
-    renameSync(join(partial, RECORD), join(into, RECORD));
+    renameWithRetrySync(join(partial, RECORD), join(into, RECORD));
 
     try {
-      renameSync(found, binary);
+      renameWithRetrySync(found, binary);
     } catch (error) {
       // Windows refuses to replace an executable another build is running. That
       // build put the same verified bytes there, so what is there is used if it
