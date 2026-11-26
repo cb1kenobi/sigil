@@ -1596,7 +1596,9 @@ positional value, so an app whose root reads one (`mycli <who>`) answers
 `mycli help` with theirs; `schema: false` gives the word back.
 
 With no `name` on the schema, the document names the program the way help's
-usage line does: the script's own file name.
+usage line does: the script's own file name. A name that is more than one word,
+or holds a control character, gets no `schema` command at all, since a document
+that has to say what to type cannot say it.
 
 ---
 

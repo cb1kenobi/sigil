@@ -83,7 +83,8 @@ import {
   type Schema,
 } from '../types.js';
 import { byCodeUnit } from '../util/by-code-unit.js';
-import { escapeControls, withoutUnsafe } from '../util/escape-controls.js';
+import { escapeControls } from '../util/escape-controls.js';
+import { programNameProblem } from '../util/program-name.js';
 
 /** One positional argument, in the place it is typed. */
 export interface SurfaceArgument {
@@ -537,14 +538,16 @@ export async function commandSurface(schema: Schema): Promise<CommandSurface> {
   // a usage line the terminal drew reversed and wrote the character raw into a
   // front matter title and a snapshot. Refused rather than escaped, for the
   // reason above -- what reaches a page is the name
-  const unsafe = withoutUnsafe(program) !== program;
+  // the rule itself is `programNameProblem()`'s, because the `schema` command
+  // asks it too, to stay out of an app whose name this would refuse (SIG-717)
+  const problem = programNameProblem(program);
 
-  if (!program || /\s/u.test(program) || unsafe) {
+  if (problem) {
     throw new Error(
       `Cannot build a command reference: ${
-        program
-          ? `this app's name holds ${unsafe ? 'a control or format character' : 'whitespace'}, which a heading, a usage line and a front matter title cannot carry`
-          : 'this app declares no name'
+        problem === 'missing'
+          ? 'this app declares no name'
+          : `this app's name holds ${problem === 'unsafe' ? 'a control or format character' : 'whitespace'}, which a heading, a usage line and a front matter title cannot carry`
       }, and a reference has to say what to type. Set "name" on the schema to the command a user runs, which is one word.`
     );
   }

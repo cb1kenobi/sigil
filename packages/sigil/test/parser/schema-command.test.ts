@@ -135,6 +135,20 @@ describe('the schema command', () => {
     expect(usage).toContain(`Usage: ${JSON.parse(ran.out).program} `);
   });
 
+  it('should stay out of an app whose name the surface would refuse', async () => {
+    // a name holding whitespace or a control character is printed by help and
+    // refused by `commandSurface()`, so the command could only have failed --
+    // with a message about building a reference -- while help listed it. So it
+    // is not added, and the word is the app's. Found by review
+    for (const name of ['my cli', 'my\u001bcli']) {
+      const help = await runCommand({ argv: ['--help'], schema: app({ name }) });
+      expect(help.out, name).not.toContain('JSON Schema');
+
+      const ran = await runCommand({ argv: ['schema'], schema: app({ name }) });
+      expect(ran.err, name).toContain('Unexpected argument "schema"');
+    }
+  });
+
   it('should refuse a command that does not exist the way help does', async () => {
     const ran = await runCommand({ argv: ['schema', 'deplyo'], schema: app() });
 

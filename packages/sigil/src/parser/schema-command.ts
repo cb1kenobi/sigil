@@ -55,7 +55,7 @@ import {
   type TopicSeparator,
 } from '../types.js';
 import { escapeControls } from '../util/escape-controls.js';
-import { programName } from '../util/program-name.js';
+import { programName, programNameProblem } from '../util/program-name.js';
 import { splitTopic, topicSeparator } from '../util/topic.js';
 import { UsageError } from '../util/usage-error.js';
 import { initCommand } from './command/init-command.js';
@@ -127,6 +127,15 @@ function surfacePath(
  */
 export async function registerSchemaCommand(root: InternalCommand, schema: Schema): Promise<void> {
   if (schema.schema === false) {
+    return;
+  }
+
+  // not on an app whose program name the surface would refuse -- one holding
+  // whitespace or a control character -- because the command could only fail
+  // there, with a message about building a reference, while help listed it.
+  // Asked of the name help prints, so an app with no `name` still gets one,
+  // named after its script. Found by review
+  if (programNameProblem(programName(schema.name))) {
     return;
   }
 
