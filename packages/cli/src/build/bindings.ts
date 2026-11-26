@@ -23,6 +23,7 @@
 import {
   bindingObject,
   flatten,
+  objectLiteral,
   PLACEHOLDER_KEYS,
   propertyKey,
   unwrapShallow,
@@ -335,8 +336,10 @@ function holdsReadObject(member: ObjectProperty): boolean {
     return false;
   }
 
-  const inner = unwrapShallow(member.value as Expression);
-  return inner.type === 'ObjectExpression' || inner.type === 'ArrayExpression';
+  // asked as the readers ask it: `objectLiteral()` looks through a one-argument
+  // call, so `commands: command({ ... })` is read by reference as well
+  const value = member.value as Expression;
+  return unwrapShallow(value).type === 'ArrayExpression' || objectLiteral(value) !== undefined;
 }
 
 function sealedObjectOf(parsed: ParsedModule, name: string): ObjectExpression | undefined {

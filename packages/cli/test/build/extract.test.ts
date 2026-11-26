@@ -987,6 +987,39 @@ describe('extracting a command module', () => {
         expect(routed(`export default { ...[1, 2], ...'ab', run() {} };`)).to.deep.equal([]);
       });
 
+      it('should say a spelling written before a spread may be replaced by it', () => {
+        // the written spelling is what it is, and what a later spread may replace
+        // is one more thing it may carry
+        const [warning, ...rest] = routed(`export default { name: 'list', ...m, run() {} };`);
+        expect(rest).to.deep.equal([]);
+        expect(warning?.message).toContain(
+          'may carry "name", "alias" or "default" this cannot see'
+        );
+        // `undefined` is not declared, so a spread after it is the same question
+        const undefinedName = routed(
+          `export default { name: undefined, ...m, alias: 'x', default: false };`
+        ).find((each) => each.message.includes('may carry'));
+        expect(undefinedName?.message).toContain('may carry "name" this cannot see');
+      });
+
+      it('should ask each spread for what it can carry, and point at it', () => {
+        const source = [
+          `export default {`,
+          `  ...(on && { alias: 'q' }),`,
+          `  ...m,`,
+          `  run() {},`,
+          `};`,
+        ].join('\n');
+        const [conditional, other, ...rest] = routed(source);
+        expect(rest).to.deep.equal([]);
+        // the conditional can carry an alias and nothing else, and what is left of
+        // the three is `m`'s
+        expect(conditional?.message).toContain('may carry "alias" this cannot see');
+        expect(conditional).to.include({ column: 3, line: 2 });
+        expect(other?.message).toContain('may carry "name" or "default" this cannot see');
+        expect(other).to.include({ column: 3, line: 3 });
+      });
+
       it('should say a computed key may be one of them, and read one written as a string', () => {
         const [computed] = routed(`export default { [key]: 1, run() {} };`);
         expect(computed?.message).toContain('has a computed key, which may carry "name"');

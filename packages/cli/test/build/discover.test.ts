@@ -1792,10 +1792,12 @@ export default {
         expect(subs('after')).toEqual(['sub']);
         // the spread of a literal is what runs, so `old` is dead and `fresh` is not
         expect(subs('literal')).toEqual(['fresh']);
-        // a spread it cannot read may carry them, or replace the ones written: said,
-        // and nothing baked in their place
+        // a spread it cannot read may carry them: said, and nothing baked in their
+        // place. One that may replace the ones written is said too, and what is
+        // written is kept -- a mixin that carries none is the usual one, and a
+        // built app without subcommands the app has is the worse way to be wrong
         expect(subs('carried')).toEqual([]);
-        expect(subs('written')).toEqual([]);
+        expect(subs('written')).toEqual(['sub']);
 
         const warned = diagnostics
           .filter((d) => d.message.includes('"commands"'))
@@ -1807,7 +1809,7 @@ export default {
           ],
           [
             'warning',
-            'the "written" command\'s "commands" is written before a spread or a computed key, which may replace it when the app runs, so it cannot be read at build time; the built app will not have its subcommands',
+            'the "written" command\'s "commands" is written before a spread or a computed key, which may replace it when the app runs; the built app has the subcommands as written',
           ],
         ]);
         expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([]);

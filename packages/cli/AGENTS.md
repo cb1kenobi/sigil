@@ -800,20 +800,31 @@ makes it testable with a fixture directory and no bundler at all.
     `alias` or a `default` in it routes nothing in the app and nothing in a built
     app; the two agree and no build is wrong, which is the difference from a
     placeholder's `name`, where a guess is a different app. So it is the shape the
-    placeholders use for "may carry", a warning naming which of the three the
-    spread may carry that the module does not spell, once per module and at the
-    first such spread. A refusal would fail builds that are correct, on every
-    routed module that spreads a mixin it cannot read.
+    placeholders use for "may carry", a warning naming which of the three a spread
+    may set that the module does not spell -- or spells before it, which it may
+    replace -- and asked of each spread for what it can carry, so a conditional
+    that can only carry an `alias` is not said to carry a `name`. A refusal would
+    fail builds that are correct, on every routed module that spreads a mixin it
+    cannot read. The cost is one more warning at a spread that `factsOf()` already
+    warned about for `desc`, at the same position.
   - **The same shape for a placeholder's `commands`**, through `readSpelled()`: a
-    spread that may carry the subcommands, or a later one that may replace the
-    ones written, is a warning and **nothing is baked in their place**, as for
-    `alias`. It is a warning because the divergence is a built app with fewer
-    commands than the app, which `warnUnbaked()` already says for every other key
-    it drops and which SIG-320 is for. It is newly said for a placeholder with a
-    spread the build cannot read and a name and module spelled after it, which was
-    silent -- a warning each, in the shape of the five `desc`, `hidden`, `alias`
-    and `default` it already gets. None of the toolchain's own commands or the
-    examples gains one, which was measured by `sigil check` over each.
+    spread that may carry the subcommands is a warning and **nothing is baked in
+    their place**, as for `alias`. One that may replace the ones written is a
+    warning too, and **what is written is baked**, which is the one place this
+    differs from `alias`: a mixin that carries no `commands` is the usual one, and
+    a built app without subcommands the app has is a worse way to be wrong than
+    one with the ones it was written with, which is also what it did before. It
+    is a warning because the divergence is a built app with different commands
+    than the app, which `warnUnbaked()` already says for every other key it drops
+    and which SIG-320 is for. It is newly said for a placeholder with a spread the
+    build cannot read and a name and module spelled after it, which was silent --
+    a warning each, in the shape of the `desc`, `hidden`, `alias` and `default` it
+    already gets. None of the toolchain's own commands or the examples gains one,
+    which was measured by `sigil check` over each.
+
+  `holdsReadObject()` asks `objectLiteral()` what the readers ask it, so a
+  `commands: command({ ... })` is as refused as the literal it wraps: the reader
+  looks through a one-argument call and the guard has to as well.
 
   Covered by the guard's list in `test/build/sealed-binding.test.ts`, `read a spread
   of a const carrying options ...`, `pointed a refusal about what a const carried at

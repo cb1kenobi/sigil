@@ -127,6 +127,10 @@ export default { commands: { x: { ...{ ...(base as object) } } } };`)
       'an array value',
       `const base = { alias: ['b'] };\nconst copy = { ...base };\ncopy.alias.push('zz');\nexport default { ...base };`,
     ],
+    [
+      'a commands wrapped in a call, which is read as the literal it holds',
+      `const base = { commands: command({ a: './a.js' }) };\nexport default { ...base };`,
+    ],
     ['an object value', `const base = { commands: { a: './a.js' } };\nexport default { ...base };`],
     [
       'an array value under a type assertion',

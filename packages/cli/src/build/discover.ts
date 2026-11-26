@@ -722,6 +722,10 @@ function readCommand(
   const nested = readSpelled(object, 'commands', {
     consequence: 'the built app will not have its subcommands',
     diagnostics,
+    // a spelling a later spread may replace is baked all the same: a mixin that
+    // carries no `commands` is the usual one, and dropping subcommands the app
+    // has is the worse of the two ways to be wrong
+    keepReplaced: 'the built app has the subcommands as written',
     name: commandName(named).name,
     parsed,
     severity: 'warning',
@@ -970,6 +974,7 @@ function placeholderSpelling(
   carrier: SpreadElement | ObjectProperty | undefined;
   declared: ObjectProperty | undefined;
   replaced: boolean;
+  replacer: SpreadElement | ObjectProperty | undefined;
 } {
   return spellingOf(object, key, sealedResolver(parsed), computed);
 }
@@ -992,6 +997,9 @@ function placeholderSpelling(
  * @param report - Where and how to say it is not known.
  * @param report.consequence - What the built app does without it.
  * @param report.diagnostics - Where to report.
+ * @param report.keepReplaced - What the built app does, where a spelling a later
+ *   property may replace is still returned, with the report, rather than treated
+ *   as unknown.
  * @param report.name - The command's name, for the message.
  * @param report.parsed - The module, for positions.
  * @param report.severity - How serious it is.
@@ -1005,12 +1013,25 @@ function readSpelled(
     consequence: string;
     diagnostics: Diagnostic[];
     name: string;
+    keepReplaced?: string;
     parsed: ParsedModule;
     severity: Diagnostic['severity'];
   }
 ): ObjectProperty | undefined {
-  const { consequence, diagnostics, name, parsed, severity } = report;
+  const { consequence, diagnostics, keepReplaced, name, parsed, severity } = report;
   const { carrier, declared, replaced } = placeholderSpelling(object, key, parsed);
+  if (declared && replaced && keepReplaced !== undefined) {
+    // what is written is baked and what may replace it is said: for a key whose
+    // loss is worse than its being wrong, which a spread that carries no such key
+    // -- the common one -- makes it
+    diagnostics.push({
+      ...locate(parsed, declared.start),
+      message: `the "${name}" command's "${key}" is written before a spread or a computed key, which may replace it when the app runs; ${keepReplaced}`,
+      severity,
+    });
+    return declared;
+  }
+
   if (declared && replaced) {
     diagnostics.push({
       ...locate(parsed, declared.start),

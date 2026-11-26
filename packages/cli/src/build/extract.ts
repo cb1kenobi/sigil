@@ -82,7 +82,7 @@ import {
 } from './literals.ts';
 import { locate, parseModule, type ParsedModule } from './parse-module.ts';
 import { escapeControls } from '@ttylabs/sigil/error-handler';
-import type { ObjectExpression } from 'oxc-parser';
+import type { ObjectExpression, ObjectProperty, SpreadElement } from 'oxc-parser';
 
 /** What a command module says about itself, read statically. */
 export interface CommandFacts {
@@ -523,19 +523,25 @@ function unroutable(
   // warning and not the error a placeholder's `name` gets: the built app and the
   // app run from source agree here -- neither routes by it -- so nothing diverges
   // and no build is wrong, only what the author expected may be (SIG-726)
-  const unknown = (['name', 'alias', 'default'] as const)
-    .map((key) => ({ key, ...spelled(key) }))
-    .filter((each) => each.declared === undefined && each.carrier !== undefined);
-  if (unknown.length) {
-    const carrier = unknown
-      .map((each) => each.carrier!)
-      .reduce((a, b) => (b.start < a.start ? b : a));
-    const quoted = unknown.map((each) => `"${each.key}"`);
+  const unknown = new Map<SpreadElement | ObjectProperty, Array<'alias' | 'default' | 'name'>>();
+  for (const key of ['name', 'alias', 'default'] as const) {
+    const { carrier, declared, replacer } = spelled(key);
+    // a key spelled nowhere that a spread may carry, or spelled before a spread
+    // that may replace it: each is asked of the property that may set it, since
+    // two spreads in one module need not carry the same thing
+    const maySet = declared === undefined ? carrier : replacer;
+    if (maySet) {
+      unknown.set(maySet, [...(unknown.get(maySet) ?? []), key]);
+    }
+  }
+
+  for (const [carrier, keys] of [...unknown].sort(([a], [b]) => a.start - b.start)) {
+    const quoted = keys.map((key) => `"${key}"`);
     const list =
       quoted.length > 1 ? `${quoted.slice(0, -1).join(', ')} or ${quoted.at(-1)}` : quoted[0]!;
     const fixes = [
-      ...(unknown.some((each) => each.key !== 'default') ? [declareSpellings([])] : []),
-      ...(unknown.some((each) => each.key === 'default') ? [advice] : []),
+      ...(keys.some((key) => key !== 'default') ? [declareSpellings([])] : []),
+      ...(keys.includes('default') ? [advice] : []),
     ];
     warn(
       carrier.start,
