@@ -74,8 +74,8 @@ import {
   literalBoolean,
   literalOf,
   literalString,
-  plainProperty,
   propertyKey,
+  spellingOf,
   stringList,
   unspelledCarrier,
   unwrapShallow,
@@ -442,10 +442,17 @@ function unroutable(
   const target = routedBy.index ? './path/to/this-directory' : './path/to/this-file';
   const warn = (start: number, message: string) =>
     diagnostics.push({ ...locate(parsed, start), message, severity: 'warning' });
-  /** The property, unless it is absent or `undefined`, which the runtime reads as absent. */
+  // what the module spells, read as a placeholder is -- through `flatten()` and
+  // the resolver, so `...{ name: 'x' }` and a spread of a const nothing else
+  // touches are what they spell (SIG-726)
+  const resolver = sealedResolver(parsed);
+  const spelled = (key: string) => spellingOf(object, key, resolver, true);
+  /** The property, unless it is absent, `undefined` (which the runtime reads as absent) or not a value. */
   const declared = (key: string) => {
-    const property = plainProperty(object, key);
-    return property && !isUndefined(property.value) ? property : undefined;
+    const property = spelled(key).declared;
+    return property && property.kind === 'init' && !property.method && !isUndefined(property.value)
+      ? property
+      : undefined;
   };
   /** Spellings written twice are one spelling, and are said once. */
   const quoted = (spellings: readonly string[]) =>
@@ -508,6 +515,32 @@ function unroutable(
       fallback.start,
       `"default" has no effect here: this module is read only after argv has matched "${shownRoute}", ` +
         `so it cannot make the command the default; ${advice}`
+    );
+  }
+
+  // what a spread or a computed key this cannot read may carry is not known, and
+  // the module is the one place an author is told that none of it can route. A
+  // warning and not the error a placeholder's `name` gets: the built app and the
+  // app run from source agree here -- neither routes by it -- so nothing diverges
+  // and no build is wrong, only what the author expected may be (SIG-726)
+  const unknown = (['name', 'alias', 'default'] as const)
+    .map((key) => ({ key, ...spelled(key) }))
+    .filter((each) => each.declared === undefined && each.carrier !== undefined);
+  if (unknown.length) {
+    const carrier = unknown
+      .map((each) => each.carrier!)
+      .reduce((a, b) => (b.start < a.start ? b : a));
+    const quoted = unknown.map((each) => `"${each.key}"`);
+    const list =
+      quoted.length > 1 ? `${quoted.slice(0, -1).join(', ')} or ${quoted.at(-1)}` : quoted[0]!;
+    const fixes = [
+      ...(unknown.some((each) => each.key !== 'default') ? [declareSpellings([])] : []),
+      ...(unknown.some((each) => each.key === 'default') ? [advice] : []),
+    ];
+    warn(
+      carrier.start,
+      `the default export ${carrier.type === 'SpreadElement' ? 'spreads another object' : 'has a computed key'}, which may carry ${list} this cannot see: ` +
+        `this module is read only after argv has matched "${shownRoute}", so none of them can route from here; if it does carry one, ${fixes.join('; ')}`
     );
   }
 

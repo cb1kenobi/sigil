@@ -348,8 +348,13 @@ export type Member = ObjectExpression['properties'][number];
  * inside it is never resolved in turn.
  *
  * The members are the source's own nodes, except a computed key that was
- * rewritten to the plain one, so a position taken from one is the source's -- a
- * resolved name's, the position of the declaration it was read from.
+ * rewritten to the plain one and what a resolved name held, so a position taken
+ * from one is the source's. A resolved name's members are **copies placed at the
+ * spread**: they are the const's own text, but the author reads a diagnostic
+ * about them as being about the spread that brought them in, and the earliest
+ * position among several is not the declaration at the top of the file
+ * (SIG-725). A copy rather than the node, since one const may be spread by many
+ * commands and a node can only be in one place.
  *
  * @param object - The object literal.
  * @param resolve - The object literal a name holds, where that is known.
@@ -371,7 +376,9 @@ export function flatten(
 
       const held = inner.type === 'Identifier' ? resolve?.(inner.name) : undefined;
       if (held) {
-        members.push(...flatten(held));
+        // the const's own members, said to be where the spread is: that is the
+        // line the author wrote and can change (SIG-725)
+        members.push(...flatten(held).map((each) => relocated(each, member)));
       } else {
         members.push(member);
       }
@@ -394,6 +401,109 @@ export function flatten(
   }
 
   return members;
+}
+
+/**
+ * A member read off a const, said to sit where the spread that brought it in
+ * does.
+ *
+ * Every node under it is a copy with that span, which is what `locate()` is
+ * handed whichever of them a diagnostic names -- the property, its value, or the
+ * body of an arrow in it. A tree is never written to, so the copy is made rather
+ * than the original moved; and nothing that reads a placeholder's member slices
+ * the source by a node's span, so the span is a position and nothing else.
+ *
+ * @param node - The member, or any part of one.
+ * @param at - The spread it came in by.
+ * @returns A copy of it.
+ */
+function relocated<T>(node: T, at: { end: number; start: number }): T {
+  if (Array.isArray(node)) {
+    return node.map((each) => relocated(each, at)) as T;
+  }
+
+  const proto: unknown = node && typeof node === 'object' ? Object.getPrototypeOf(node) : 0;
+  if (proto !== Object.prototype && proto !== null) {
+    return node;
+  }
+
+  const copy: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(node as object)) {
+    copy[key] = relocated(value, at);
+  }
+
+  if (typeof copy.start === 'number' && typeof copy.end === 'number') {
+    copy.start = at.start;
+    copy.end = at.end;
+  }
+
+  return copy as T;
+}
+
+/**
+ * The seven keys a placeholder is read for, which a built app carries: what help
+ * lists, what routes and which module it holds.
+ */
+export const PLACEHOLDER_KEYS: ReadonlySet<string> = new Set([
+  'alias',
+  'default',
+  'desc',
+  'hidden',
+  'load',
+  'name',
+  'path',
+]);
+
+/**
+ * Which spelling of a key an object registers, as far as the source says.
+ *
+ * The last spelling of a key is the one an object literal keeps -- unless a
+ * spread or a computed key after it may carry the key too, since order is what
+ * the runtime registers: then it is not known to be what runs. A key spelled
+ * nowhere that a spread may carry is unknown too. Read off `flatten()`'s list,
+ * so a spread of a literal, or of a const the resolver answers for, is what it
+ * holds. One function for a placeholder's seven keys and its nested `commands`,
+ * and for what a routed module declares that cannot route, so the three cannot
+ * come to disagree about which spelling runs (SIG-430, SIG-433, SIG-434,
+ * SIG-726).
+ *
+ * @param object - The object literal.
+ * @param key - The key in question.
+ * @param resolve - The object literal a name holds, where that is known.
+ * @param computed - Whether a computed key that may be `key` is a carrier as
+ *   well as a spread.
+ * @returns The spelling that runs, `undefined` where the key is not declared;
+ *   whether a later property may replace it; and a spread that may carry a key
+ *   spelled nowhere.
+ */
+export function spellingOf(
+  object: ObjectExpression,
+  key: string,
+  resolve: ((name: string) => ObjectExpression | undefined) | undefined,
+  computed = false
+): {
+  carrier: SpreadElement | ObjectProperty | undefined;
+  declared: ObjectProperty | undefined;
+  replaced: boolean;
+} {
+  // the members the object evaluates to, which is what the runtime registers:
+  // a spread of a literal is what it holds and `['path']` is `path`
+  const members = flatten(object, resolve);
+  let found: ObjectProperty | undefined;
+  for (const property of members) {
+    if (property.type !== 'SpreadElement' && propertyKey(property) === key) {
+      found = property;
+    }
+  }
+
+  const replaced = found !== undefined && members.lastIndexOf(found) < lastReplacing(members, key);
+
+  // `undefined` is what the runtime reads as not declared
+  const declared =
+    found?.kind === 'init' && !found.method && isUndefined(found.value) && !replaced
+      ? undefined
+      : found;
+  return { carrier: unspelledCarrier(members, key, computed), declared, replaced };
 }
 
 /**

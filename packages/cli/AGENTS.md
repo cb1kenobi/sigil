@@ -705,9 +705,10 @@ makes it testable with a fixture directory and no bundler at all.
   literal itself -- not a call, not `command({ ... })`, which `bindingObject()`
   alone looks through for the `desc` lift -- whose members are properties a spread
   copies as they read: no accessor, no `__proto__`, no computed key that is not a
-  string, no array or object literal as a value -- a spread is a shallow copy, so
-  `{ ...base }.alias.push('x')` writes the const's own array without the name ever
-  being assigned, which review found -- and no spread of anything but a literal, so
+  string, no array or object literal as the value of a key the build reads -- a
+  spread is a shallow copy, so `{ ...base }.alias.push('x')` writes the const's own
+  array without the name ever being assigned, which review found; and which keys
+  that is is the entry below (SIG-725) -- and no spread of anything but a literal, so
   a spread of a spread is refused rather than resolved twice. A module with a
   `with` statement or a direct `eval` gives every name up, and so does a spread
   textually above the declaration (a `ReferenceError` from source). And the name
@@ -744,6 +745,86 @@ makes it testable with a fixture directory and no bundler at all.
   refusal tests spread are `let` now, so they still describe a spread the build
   cannot read; `discover/placeholder-spellings` is the natural shape again.
 
+  **Only the keys the build reads keep a const refused for an array or an object,
+  a resolved member is placed at the spread, and a routed module and a nested
+  `commands` are read through the same list (SIG-725, SIG-726).** The refusal of
+  an array or an object value was written for the one key that review found it on,
+  `alias`, and applied to every key -- so the commonest shared base there is, one
+  carrying `options`, was refused for a danger it cannot have. A shared array or
+  object matters only where the build **read what it held**, since that is the
+  only way a mutation through a copy makes a baked value wrong. What is read as a
+  value is the seven keys of a placeholder, `PLACEHOLDER_KEYS` in `literals.ts`,
+  and `commands`, which is walked into; `options`, `args`, `examples`, `hooks`,
+  `run` and custom data are named by `warnUnbaked()` and never looked inside, so
+  `holdsReadObject()` in `bindings.ts` asks only the eight. That the list is
+  complete was checked rather than assumed, by reading every consumer of a
+  resolved list -- the seven placeholder reads, `factsOf()`'s `desc` and `hidden`,
+  `unroutable()`, `warnUnbaked()` and the nested read, which are the only callers
+  handed a resolver -- for a value they follow: `warnUnbaked()` reads a key's
+  presence, which a copy fixes at the spread and no mutation of a nested value
+  changes, and none of the others reads inside an `options` or an `args`. A key
+  the build starts reading is a key added to that set, and the test that lists
+  the seven is what says so. `desc: []` and `name: {}` are refused as well though
+  a runtime refuses them too, since the question asked is what the build reads and
+  not what is plausible. A schema module cannot hold a `commands` object in a
+  const at all -- it is read as a second schema -- so that refusal is asserted on
+  the guard and not through a build.
+
+  **A member read off a const is a copy placed at the spread.** `flatten()` used
+  to hand back the const's own nodes, so a diagnostic about a resolved member
+  pointed at the declaration at the top of the file, and `placeholderIdentity()`'s
+  `at`, which takes the earliest position of everything it quotes, reported the
+  declaration whenever one was quoted. The line the author changes is the spread,
+  so every node under a resolved member is a copy whose `start` and `end` are the
+  spread's (`relocated()` in `literals.ts`), the property, its value and anything
+  inside the value alike, because which of them a message names differs by key.
+  A copy and not a move: the trees are shared by every pass and never written to,
+  and one const is spread by many commands. Nothing that reads a placeholder's
+  member slices the source by a node's span, so the span is a position and nothing
+  else -- which is the thing to check before a reader that does is handed a
+  resolver.
+
+  **A routed module's `name`, `alias` and `default`, and a placeholder's nested
+  `commands`, were read off the properties written in the literal and nothing a
+  spread carried.** `unroutable()` and the nested read used `plainProperty()`,
+  which skips every spread, so a `{ ...base, run }` whose `base` carried an
+  `alias` was said nothing about although the runtime reads it, and a
+  `commands: { old }` written before `...{ commands: { fresh } }` baked `old` for
+  an app that runs `fresh`. Both read `spellingOf()` now -- the function the seven
+  placeholder keys read, moved to `literals.ts` so there is one -- over
+  `flatten()`'s list with the same resolver. Two decisions, and neither is the
+  error a placeholder's `name` gets:
+
+  - **A spread or computed key it cannot read is a warning in a routed module.**
+    A module is loaded only after argv has matched its route, so a `name`, an
+    `alias` or a `default` in it routes nothing in the app and nothing in a built
+    app; the two agree and no build is wrong, which is the difference from a
+    placeholder's `name`, where a guess is a different app. So it is the shape the
+    placeholders use for "may carry", a warning naming which of the three the
+    spread may carry that the module does not spell, once per module and at the
+    first such spread. A refusal would fail builds that are correct, on every
+    routed module that spreads a mixin it cannot read.
+  - **The same shape for a placeholder's `commands`**, through `readSpelled()`: a
+    spread that may carry the subcommands, or a later one that may replace the
+    ones written, is a warning and **nothing is baked in their place**, as for
+    `alias`. It is a warning because the divergence is a built app with fewer
+    commands than the app, which `warnUnbaked()` already says for every other key
+    it drops and which SIG-320 is for. It is newly said for a placeholder with a
+    spread the build cannot read and a name and module spelled after it, which was
+    silent -- a warning each, in the shape of the five `desc`, `hidden`, `alias`
+    and `default` it already gets. None of the toolchain's own commands or the
+    examples gains one, which was measured by `sigil check` over each.
+
+  Covered by the guard's list in `test/build/sealed-binding.test.ts`, `read a spread
+  of a const carrying options ...`, `pointed a refusal about what a const carried at
+  the spread ...` and `read a placeholder's nested commands through its spreads ...`
+  in `test/build/discover.test.ts`, `through a spread` in
+  `test/build/extract.test.ts`, and built against source by
+  `test/build-command.test.ts` over `discover/placeholder-sealed` (a const carrying
+  `options` and `args` builds and answers as source does), `alias-pushed` in
+  `discover/placeholder-single` (a shared array written through a copy, still
+  refused) and `discover/placeholder-routed`.
+
   **A known divergence, not a rule: a built app carries none of the rest of what
   a placeholder declares.** The runtime reads every property off a placeholder
   (`initCommand()` copies the declaration and `loadCommand()` merges it over a
@@ -760,7 +841,8 @@ makes it testable with a fixture directory and no bundler at all.
   and the property for each one, so the build no longer says nothing. Add a
   property to the baked set and to `BAKED` together, and delete the warning for it
   with the fix. A spread or a computed key can carry any of them and is reported
-  by nothing.
+  by nothing -- except `commands`, which a spread the build cannot read is warned
+  about (SIG-726).
 
   **Settings are no longer one of the divergences, and a warning covers what is
   left of that one.** A built app used to lose every `settings` its own `main()`

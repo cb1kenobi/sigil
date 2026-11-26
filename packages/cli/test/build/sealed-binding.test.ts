@@ -1,6 +1,7 @@
 import { sealedObject } from '../../src/build/bindings.ts';
-import { flatten, propertyKey } from '../../src/build/literals.ts';
+import { flatten, PLACEHOLDER_KEYS, propertyKey } from '../../src/build/literals.ts';
 import { parseModule } from '../../src/build/parse-module.ts';
+import type { ObjectExpression, ObjectProperty } from 'oxc-parser';
 import { describe, expect, it } from 'vitest';
 
 /** The keys a module's `base` is read as, or `undefined` where the build refuses to read it. */
@@ -126,7 +127,7 @@ export default { commands: { x: { ...{ ...(base as object) } } } };`)
       'an array value',
       `const base = { alias: ['b'] };\nconst copy = { ...base };\ncopy.alias.push('zz');\nexport default { ...base };`,
     ],
-    ['an object value', `const base = { options: { a: 1 } };\nexport default { ...base };`],
+    ['an object value', `const base = { commands: { a: './a.js' } };\nexport default { ...base };`],
     [
       'an array value under a type assertion',
       `const base = { alias: ['b'] as string[] };\nexport default { ...base };`,
@@ -150,6 +151,90 @@ export default { commands: { x: { ...{ ...(base as object) } } } };`)
     ],
   ])('should refuse %s', (_what, source) => {
     expect(sealedKeys(source)).toBeUndefined();
+  });
+
+  it('should resolve a const carrying options, args, examples and hooks, which nothing reads', () => {
+    // SIG-725. A shared base is most often one carrying `options`, and the build
+    // names those keys without looking inside them, so a mutation of the shared
+    // object changes nothing the build took off the placeholder
+    expect(
+      sealedKeys(`const base = {
+  args: [{ name: 'target' }],
+  examples: ['one', 'two'],
+  hidden: true,
+  hooks: { init() {} },
+  options: { '--force': { type: 'bool' } },
+};
+export default { ...base };`)
+    ).toEqual(['args', 'examples', 'hidden', 'hooks', 'options']);
+  });
+
+  it.each(['alias', 'commands', 'default', 'desc', 'hidden', 'load', 'name', 'path'])(
+    'should refuse a %s that is an array or an object, which the build reads',
+    (key) => {
+      // the keys whose value the build reads are the ones a shared array or object
+      // can change under it: `{ ...base }.alias.push('x')` writes the const's own
+      expect(
+        sealedKeys(`const base = { ${key}: [] };\nexport default { ...base };`)
+      ).toBeUndefined();
+      expect(
+        sealedKeys(`const base = { ${key}: {} };\nexport default { ...base };`)
+      ).toBeUndefined();
+      expect(
+        sealedKeys(`const base = { '${key}': ([] as string[]) };\nexport default { ...base };`)
+      ).toBeUndefined();
+    }
+  );
+
+  it('should read what each key the build reads is, so a key added to one is added to the other', () => {
+    // the placeholder's seven keys and `commands` are asked by name in
+    // `holdsReadObject()`; a key the build starts reading is a key it has to ask
+    // about, and this is the list a reviewer is shown
+    expect([...PLACEHOLDER_KEYS].sort()).toEqual([
+      'alias',
+      'default',
+      'desc',
+      'hidden',
+      'load',
+      'name',
+      'path',
+    ]);
+  });
+
+  it('should place a resolved const where it was spread, at every depth', () => {
+    // SIG-725. The members are the const's own text, and the position a
+    // diagnostic about one reports is the spread the author wrote
+    const source = [
+      `const base = { desc: async () => 'x', name: 'later' };`,
+      ``,
+      `export default {`,
+      `  path: './a.js',`,
+      `  ...base,`,
+      `};`,
+    ].join('\n');
+    const parsed = parseModule('/virtual/place.js', source);
+    const exported = parsed.program.body.find((node) => node.type === 'ExportDefaultDeclaration');
+    const object = exported?.declaration as never as Parameters<typeof flatten>[0];
+    const spread = source.indexOf('...base');
+    const members = flatten(object, (name) => sealedObject(parsed, name));
+
+    expect(
+      members.map((member) => (member.type === 'SpreadElement' ? '...' : propertyKey(member)))
+    ).toEqual(['path', 'desc', 'name']);
+    const [, desc, name] = members as ObjectProperty[];
+    for (const node of [
+      desc!,
+      desc!.value,
+      (desc!.value as { body: { start: number } }).body,
+      name!,
+      name!.value,
+    ]) {
+      expect(node.start).toBe(spread);
+    }
+
+    // the tree itself is not touched, since it is shared by every pass
+    const declared = parsed.program.body[0] as { declarations: { init: ObjectExpression }[] };
+    expect(declared.declarations[0]!.init.properties[0]!.start).toBeLessThan(spread);
   });
 
   it('should refuse a name a JSX expression reads a member of', () => {

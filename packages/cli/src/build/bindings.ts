@@ -20,10 +20,16 @@
  * shapes that stay unreachable is in AGENTS.md rather than repeated here.
  */
 
-import { bindingObject, flatten, propertyKey, unwrapShallow } from './literals.ts';
+import {
+  bindingObject,
+  flatten,
+  PLACEHOLDER_KEYS,
+  propertyKey,
+  unwrapShallow,
+} from './literals.ts';
 import { type ParsedModule } from './parse-module.ts';
 import { walk } from './walk.ts';
-import type { CallExpression, Expression, ObjectExpression } from 'oxc-parser';
+import type { CallExpression, Expression, ObjectExpression, ObjectProperty } from 'oxc-parser';
 
 /**
  * Every way one module can reach one export.
@@ -299,9 +305,37 @@ export function sealedResolver(
   return (name) => sealedObject(parsed, name);
 }
 
-/** Whether a property's value is an array or an object literal, which a spread shares. */
-function holdsObject(value: Expression | unknown): boolean {
-  const inner = unwrapShallow(value as Expression);
+/**
+ * The keys whose **value** the build reads, which is what a shared array or
+ * object can change under it: the seven a placeholder is read for, and the
+ * `commands` it walks into. Nothing else's value is read -- `options`, `args`,
+ * `examples`, `hooks`, `run` and custom data are named by `warnUnbaked()` and
+ * their contents never looked at (SIG-725).
+ */
+const READ_AS_VALUE: ReadonlySet<string> = new Set([...PLACEHOLDER_KEYS, 'commands']);
+
+/**
+ * Whether a property's value is an array or an object literal **the build
+ * reads**, which a spread shares with whatever mutates it.
+ *
+ * A spread is a shallow copy, so `{ ...base }.alias.push('x')` writes the
+ * const's own array without the name ever being assigned (SIG-440, review) --
+ * which only matters where the build read what the array held. A `base`
+ * carrying `options: { ... }` is the most common shared base there is, and its
+ * options are never read: a mutation of that object changes nothing the build
+ * took off the placeholder, so refusing it protected nothing (SIG-725). The
+ * keys are the set above and are asked **by what the build reads**, not by what
+ * is plausible for a key to hold -- `desc: []` is refused too, though a runtime
+ * refuses it as well. A computed key that is not a string never reaches here,
+ * since the member was already refused.
+ */
+function holdsReadObject(member: ObjectProperty): boolean {
+  const key = propertyKey(member);
+  if (key === undefined || !READ_AS_VALUE.has(key)) {
+    return false;
+  }
+
+  const inner = unwrapShallow(member.value as Expression);
   return inner.type === 'ObjectExpression' || inner.type === 'ArrayExpression';
 }
 
@@ -334,8 +368,9 @@ function sealedObjectOf(parsed: ParsedModule, name: string): ObjectExpression | 
       propertyKey(member) !== '__proto__' &&
       // a spread is a shallow copy, so a nested array or object is the very one
       // the const holds, handed to whoever the spread went to: `{ ...base }.alias`
-      // can be pushed to without the name ever being written (SIG-440, review)
-      !holdsObject(member.value)
+      // can be pushed to without the name ever being written (SIG-440, review).
+      // Only where the build reads what it holds (SIG-725)
+      !holdsReadObject(member)
   );
   if (!readable) {
     return undefined;

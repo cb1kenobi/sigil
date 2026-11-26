@@ -47,7 +47,6 @@ import {
   flatten,
   isUndefined,
   isWrongType,
-  lastReplacing,
   literalBoolean,
   literalString,
   literalType,
@@ -55,10 +54,11 @@ import {
   objectLiteral,
   outermostDeclaring,
   outermostWith,
+  PLACEHOLDER_KEYS,
   plainProperty,
   propertyKey,
+  spellingOf,
   stringList,
-  unspelledCarrier,
   unwrapShallow,
 } from './literals.ts';
 import { locate, parseModule, type ParsedModule } from './parse-module.ts';
@@ -716,7 +716,16 @@ function readCommand(
   }
 
   const { name: named, specifier } = placeholderIdentity(object, parsed, diagnostics, name);
-  const nested = plainProperty(object, 'commands');
+  // read as the other keys are, through `flatten()`: a spread may carry the
+  // subcommands, or replace the ones written, and a built app has the tree it
+  // was given and nothing else (SIG-726)
+  const nested = readSpelled(object, 'commands', {
+    consequence: 'the built app will not have its subcommands',
+    diagnostics,
+    name: commandName(named).name,
+    parsed,
+    severity: 'warning',
+  });
   const own = placeholderFacts(object, parsed, diagnostics, named);
   const routing = placeholderRouting(object, parsed, diagnostics, named);
   warnUnbaked(object, parsed, diagnostics, named);
@@ -962,24 +971,7 @@ function placeholderSpelling(
   declared: ObjectProperty | undefined;
   replaced: boolean;
 } {
-  // the members the object evaluates to, which is what the runtime registers:
-  // a spread of a literal is what it holds and `['path']` is `path`
-  const members = flatten(object, sealedResolver(parsed));
-  let found: ObjectProperty | undefined;
-  for (const property of members) {
-    if (property.type !== 'SpreadElement' && propertyKey(property) === key) {
-      found = property;
-    }
-  }
-
-  const replaced = found !== undefined && members.lastIndexOf(found) < lastReplacing(members, key);
-
-  // `undefined` is what the runtime reads as not declared
-  const declared =
-    found?.kind === 'init' && !found.method && isUndefined(found.value) && !replaced
-      ? undefined
-      : found;
-  return { carrier: unspelledCarrier(members, key, computed), declared, replaced };
+  return spellingOf(object, key, sealedResolver(parsed), computed);
 }
 
 /**
@@ -1536,8 +1528,8 @@ const NAME_UNREADABLE =
  *
  * Properties only, of what the literal spells (`flatten()`). A spread or a
  * computed key that is not a literal can carry anything, and is reported here for nothing -- the reads above report it only for the `desc`,
- * `hidden`, `alias`, `default`, `name`, `path` and `load` it may carry, the last
- * three as errors.
+ * `hidden`, `alias`, `default`, `name`, `path`, `load` and `commands` it may carry, the
+ * `name`, `path` and `load` as errors.
  *
  * @param object - The command literal.
  * @param parsed - The module, for positions.
@@ -1620,15 +1612,7 @@ const MODULE_OWNED: ReadonlySet<string> = new Set([
 ]);
 
 /** The properties of a placeholder that the baked tree holds. */
-const BAKED: ReadonlySet<string> = new Set([
-  'alias',
-  'default',
-  'desc',
-  'hidden',
-  'load',
-  'name',
-  'path',
-]);
+const BAKED: ReadonlySet<string> = PLACEHOLDER_KEYS;
 
 /**
  * How a placeholder reaches its module, for the warning about what a module
