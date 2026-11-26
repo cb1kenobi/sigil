@@ -2373,6 +2373,47 @@ export default {
     );
 
     it.each([
+      // [what it is, the const, what the placeholder writes after the spread]
+      [
+        'a path the placeholder respells',
+        "const shared = { path: './commands/b.js', run() {} };",
+        "path: './commands/a.js'",
+      ],
+      [
+        'a path something reads',
+        'const shared = { run() {} };\nconsole.log(shared.path);',
+        "path: './commands/a.js'",
+      ],
+      [
+        'a name, a path and a load the placeholder respells',
+        "const shared = { name: 'q', run() {}, options: {} };",
+        "name: 'rm', path: './commands/a.js', load: undefined",
+      ],
+    ])(
+      'warned of what a spread of a const with %s does not carry',
+      async (_what, declaration, after) => {
+        // SIG-731, review round 2. The refusal is per key and skipped for one the
+        // placeholder spells after the spread, so a const could be neither refused nor
+        // reported: the keys are reported for any const whose members are all visible
+        const source = `${declaration}
+console.log(shared.run);
+export default {
+  baseDir: import.meta.dirname,
+  commands: { rm: { ...shared, ${after} } },
+};\n`;
+
+        await withSchema(source, (dir) => {
+          const { diagnostics } = readAppCommands(discoverApp(dir));
+
+          expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
+          expect(
+            diagnostics.map((d) => /declares "(\w+)"/.exec(d.message)?.[1]).filter(Boolean)
+          ).toContain('run');
+        });
+      }
+    );
+
+    it.each([
       // [what the const is put through, the statement or declaration]
       ['a write of the name', `const mixin = { tags: [] };\nmixin.name = 'later';`],
       ['a write of the name by index', `const mixin = { tags: [] };\nmixin['name'] = 'later';`],

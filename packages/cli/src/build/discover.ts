@@ -40,11 +40,11 @@
  */
 
 import {
-  lackedLiteral,
   lacksResolver,
   schemasWith,
   sealedResolver,
   spellingIn,
+  visibleLiteral,
 } from './bindings.ts';
 import { type Diagnostic, displayPath } from './diagnostic.ts';
 import { type CommandFacts, factsOf, type RoutedBy } from './extract.ts';
@@ -1636,13 +1636,13 @@ function warnUnbaked(
   // what the object spells, as the build reads it: an unbaked key inside a
   // literal spread or under a computed key written as a string is as unbaked as
   // one written plainly
-  // a spread of a const the resolver gave up on that visibly holds none of the
-  // three keys that route a placeholder is no longer refused, so what else it holds
-  // is said here, at the spread (SIG-731)
+  // a spread of a const the resolver gave up on is refused only for the keys that
+  // route a placeholder, and not for one it spells after the spread or a const that
+  // holds none of them, so what else it holds is said here, at the spread (SIG-731)
   const members = flatten(object, sealedResolver(parsed)).flatMap((member) => {
     const operand = member.type === 'SpreadElement' ? unwrapShallow(member.argument) : undefined;
     const literal =
-      operand?.type === 'Identifier' ? lackedLiteral(parsed, operand.name) : undefined;
+      operand?.type === 'Identifier' ? visibleLiteral(parsed, operand.name) : undefined;
     return literal
       ? flatten(literal).map((property) => ({ at: member.start, property }))
       : [{ at: member.start, property: member }];

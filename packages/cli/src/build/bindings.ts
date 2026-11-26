@@ -402,24 +402,33 @@ export function lacksResolver(parsed: ParsedModule): Lacks {
 }
 
 /**
- * The object literal of a same-module `const` that visibly holds none of the
- * keys that route and bundle a placeholder, `name`, `path` and `load` (SIG-731).
+ * The object literal of a same-module `const` whose keys are all visible, which
+ * is what `warnUnbaked()` reads for a spread `sealedObject()` gave up on
+ * (SIG-731).
  *
- * A spread of one is no carrier of those three, so the refusal that used to
- * report it is gone -- and that refusal was the only thing that reported what
- * else the const holds, since `flatten()` reads only a const `sealedObject()`
- * resolves. This is how `warnUnbaked()` reads the keys such a const holds, which
- * are visible: `lacksResolver()` has already answered that it spells no accessor,
- * spread or computed key.
+ * The refusal for a spread that may carry a `name`, `path` or `load` was the only
+ * thing that reported what else such a const holds, since `flatten()` reads only
+ * a const `sealedObject()` resolves; and it is decided per key and skipped for a
+ * key the placeholder spells after the spread. So the keys are reported for any
+ * const whose members are plain properties -- no accessor, spread or computed key
+ * -- whatever it holds, and what a refusal also says is said twice at worst.
  *
  * @param parsed - The module.
  * @param name - The name that is spread.
  * @returns The literal, or `undefined` where the name is not such a const.
  */
-export function lackedLiteral(parsed: ParsedModule, name: string): ObjectExpression | undefined {
-  const lacks = lacksResolver(parsed);
-  return lacks(name, 'name') && lacks(name, 'path') && lacks(name, 'load')
-    ? declaredObject(parsed, name)?.object
+export function visibleLiteral(parsed: ParsedModule, name: string): ObjectExpression | undefined {
+  const object = declaredObject(parsed, name)?.object;
+  return object &&
+    flatten(object).every(
+      (member) =>
+        member.type !== 'SpreadElement' &&
+        !member.computed &&
+        member.kind === 'init' &&
+        propertyKey(member) !== undefined &&
+        propertyKey(member) !== '__proto__'
+    )
+    ? object
     : undefined;
 }
 
