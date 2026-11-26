@@ -1012,12 +1012,22 @@ describe('extracting a command module', () => {
         ].join('\n');
         const [conditional, other, ...rest] = routed(source);
         expect(rest).to.deep.equal([]);
-        // the conditional can carry an alias and nothing else, and what is left of
-        // the three is `m`'s
+        // the conditional can carry an alias and nothing else, and `m` all three
         expect(conditional?.message).toContain('may carry "alias" this cannot see');
         expect(conditional).to.include({ column: 3, line: 2 });
-        expect(other?.message).toContain('may carry "name" or "default" this cannot see');
+        expect(other?.message).toContain('may carry "name", "alias" or "default" this cannot see');
         expect(other).to.include({ column: 3, line: 3 });
+      });
+
+      it('should say each of two spreads may carry what the module does not spell', () => {
+        const [first, second, ...rest] = routed(`export default { name: 'list', ...a, ...b };`);
+        expect(rest).to.deep.equal([]);
+        for (const warning of [first, second]) {
+          expect(warning?.message).toContain(
+            'may carry "name", "alias" or "default" this cannot see'
+          );
+        }
+        expect(first?.column).to.be.lessThan(second!.column!);
       });
 
       it('should say a computed key may be one of them, and read one written as a string', () => {

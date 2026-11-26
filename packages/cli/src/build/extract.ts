@@ -73,6 +73,7 @@ import {
   lastReplacing,
   literalBoolean,
   literalOf,
+  mayCarry,
   literalString,
   propertyKey,
   spellingOf,
@@ -524,14 +525,18 @@ function unroutable(
   // app run from source agree here -- neither routes by it -- so nothing diverges
   // and no build is wrong, only what the author expected may be (SIG-726)
   const unknown = new Map<SpreadElement | ObjectProperty, Array<'alias' | 'default' | 'name'>>();
+  const members = flatten(object, resolver);
   for (const key of ['name', 'alias', 'default'] as const) {
-    const { carrier, declared, replacer } = spelled(key);
-    // a key spelled nowhere that a spread may carry, or spelled before a spread
-    // that may replace it: each is asked of the property that may set it, since
-    // two spreads in one module need not carry the same thing
-    const maySet = declared === undefined ? carrier : replacer;
-    if (maySet) {
-      unknown.set(maySet, [...(unknown.get(maySet) ?? []), key]);
+    // whatever comes after the last spelling of the key may set it, and after
+    // nothing at all where it is not spelled: every such spread, since each may
+    // carry any of them
+    const spelling = members.findLastIndex(
+      (member) => member.type !== 'SpreadElement' && propertyKey(member) === key
+    );
+    for (const member of members.slice(spelling + 1)) {
+      if ((member.type === 'SpreadElement' || member.computed) && mayCarry(member, key)) {
+        unknown.set(member, [...(unknown.get(member) ?? []), key]);
+      }
     }
   }
 

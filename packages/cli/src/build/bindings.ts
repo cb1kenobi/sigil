@@ -23,6 +23,7 @@
 import {
   bindingObject,
   flatten,
+  literalOf,
   objectLiteral,
   PLACEHOLDER_KEYS,
   propertyKey,
@@ -336,10 +337,14 @@ function holdsReadObject(member: ObjectProperty): boolean {
     return false;
   }
 
-  // asked as the readers ask it: `objectLiteral()` looks through a one-argument
-  // call, so `commands: command({ ... })` is read by reference as well
+  // asked as the readers ask it: the nested `commands` read looks through a
+  // one-argument call, so `commands: command({ ... })` is read by reference as
+  // well; no other key's does, and `desc: t({ ... })` shares nothing it reads
   const value = member.value as Expression;
-  return unwrapShallow(value).type === 'ArrayExpression' || objectLiteral(value) !== undefined;
+  return (
+    unwrapShallow(value).type === 'ArrayExpression' ||
+    (key === 'commands' ? objectLiteral(value) : literalOf(value, false)) !== undefined
+  );
 }
 
 function sealedObjectOf(parsed: ParsedModule, name: string): ObjectExpression | undefined {

@@ -473,8 +473,8 @@ export const PLACEHOLDER_KEYS: ReadonlySet<string> = new Set([
  * @param computed - Whether a computed key that may be `key` is a carrier as
  *   well as a spread.
  * @returns The spelling that runs, `undefined` where the key is not declared;
- *   whether a later property may replace it, and which; and a spread that may
- *   carry a key spelled nowhere.
+ *   whether a later property may replace it; and a spread that may carry a key
+ *   spelled nowhere.
  */
 export function spellingOf(
   object: ObjectExpression,
@@ -485,7 +485,6 @@ export function spellingOf(
   carrier: SpreadElement | ObjectProperty | undefined;
   declared: ObjectProperty | undefined;
   replaced: boolean;
-  replacer: SpreadElement | ObjectProperty | undefined;
 } {
   // the members the object evaluates to, which is what the runtime registers:
   // a spread of a literal is what it holds and `['path']` is `path`
@@ -497,20 +496,14 @@ export function spellingOf(
     }
   }
 
-  const last = lastReplacing(members, key);
-  const replaced = found !== undefined && members.lastIndexOf(found) < last;
+  const replaced = found !== undefined && members.lastIndexOf(found) < lastReplacing(members, key);
 
   // `undefined` is what the runtime reads as not declared
   const declared =
     found?.kind === 'init' && !found.method && isUndefined(found.value) && !replaced
       ? undefined
       : found;
-  return {
-    carrier: unspelledCarrier(members, key, computed),
-    declared,
-    replaced,
-    replacer: replaced ? (members[last] as SpreadElement | ObjectProperty) : undefined,
-  };
+  return { carrier: unspelledCarrier(members, key, computed), declared, replaced };
 }
 
 /**

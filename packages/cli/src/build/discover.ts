@@ -974,7 +974,6 @@ function placeholderSpelling(
   carrier: SpreadElement | ObjectProperty | undefined;
   declared: ObjectProperty | undefined;
   replaced: boolean;
-  replacer: SpreadElement | ObjectProperty | undefined;
 } {
   return spellingOf(object, key, sealedResolver(parsed), computed);
 }
@@ -1020,7 +1019,13 @@ function readSpelled(
 ): ObjectProperty | undefined {
   const { consequence, diagnostics, keepReplaced, name, parsed, severity } = report;
   const { carrier, declared, replaced } = placeholderSpelling(object, key, parsed);
-  if (declared && replaced && keepReplaced !== undefined) {
+  if (
+    declared &&
+    replaced &&
+    keepReplaced !== undefined &&
+    declared.kind === 'init' &&
+    objectLiteral(declared.value)
+  ) {
     // what is written is baked and what may replace it is said: for a key whose
     // loss is worse than its being wrong, which a spread that carries no such key
     // -- the common one -- makes it

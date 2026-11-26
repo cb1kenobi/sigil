@@ -190,6 +190,16 @@ export default { ...base };`)
     }
   );
 
+  it('should resolve a const whose key the build reads holds a call around an object', () => {
+    // only the nested `commands` read looks through a call, so a `desc` that is a
+    // call with an object argument shares nothing the build reads
+    expect(
+      sealedKeys(
+        `const base = { desc: t({ id: 'x' }), load: lazy(() => ({})) };\nexport default { ...base };`
+      )
+    ).toEqual(['desc', 'load']);
+  });
+
   it('should read what each key the build reads is, so a key added to one is added to the other', () => {
     // the placeholder's seven keys and `commands` are asked by name in
     // `holdsReadObject()`; a key the build starts reading is a key it has to ask

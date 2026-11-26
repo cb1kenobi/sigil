@@ -1778,6 +1778,7 @@ export default {
     literal: { path: './commands/a.js', commands: { old: { path: './commands/a.js' } }, ...{ commands: { fresh: { path: './commands/a.js' } } } },
     carried: { ...mixin, name: 'carried', path: './commands/a.js' },
     written: { commands: { sub: { path: './commands/a.js' } }, ...mixin, name: 'written', path: './commands/a.js' },
+    undef: { commands: undefined, ...mixin, name: 'undef', path: './commands/a.js' },
   },
 };\n`;
 
@@ -1798,9 +1799,13 @@ export default {
         // built app without subcommands the app has is the worse way to be wrong
         expect(subs('carried')).toEqual([]);
         expect(subs('written')).toEqual(['sub']);
+        // ...but only where something is written: `undefined` is not, so what the
+        // spread carries is the question and the answer is the one for a carrier
+        expect(subs('undef')).toEqual([]);
 
         const warned = diagnostics
-          .filter((d) => d.message.includes('"commands"'))
+          // (`undef` is also one of the keys the build does not carry, which is SIG-320's)
+          .filter((d) => d.message.includes('"commands"') && !d.message.includes('does not carry'))
           .map((d) => [d.severity, d.message]);
         expect(warned).toEqual([
           [
@@ -1810,6 +1815,10 @@ export default {
           [
             'warning',
             'the "written" command\'s "commands" is written before a spread or a computed key, which may replace it when the app runs; the built app has the subcommands as written',
+          ],
+          [
+            'warning',
+            'the "undef" command\'s "commands" is written before a spread or a computed key, which may replace it when the app runs, so it cannot be read at build time; the built app will not have its subcommands',
           ],
         ]);
         expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
