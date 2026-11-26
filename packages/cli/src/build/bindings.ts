@@ -23,15 +23,23 @@
 import {
   bindingObject,
   flatten,
+  lastPlain,
   literalOf,
   objectLiteral,
+  outermostWhere,
   PLACEHOLDER_KEYS,
   propertyKey,
   unwrapShallow,
 } from './literals.ts';
 import { type ParsedModule } from './parse-module.ts';
 import { walk } from './walk.ts';
-import type { CallExpression, Expression, ObjectExpression, ObjectProperty } from 'oxc-parser';
+import type {
+  CallExpression,
+  Expression,
+  ObjectExpression,
+  ObjectProperty,
+  VariableDeclarator,
+} from 'oxc-parser';
 
 /**
  * Every way one module can reach one export.
@@ -308,6 +316,83 @@ export function sealedResolver(
 }
 
 /**
+ * The object literals that are the schema when the build asks for the one that
+ * declares `key`, which is `commands` for the command tree and `locales` for the
+ * catalogs (SIG-728).
+ *
+ * The outermost literal that spells the key, read through a spread of a `const`
+ * the resolver answers for -- so `{ ...base, run() {} }` with a sealed `base`
+ * that carries the key is a schema, as it is to the runtime -- **less the
+ * literals that are only a shared base**: the initializer of a `const` that is
+ * named nowhere but as an object spread's operand, **where that spread is inside
+ * another of the literals found**. That literal is a part of the schema that
+ * spreads it and not a second one, and counting it made a module with a shared
+ * base report `found 2 schemas` and read nothing. It is the occurrence half of
+ * `sealedObject()` only: what the const holds is a separate question, and a base
+ * whose `commands` is an object literal is not read through (SIG-725) but is
+ * still not a schema. The spread is then reported by the readers a spread the
+ * build cannot read already has.
+ *
+ * What is **not** dropped, and so is read as it was: a `let` or a `var`, an
+ * exported `const`, a name bound twice, one that is assigned, passed, captured or
+ * read by a member, and a base that is spread nowhere inside another literal
+ * found -- including the `{ ...base, run() {} }` whose own literal does not
+ * spell the key and cannot be seen to carry it, which leaves `base` the only
+ * schema there is.
+ *
+ * One rule for the two readers that ask, since two answers to "which object is
+ * the schema" is the defect this is for.
+ *
+ * @param parsed - The module.
+ * @param key - The property to look for.
+ * @returns The schemas, in source order.
+ */
+export function schemasWith(parsed: ParsedModule, key: string): ObjectExpression[] {
+  const resolve = sealedResolver(parsed);
+  const found = outermostWhere(
+    parsed.program,
+    (object) => lastPlain(object, key, resolve) !== undefined
+  );
+
+  return found.filter((object) => {
+    const declarator = parsed.program.body
+      .flatMap((node) => (node.type === 'VariableDeclaration' ? node.declarations : []))
+      .find((each) => each.init && literalOf(each.init as Expression, false) === object);
+    if (declarator?.id.type !== 'Identifier') {
+      return true;
+    }
+
+    const { name } = declarator.id;
+    const declared = declaredObject(parsed, name);
+    if (declared?.object !== object || !onlySpread(parsed, name, declared.declarator)) {
+      return true;
+    }
+
+    return !found.some((other) => other !== object && spreads(other, name));
+  });
+}
+
+/** Whether an object literal has a spread of `name` anywhere inside it. */
+function spreads(inside: ObjectExpression, name: string): boolean {
+  let found = false;
+  walk(inside, (node) => {
+    if (
+      node.type === 'ObjectExpression' &&
+      node.properties.some(
+        (property) =>
+          property.type === 'SpreadElement' &&
+          unwrapShallow(property.argument).type === 'Identifier' &&
+          (unwrapShallow(property.argument) as { name?: string }).name === name
+      )
+    ) {
+      found = true;
+    }
+    return !found;
+  });
+  return found;
+}
+
+/**
  * The keys whose **value** the build reads, which is what a shared array or
  * object can change under it: the seven a placeholder is read for, and the
  * `commands` it walks into. Nothing else's value is read -- `options`, `args`,
@@ -347,7 +432,15 @@ function holdsReadObject(member: ObjectProperty): boolean {
   );
 }
 
-function sealedObjectOf(parsed: ParsedModule, name: string): ObjectExpression | undefined {
+/**
+ * The declaration of a module-scope `const` holding an object literal, when the
+ * binding is the only one of its name -- which is what both questions about a
+ * spread base start from.
+ */
+function declaredObject(
+  parsed: ParsedModule,
+  name: string
+): { declarator: VariableDeclarator; object: ObjectExpression } | undefined {
   if (bindingSites(parsed).get(name) !== 1) {
     return undefined;
   }
@@ -360,9 +453,16 @@ function sealedObjectOf(parsed: ParsedModule, name: string): ObjectExpression | 
     )
     .find((each) => each.id.type === 'Identifier' && each.id.name === name);
   const object = declarator ? bindingObject(parsed, name, false) : undefined;
-  if (!declarator || !object) {
+  return declarator && object ? { declarator, object } : undefined;
+}
+
+function sealedObjectOf(parsed: ParsedModule, name: string): ObjectExpression | undefined {
+  const declared = declaredObject(parsed, name);
+  if (!declared) {
     return undefined;
   }
+
+  const { declarator, object } = declared;
 
   // what a spread copies as it reads: an accessor is read at the spread and not
   // by the build, `__proto__` sets a prototype and copies nothing, a computed key
@@ -384,6 +484,20 @@ function sealedObjectOf(parsed: ParsedModule, name: string): ObjectExpression | 
     return undefined;
   }
 
+  return onlySpread(parsed, name, declarator) ? object : undefined;
+}
+
+/**
+ * Whether a binding occurs nowhere but its declaration and as the operand of an
+ * object spread, which is the half of `sealedObject()` that is about what can
+ * happen to the object and not about what it holds (SIG-728).
+ *
+ * @param parsed - The module.
+ * @param name - The binding.
+ * @param declarator - Its declaration.
+ * @returns Whether every use of it is a spread.
+ */
+function onlySpread(parsed: ParsedModule, name: string, declarator: VariableDeclarator): boolean {
   // every occurrence of the name but its declaration and an object spread's
   // operand is a use that might write -- or might hand the object to something
   // that does. A JSX name is an occurrence too (`<base.path />` reads a member),
@@ -416,7 +530,7 @@ function sealedObjectOf(parsed: ParsedModule, name: string): ObjectExpression | 
     return !used;
   });
 
-  return used ? undefined : object;
+  return !used;
 }
 
 /**

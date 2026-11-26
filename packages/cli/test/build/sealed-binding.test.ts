@@ -1,4 +1,4 @@
-import { sealedObject } from '../../src/build/bindings.ts';
+import { schemasWith, sealedObject } from '../../src/build/bindings.ts';
 import { flatten, PLACEHOLDER_KEYS, propertyKey } from '../../src/build/literals.ts';
 import { parseModule } from '../../src/build/parse-module.ts';
 import type { ObjectExpression, ObjectProperty } from 'oxc-parser';
@@ -283,5 +283,62 @@ export default { ...base };`)
       member.type === 'SpreadElement' ? '...' : propertyKey(member)
     );
     expect(keys).toEqual(['desc', 'path', 'hidden', 'path']);
+  });
+});
+
+describe('the schemas a module has once a shared base is not counted as one', () => {
+  /** The `commands` literals counted as schemas, by the first key each holds. */
+  const schemas = (source: string): string[] =>
+    schemasWith(parseModule('/virtual/schema.ts', source), 'commands').map((object) =>
+      source.slice(object.start, object.end).replace(/\s+/g, ' ').slice(0, 24)
+    );
+
+  it('should leave out a const that is only spread into another literal that has the key', () => {
+    // SIG-728
+    expect(
+      schemas(`const base = { commands: { a: './a.js' } };
+export default { ...base, commands: { b: './b.js' } };`)
+    ).toEqual(['{ ...base, commands: { b']);
+    // ...at any depth, which is where a placeholder's spread sits
+    expect(
+      schemas(`const base = { commands: { a: './a.js' } };
+export default { commands: { x: { ...base, path: './x.js' } } };`)
+    ).toEqual(['{ commands: { x: { ...ba']);
+    // ...whether or not the build could read what it holds
+    expect(
+      schemas(`const base = { commands: './commands' };
+export default { ...base, commands: { b: './b.js' } };`)
+    ).toEqual(['{ ...base, commands: { b']);
+  });
+
+  it('should read a schema that has the key only through a sealed spread', () => {
+    // the literal is the schema although it spells no `commands`; the base is what
+    // it spreads and not a second one
+    expect(
+      schemas(`const base = { commands: './commands' };
+export default { ...base, name: 'app' };`)
+    ).toEqual(["{ ...base, name: 'app' }"]);
+  });
+
+  it.each([
+    ['a let', `let base = { commands: { a: './a.js' } };`],
+    ['an export', `export const base = { commands: { a: './a.js' } };`],
+    ['a call', `const base = { commands: { a: './a.js' } };\nmutate(base);`],
+    ['a member read', `const base = { commands: { a: './a.js' } };\nbase.commands;`],
+  ])('should keep %s as a schema of its own', (_what, declaration) => {
+    expect(
+      schemas(`${declaration}\nexport default { ...base, commands: { b: './b.js' } };`)
+    ).toHaveLength(2);
+  });
+
+  it('should keep a const spread nowhere inside another literal that has the key', () => {
+    // not spread at all, and spread into something that is no schema: it is the
+    // only object that has the key, so it is the schema -- which is what a module
+    // with one `commands` and one shared base spread into a helper has always had
+    expect(schemas(`const base = { commands: { a: './a.js' } };`)).toHaveLength(1);
+    expect(
+      schemas(`const base = { commands: { a: './a.js' } };
+const other = { ...base, name: 'x' };`)
+    ).toHaveLength(1);
   });
 });

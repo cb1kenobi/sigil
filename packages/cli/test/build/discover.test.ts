@@ -1705,8 +1705,9 @@ export default {
       // the other value of. Only those keys keep a const refused
       for (const held of [
         "alias: ['b']",
-        // (`commands` is the same refusal and is asserted on the guard itself: a
-        // schema module holding one is read as a second schema)
+        // (`commands` is the same refusal: asserted on the guard itself, and
+        // through a read below, 'refused a placeholder spreading a const that holds
+        // commands')
         "name: ['b']",
         'hidden: []',
         "desc: { text: 'x' }",
@@ -1729,6 +1730,93 @@ export default {
           expect(at(list, 'x').module, held).toBeUndefined();
         });
       }
+    });
+
+    it('read the schema that spreads a shared base, and not the base as a second schema', async () => {
+      // SIG-728. A `const` holding `commands` that is spread into the schema was a
+      // schema of its own, so the build said `found 2 schemas` and read nothing
+      const source = `const base = { baseDir: import.meta.dirname, commands: { old: './commands/a.js' } };
+export default { ...base, commands: { fresh: './commands/a.js' } };\n`;
+
+      await withSchema(source, (dir) => {
+        const { commands, diagnostics, found } = readAppCommands(discoverApp(dir));
+        const list = commands?.kind === 'inline' ? commands.commands : [];
+
+        expect(diagnostics).toEqual([]);
+        expect(found).toBe(true);
+        // the last `commands` is the one an object keeps
+        expect(list.map((each) => each.name)).toEqual(['fresh']);
+      });
+    });
+
+    it('read a baseDir a sealed base carries, so a relative commands directory is not reported for lacking one', async () => {
+      // SIG-728. The schema is the object the runtime reads, and its `baseDir` is
+      // whichever of its members spells one: the build looked at what was written in
+      // the literal and warned that nothing said what the path is relative to
+      const source = `const base = { baseDir: import.meta.dirname };
+export default { ...base, commands: './commands' };\n`;
+
+      await withSchema(source, (dir) => {
+        const { commands, diagnostics } = readAppCommands(discoverApp(dir));
+
+        expect(diagnostics).toEqual([]);
+        expect(commands).toEqual({ dir: join(dir, 'src', 'commands'), kind: 'directory' });
+      });
+    });
+
+    it('read what a base spread inside a placeholder holds as a base, and refused it as it refuses one', async () => {
+      // SIG-725, SIG-728. A schema module holding a `const` with `commands` in it
+      // could not be built, so the refusal was asserted on the guard and not through
+      // a read: the const is a part of the schema that spreads it, and the spread is
+      // refused because what it carries -- a shared `commands` -- is not a thing
+      // the build reads
+      const source = `const base = { commands: { sub: './commands/a.js' } };
+export default {
+  baseDir: import.meta.dirname,
+  commands: { x: { ...base, path: './commands/a.js' } },
+};\n`;
+
+      await withSchema(source, (dir) => {
+        const { commands, diagnostics } = readAppCommands(discoverApp(dir));
+        const list = commands?.kind === 'inline' ? commands.commands : [];
+        const errors = diagnostics.filter((d) => d.severity === 'error').map((d) => d.message);
+
+        expect(diagnostics.map((d) => d.message).join('\n')).not.toContain('schemas');
+        expect(list.map((each) => each.name)).toEqual(['x']);
+        expect(errors).toHaveLength(1);
+        expect(errors[0]).toContain('the "x" command spreads another object');
+        expect(at(list, 'x').commands).toEqual([]);
+      });
+    });
+
+    it.each([
+      // [what is wrong with it, the const]
+      ['a let', `let base = { commands: { old: './commands/a.js' } };`],
+      ['an exported const', `export const base = { commands: { old: './commands/a.js' } };`],
+      [
+        'a const something is passed to',
+        `const base = { commands: { old: './commands/a.js' } };\nObject.assign(base, {});`,
+      ],
+      [
+        'a const that is read',
+        `const base = { commands: { old: './commands/a.js' } };\nconsole.log(base.commands);`,
+      ],
+    ])('kept reading %s as a schema of its own, as it was', async (_what, declaration) => {
+      // SIG-728. What the build cannot show to be a part of the schema is not
+      // taken for one: the module still has two, and the build still says it
+      // cannot choose between them
+      const source = `${declaration}
+export default { ...base, commands: { fresh: './commands/a.js' } };\n`;
+
+      await withSchema(source, (dir) => {
+        const { commands, diagnostics, found } = readAppCommands(discoverApp(dir));
+
+        expect(found).toBe(true);
+        expect(commands).toBeUndefined();
+        expect(diagnostics.map((d) => d.message)).toEqual([
+          'found 2 schemas in this module; pass --commands to say which command directory to check',
+        ]);
+      });
     });
 
     it('pointed a refusal about what a const carried at the spread, and not at the const', async () => {

@@ -21,16 +21,23 @@
  * a string that is not there.
  */
 
-import { bindingName, calleeName, importBindings, reachable, unwrap } from './bindings.ts';
+import {
+  bindingName,
+  calleeName,
+  importBindings,
+  reachable,
+  schemasWith,
+  sealedResolver,
+  unwrap,
+} from './bindings.ts';
 import type { Diagnostic } from './diagnostic.ts';
 import { displayPath } from './diagnostic.ts';
 import { type DiscoveredApp, resolveSpecifier } from './discover.ts';
 import {
+  lastPlain,
   literalString,
   loaderSpecifier,
   objectLiteral,
-  outermostWith,
-  plainProperty,
   propertyKey,
 } from './literals.ts';
 import { MODULE_RE, type ParsedModule, parseModule, position } from './parse-module.ts';
@@ -383,13 +390,15 @@ export function readAppCatalogs(app: DiscoveredApp): AppCatalogs {
   const files: string[] = [];
   const file = displayPath(schemaFile);
 
-  const schemas = outermostWith(parsed.program as never, 'locales');
+  const schemas = schemasWith(parsed, 'locales');
 
   if (!schemas.length) {
     return { catalogs, declared: false, diagnostics, files };
   }
 
-  const declared = objectLiteral(plainProperty(schemas[0]!, 'locales')!.value);
+  // through the spreads the build can resolve, as `readAppCommands()` reads
+  // `commands`: a sealed base's `locales` are the schema's (SIG-728)
+  const declared = objectLiteral(lastPlain(schemas[0]!, 'locales', sealedResolver(parsed))!.value);
 
   if (!declared) {
     const { column, line } = position(parsed.source, schemas[0]!.start);

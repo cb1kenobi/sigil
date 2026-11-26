@@ -766,9 +766,10 @@ makes it testable with a fixture directory and no bundler at all.
   the build starts reading is a key added to that set, and the test that lists
   the seven is what says so. `desc: []` and `name: {}` are refused as well though
   a runtime refuses them too, since the question asked is what the build reads and
-  not what is plausible. A schema module cannot hold a `commands` object in a
-  const at all -- it is read as a second schema -- so that refusal is asserted on
-  the guard and not through a build.
+  not what is plausible. A schema module could not hold a `commands` object in a
+  const at all -- it was read as a second schema -- so that refusal was asserted
+  on the guard and not through a build; it is driven through one now, by
+  `commands-held` in `discover/placeholder-single` (SIG-728, the entry below).
 
   **A member read off a const is a copy placed at the spread.** `flatten()` used
   to hand back the const's own nodes, so a diagnostic about a resolved member
@@ -839,6 +840,65 @@ makes it testable with a fixture directory and no bundler at all.
   `options` and `args` builds and answers as source does), `alias-pushed` in
   `discover/placeholder-single` (a shared array written through a copy, still
   refused) and `discover/placeholder-routed`.
+
+  **A `const` that is only a shared base is a part of the schema that spreads it,
+  and is not a second schema (SIG-728).** The schema was the outermost object
+  literal spelling `commands`, or `locales` for the catalogs, so a base holding
+  one and spread into a schema that spells its own was counted as one: `sigil
+  build` said `found 2 schemas in this module` and read no commands, and the
+  catalog check took the first literal found, which is the base. `schemasWith()` in
+  `bindings.ts` is the one rule for both readers -- `outermostWith()` is gone, with
+  no caller left, rather than changed -- and it does two things. It claims an
+  object through `flatten()` and the same resolver as every other read, so `{
+  ...base, run() {} }` with a sealed `base` holding `commands` is a schema, as it
+  is to the runtime; and it leaves out a literal that is **the initializer of a
+  `const` named nowhere but as an object spread's operand, where that spread is
+  inside another literal it found**. The schema is then read through
+  `lastPlain()`, the last plain property of `flatten()`'s list, so `commands`,
+  `baseDir` and `locales` come from a sealed base when the schema does not spell
+  them and the last spelling wins when it does -- `plainProperty()` took the
+  first, which for a key written twice is the one the runtime does not read.
+
+  What is left out is decided by the occurrence half of `sealedObject()` alone
+  (`onlySpread()`, split out of it) and **not** by what the const holds. That is
+  what lets SIG-725's refusal be driven through a build: a base whose `commands`
+  is an object literal is not read through, so the spread of it in a placeholder
+  is refused as any spread the build cannot read is, and the const that carried it
+  is no longer a second schema in the way. Said exactly, because "keeps today's
+  behaviour" has two halves:
+
+  - **A const the build cannot show is only spread** -- a `let` or `var`, an
+    exported `const`, a name bound twice, one assigned, passed to a call, captured
+    or read by a member -- **is still a schema of its own**, and a module with it
+    and a second literal still says `found 2 schemas` and reads nothing. The
+    catalog check still takes the first literal, which is the base.
+  - **A const that is only spread but whose content is not read** -- an object
+    literal under `commands`, an accessor -- is left out when it is spread inside
+    a literal that has the key, and what spreads it reports the spread: a
+    placeholder gets the refusal or the warning it always gets for a spread it
+    cannot read. Before, the module said `found 2 schemas` and nothing at all was
+    read, so no such report was ever made. A base that is spread **nowhere** inside
+    a literal that has the key stays the schema -- including `{ ...base, run() {} }`
+    over a base holding an object-literal `commands`, which does not spell the key
+    itself and cannot be seen to carry it, so `base` is read directly as it was.
+
+  `locales` is **not** in `holdsReadObject()`'s set, which is a decision and not
+  an oversight: that set is the keys whose value the build _bakes_, since a wrong
+  read of one is a built app that differs from the app. A catalog is read for the
+  check and for the files the clean guard keeps, and the bundler follows the
+  literal `import()`s itself, so what a mutation through a copy of a shared
+  `locales` could cost is a check that is wrong about a catalog, and an object
+  literal of loaders is the only shape `locales` has -- adding it would make the
+  commonest shared base unreadable for a danger that cannot reach a built app.
+
+  Covered by `the schemas a module has once a shared base is not counted as one` in
+  `test/build/sealed-binding.test.ts`, `read the schema that spreads a shared base
+  ...`, `read a baseDir a sealed base carries ...`, `read what a base spread inside
+  a placeholder holds ...` and `kept reading ... as a schema of its own` in
+  `test/build/discover.test.ts`, `through a shared base spread into the schema` in
+  `test/i18n.test.ts`, and built against source by `test/build-command.test.ts` over
+  `discover/shared-base` (`override`, `path` and `locales`, each compared with the
+  app run from source) and `commands-held` in `discover/placeholder-single`.
 
   **A known divergence, not a rule: a built app carries none of the rest of what
   a placeholder declares.** The runtime reads every property off a placeholder
