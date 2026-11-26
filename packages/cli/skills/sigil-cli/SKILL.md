@@ -296,6 +296,7 @@ sigil reference --json --out command-surface.json   # the snapshot
 sigil reference --check                             # in CI: exit 1 if the pages moved
 sigil reference --json --check                      # and the snapshot, a second run
 sigil reference --json-schema                       # each command's input, as JSON Schema
+sigil reference --skill                             # the app's own agent skill, in skills/<name>
 ```
 
 - Put both destinations in `sigil.json` (`reference.out`,

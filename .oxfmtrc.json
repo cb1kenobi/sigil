@@ -21,6 +21,7 @@
     "**/dist/**",
     "**/test/parser/fixtures/**",
     "packages/cli/command-surface.json",
+    "packages/cli/test/fixtures/annotated-app/skills/**",
     "website/src/reference/**",
     "website/src/transcripts/components/**"
   ],

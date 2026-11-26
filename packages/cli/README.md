@@ -178,7 +178,19 @@ sigil reference --json --out command-surface.json
 sigil reference --check                          # exit non-zero if the pages moved
 sigil reference --json --check                   # and the snapshot, which is a second run
 sigil reference --json-schema                    # each command's input, as JSON Schema
+sigil reference --skill                          # the app's own agent skill, in skills/<name>
 ```
+
+`--skill` writes an agent skill for the app: a
+`SKILL.md` an agent loads by its description -- the app's commands, what running
+each one does (from `readOnly`, `destructive` and `idempotent`), how to read their
+input with `<app> schema`, how to get JSON out, and what a failure's exit code and
+`code` mean -- and beside it `reference.md`, which is the markdown reference above.
+It goes in `skills/<name>` unless `--out` says otherwise, and `--check` compares it.
+Commit it and ship it: if your `package.json` has a `files` list that leaves the
+skill out, the command warns rather than editing the manifest. Leave it out of
+your formatter, as you would the reference pages: a formatter that realigns its
+tables makes `--check` report a skill nobody changed.
 
 `--json-schema` is the third artifact, and it is for a machine that **calls** the
 app rather than one that diffs it: every runnable command's input as a JSON

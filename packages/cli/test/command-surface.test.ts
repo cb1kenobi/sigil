@@ -559,7 +559,7 @@ describe('the input schemas (SIG-717)', () => {
     const result = run(['reference', '--json', '--json-schema']);
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain('Choose one of --json and --json-schema');
+    expect(result.stderr).toContain('Choose one of --json, --json-schema and --skill');
   });
 
   it('should write one file, and check it', () => {

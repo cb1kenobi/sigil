@@ -56,6 +56,7 @@ import { displayPath } from '../build/diagnostic.ts';
 import { readSigilConfig } from '../config.ts';
 import { loadAppSchema } from '../reference/load.ts';
 import { referenceDocument, referencePages } from '../reference/markdown.ts';
+import { skillFiles, skillName } from '../reference/skill.ts';
 import { snapshotJson } from '../reference/snapshot.ts';
 import { syncReference, type Change, type ReferenceFile } from '../reference/write.ts';
 import { writeDiagnostics, writeSummary } from '../report.ts';
@@ -65,7 +66,8 @@ import { command, type AnyCommand } from '@ttylabs/sigil';
 import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { writeOut } from '@ttylabs/sigil/output';
 import { commandSurface, inputSchemasJson } from '@ttylabs/sigil/reference';
-import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 /**
  * A destination as a reader should see it.
@@ -148,7 +150,7 @@ function refreshed(
  * for a diff, and the input schemas for a machine that calls the app (SIG-717).
  * Each flag is spelled as its form, which is what lets `refreshed()` print one.
  */
-type Form = 'json' | 'json-schema' | 'markdown';
+type Form = 'json' | 'json-schema' | 'markdown' | 'skill';
 
 /**
  * What a change says, and what to do about it.
@@ -175,6 +177,59 @@ function said(kind: Change['kind'], refresh: string): string {
 }
 
 /**
+ * Warns where the app's `files` would leave a skill out of what it publishes
+ * (SIG-720).
+ *
+ * A skill an app's package does not ship is one no agent working in somebody
+ * else's project ever reads, and `files` is an allow-list -- so a skill written
+ * beside it is silently left out. Warned rather than written into the manifest,
+ * because `files` is the author's statement of what they publish and the
+ * toolchain does not edit a `package.json`. No `files` at all ships everything,
+ * and a destination outside the app is the author's to place.
+ *
+ * @param manifest - The app's `package.json`.
+ * @param root - The app's root.
+ * @param dest - Where the skill was written.
+ */
+function warnUnpublished(manifest: string, root: string, dest: string): void {
+  const rel = relative(root, dest).split(sep).join('/');
+  if (rel.startsWith('..') || isAbsolute(rel)) {
+    return;
+  }
+
+  let files: unknown;
+  try {
+    files = (JSON.parse(readFileSync(manifest, 'utf8')) as { files?: unknown }).files;
+  } catch {
+    return;
+  }
+  if (!Array.isArray(files)) {
+    return;
+  }
+
+  const covered = files.some((entry) => {
+    if (typeof entry !== 'string') {
+      return false;
+    }
+    const base = entry.replace(/^\.\//, '').replace(/\/(\*\*?)?$/, '');
+    return base === '' || rel === base || rel.startsWith(`${base}/`);
+  });
+
+  if (!covered) {
+    writeDiagnostics(
+      [
+        {
+          file: manifest,
+          message: `"files" does not include ${rel}, so the skill is left out of what the app publishes. Add "${rel.split('/')[0]}" to it.`,
+          severity: 'warning',
+        },
+      ],
+      { relativeTo: (file) => shown(root, file), stream: process.stderr }
+    );
+  }
+}
+
+/**
  * Annotated rather than inferred, which `--isolatedDeclarations` requires of a
  * default export; `AnyCommand` rather than `Command`, for the reason `check.ts`
  * records.
@@ -197,6 +252,7 @@ const reference: AnyCommand = command({
       label: 'Print what each command takes, for an agent or a tool definition',
       text: 'sigil reference --json-schema',
     },
+    { label: "Write the app's own agent skill", text: 'sigil reference --skill' },
   ],
   options: {
     '--check': {
@@ -215,7 +271,11 @@ const reference: AnyCommand = command({
       type: 'bool',
     },
     '--out [path]': {
-      desc: 'Where it goes: a directory for the pages, a file for --json or --json-schema. Overrides sigil.json',
+      desc: 'Where it goes: a directory for the pages or the skill, a file for --json or --json-schema. Overrides sigil.json',
+    },
+    '--skill': {
+      desc: 'Write an agent skill for the app: a SKILL.md and its reference, in skills/<name> unless --out says',
+      type: 'bool',
     },
   },
 
@@ -223,15 +283,23 @@ const reference: AnyCommand = command({
     const cwd = String(argv.dir ?? '.');
 
     // refused before the app is loaded, since nothing it says changes the answer:
-    // the two are two documents and `--out` names one file
-    if (argv.json && argv.jsonSchema) {
-      throw new Error('Choose one of --json and --json-schema: each is a document of its own.');
+    // each is an artifact of its own and `--out` names one destination
+    if ([argv.json, argv.jsonSchema, argv.skill].filter(Boolean).length > 1) {
+      throw new Error(
+        'Choose one of --json, --json-schema and --skill: each is an artifact of its own.'
+      );
     }
 
-    const form: Form = argv.jsonSchema ? 'json-schema' : argv.json ? 'json' : 'markdown';
-    // one file rather than a page per command, which is what decides how
+    const form: Form = argv.skill
+      ? 'skill'
+      : argv.jsonSchema
+        ? 'json-schema'
+        : argv.json
+          ? 'json'
+          : 'markdown';
+    // one file rather than a directory of them, which is what decides how
     // `--out` is read below
-    const json = form !== 'markdown';
+    const json = form === 'json' || form === 'json-schema';
     const { app, schema } = await loadAppSchema({ cwd, entry: argv.entry as string | undefined });
     const surface = await commandSurface(schema);
     const document = (): string =>
@@ -240,9 +308,17 @@ const reference: AnyCommand = command({
     const config = readSigilConfig(app.root).reference ?? {};
     // the input schemas have no `sigil.json` key yet: nothing has asked to commit
     // one, and a key is easier to add than to take back
+    // and the skill has a place of its own rather than a key: `skills/<name>` is
+    // where the skill format looks, so it is the default and `--out` the override
     const named =
       (argv.out as string | undefined) ??
-      (form === 'json' ? config.snapshot : form === 'markdown' ? config.out : undefined);
+      (form === 'json'
+        ? config.snapshot
+        : form === 'markdown'
+          ? config.out
+          : form === 'skill'
+            ? join('skills', skillName(surface.program))
+            : undefined);
 
     if (named === undefined) {
       if (argv.check) {
@@ -271,7 +347,9 @@ const reference: AnyCommand = command({
     // statement rather than two flags for one idea
     const files: ReferenceFile[] = json
       ? [{ body: document(), file: basename(dest) }]
-      : referencePages(surface).map(({ body, file }) => ({ body, file }));
+      : form === 'skill'
+        ? skillFiles(surface, { schemaCommand: schema.schema !== false })
+        : referencePages(surface).map(({ body, file }) => ({ body, file }));
     const dir = json ? dirname(dest) : dest;
 
     const changes = syncReference(dir, files, { check: !!argv.check, sweep: !json });
@@ -309,6 +387,10 @@ const reference: AnyCommand = command({
           changes.length === 1 ? '' : 's'
         } out of date in ${escapeControls(app.manifest.name ?? app.root)}`
       );
+    }
+
+    if (form === 'skill' && !argv.check) {
+      warnUnpublished(app.manifest.path, app.root, dest);
     }
 
     writeSummary(
