@@ -1135,6 +1135,9 @@ describe('sigil build', () => {
     // SIG-725: the array the const holds is written through a copy, by a name that
     // is not the const's, and the app answers to `x` for it
     ['alias-pushed', 'x', 'spreads another object, which may carry its "path" or "load"'],
+    // SIG-728: a const holding `commands` is refused the same way, and can be
+    // written in a schema module now that it is not read as a second schema
+    ['commands-held', 'x', 'spreads another object, which may carry its "name"'],
     ['both', undefined, 'Cannot combine "load" with "path" in the "x" command'],
   ])(
     'should refuse %s, which has that one thing wrong with it, and no other',
@@ -1206,6 +1209,86 @@ describe('sigil build', () => {
     // and the alias the warning is about really routes nothing
     expect(spawn(join(app, 'dev.ts'), ['ay']).status).not.toBe(0);
     expect(spawn(join(app, 'dev.ts'), ['a']).stdout).toBe('a ran\n');
+  }, 60_000);
+
+  it.each([
+    // a base the build cannot read, spread before the schema's own `commands`
+    'override',
+    // a base the build reads, which carries the `baseDir` of a schema's relative `commands`
+    'path',
+  ])(
+    'should read the schema that spreads a shared base, not the base as a second one: %s',
+    async (name) => {
+      // SIG-728. A `const` holding `commands` that is spread into the schema was
+      // counted as a schema of its own, so the build warned `found 2 schemas` and read
+      // no commands at all -- a built app with none of the commands the app has
+      const app = join(fixtures, 'discover', 'shared-base');
+      const { err } = await sigil(
+        'build',
+        app,
+        '--entry',
+        `src/${name}.js`,
+        '--out',
+        out,
+        '--no-sourcemap'
+      );
+
+      expect(err).not.toContain('schemas in this module');
+      expect(err).not.toContain('baseDir');
+      expect(err).not.toContain(': error: ');
+      expect(process.exitCode).toBeFalsy();
+
+      const run = (file: string, argv: string[]) => {
+        const { status, stderr, stdout } = spawnSync(process.execPath, [file, ...argv], {
+          cwd: tmpdir(),
+          encoding: 'utf-8',
+          env: { ...process.env, SCHEMA: join(app, 'src', `${name}.js`) },
+        });
+        return { status, stderr, stdout };
+      };
+      const built = (...argv: string[]) => run(join(out, 'shared-base.mjs'), argv);
+      const source = (...argv: string[]) => run(join(app, 'dev.ts'), argv);
+
+      for (const argv of [['a'], ['b'], ['--help']]) {
+        expect(built(...argv), argv.join(' ')).toStrictEqual(source(...argv));
+      }
+
+      // and the commands are the app's, not an empty tree that happens to match
+      expect(source('a').stdout).toBe('a ran\n');
+      expect(source('b').stdout).toBe('b ran\n');
+      expect(source('--help').stdout).toMatch(/^\s+b\b/m);
+    },
+    60_000
+  );
+
+  it('should check the locales the schema ends with when a shared base carries others', async () => {
+    // SIG-728. The check read the base's `locales`, which the schema replaces, so it
+    // reported on a catalog nothing loads and said nothing about the one that does
+    const app = join(fixtures, 'discover', 'shared-base');
+    const { err } = await sigil(
+      'build',
+      app,
+      '--entry',
+      'src/locales.js',
+      '--out',
+      out,
+      '--no-sourcemap'
+    );
+
+    expect(err).toContain('"fr" translates');
+    expect(err).not.toContain('"de" translates');
+    expect(process.exitCode).toBeFalsy();
+
+    const run = (file: string) => {
+      const { status, stdout } = spawnSync(process.execPath, [file, '--help'], {
+        cwd: tmpdir(),
+        encoding: 'utf-8',
+        env: { ...process.env, SCHEMA: join(app, 'src', 'locales.js'), SIGIL_LOCALE: 'fr' },
+      });
+      return { status, stdout };
+    };
+    expect(run(join(out, 'shared-base.mjs'))).toStrictEqual(run(join(app, 'dev.ts')));
+    expect(run(join(app, 'dev.ts')).stdout).toContain('Utilisation:');
   }, 60_000);
 
   it('should refuse a package the schema points at whose names it cannot read', async () => {

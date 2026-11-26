@@ -39,7 +39,7 @@
  * from (`schemaModule()`) -- because running it would run the app.
  */
 
-import { sealedResolver } from './bindings.ts';
+import { schemasWith, sealedResolver } from './bindings.ts';
 import { type Diagnostic, displayPath } from './diagnostic.ts';
 import { type CommandFacts, factsOf, type RoutedBy } from './extract.ts';
 import { translatedKey } from './i18n.ts';
@@ -47,13 +47,13 @@ import {
   flatten,
   isUndefined,
   isWrongType,
+  lastPlain,
   literalBoolean,
   literalString,
   literalType,
   loaderSpecifier,
   objectLiteral,
   outermostDeclaring,
-  outermostWith,
   PLACEHOLDER_KEYS,
   plainProperty,
   propertyKey,
@@ -515,12 +515,12 @@ export function readAppCommands(app: DiscoveredApp): {
   const parsed = parseModule(file, readFileSync(file, 'utf-8'));
   const diagnostics: Diagnostic[] = [];
 
-  const schemas = outermostWith(parsed.program as never, 'commands');
+  const schemas = schemasWith(parsed, 'commands');
 
   if (!schemas.length) {
     // a `run` with no `commands` beside it is a single-command app, where
     // `main()` dispatches the root. `outermostDeclaring()` rather than
-    // `outermostWith()`, because a `run` is written as a **method** far more
+    // `schemasWith()`, because a `run` is written as a **method** far more
     // often than as a property and `plainProperty()` leaves a method out --
     // the scaffold's own `run({ argv }) { ... }` is one.
     //
@@ -544,7 +544,21 @@ export function readAppCommands(app: DiscoveredApp): {
     return { diagnostics, found: true, root: false };
   }
 
-  const declared = plainProperty(schemas[0]!, 'commands')!;
+  // read through the spreads the build can resolve, so a sealed base's `commands`
+  // and `baseDir` are what the schema has, and the last spelling is the one that
+  // runs (SIG-728)
+  const resolver = sealedResolver(parsed);
+  const declared = lastPlain(schemas[0]!, 'commands', resolver)!;
+  if (spellingOf(schemas[0]!, 'commands', resolver).replaced) {
+    // a spread the build cannot read, after the `commands` that was read: it may
+    // carry its own, and the app runs the last. Said rather than guessed (SIG-728)
+    diagnostics.push({
+      ...locate(parsed, declared.start),
+      message:
+        '"commands" is written before a spread or a computed key, which may replace it when the app runs, so what is read here may not be the app\'s commands; pass --commands to say which command directory to check',
+      severity: 'warning',
+    });
+  }
   const schemaDir = dirname(file);
 
   const asPath = literalString(declared.value);
@@ -560,7 +574,7 @@ export function readAppCommands(app: DiscoveredApp): {
     // A warning rather than an error because the *built* app is genuinely
     // fine, and an app that only ever ships bundled is not wrong. What is
     // wrong is this command having nothing to say about it.
-    if (!isAbsolute(asPath) && !plainProperty(schemas[0]!, 'baseDir')) {
+    if (!isAbsolute(asPath) && !lastPlain(schemas[0]!, 'baseDir', resolver)) {
       diagnostics.push({
         ...locate(parsed, declared.value.start),
         message:

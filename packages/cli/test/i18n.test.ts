@@ -1,5 +1,7 @@
 import { appKeys, checkCatalogs, findKeys, readAppCatalogs } from '../src/build/i18n.ts';
 import { __, __n, loadCatalog, templateKey } from '@ttylabs/sigil/i18n';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -268,6 +270,70 @@ describe('reading an app`s catalogs', () => {
     expect(keys).toContain('{0} file changed');
     expect(keys).toContain('Building...');
     expect(keys).toContain('Where to put it');
+  });
+
+  describe('through a shared base spread into the schema', () => {
+    /** An app whose schema is `source`, with a `de` and a `fr` catalog beside it. */
+    const withSchema = async (source: string): Promise<ReturnType<typeof readAppCatalogs>> => {
+      const { discoverApp } = await import('../src/build/discover.ts');
+      const dir = mkdtempSync(join(tmpdir(), 'sigil-locales-'));
+      try {
+        writeFileSync(
+          join(dir, 'package.json'),
+          JSON.stringify({ dependencies: { '@ttylabs/sigil': '*' }, name: 'app', type: 'module' })
+        );
+        mkdirSync(join(dir, 'src'));
+        writeFileSync(join(dir, 'src', 'de.json'), '{ "a": "A" }');
+        writeFileSync(join(dir, 'src', 'fr.json'), '{ "b": "B" }');
+        writeFileSync(join(dir, 'src', 'index.js'), source);
+        return readAppCatalogs(discoverApp(dir));
+      } finally {
+        rmSync(dir, { force: true, recursive: true });
+      }
+    };
+    const loader = (locale: string) =>
+      `${locale}: () => import('./${locale}.json', { with: { type: 'json' } })`;
+
+    it('should read the schema`s own locales, which replace the base`s, and not the base as a schema', async () => {
+      // SIG-728. The base was a second schema and the first one found, so the check
+      // was about `de`, which the app never loads, and silent about `fr`
+      const read = await withSchema(
+        `const base = { locales: { ${loader('de')} } };\nexport default { ...base, locales: { ${loader('fr')} } };\n`
+      );
+
+      expect(read.catalogs.map((c) => c.locale)).toEqual(['fr']);
+      expect(read.diagnostics).toEqual([]);
+    });
+
+    it('should read a base`s locales where the schema spells none', async () => {
+      // the base is the only object with `locales`, which is what it always was
+      const read = await withSchema(
+        `const base = { locales: { ${loader('de')} } };\nexport default { ...base, name: 'app' };\n`
+      );
+
+      expect(read.catalogs.map((c) => c.locale)).toEqual(['de']);
+    });
+
+    it('should warn when a spread the build cannot read follows the locales it read', async () => {
+      // SIG-728, review. The app loads the last `locales` spelled, which may be the base's
+      const read = await withSchema(
+        `const base = { locales: { ${loader('de')} }, get x() { return 1; } };\nexport default { locales: { ${loader('fr')} }, ...base };\n`
+      );
+
+      expect(read.diagnostics.map((d) => d.message)).toEqual([
+        expect.stringContaining('"locales" is written before a spread or a computed key'),
+      ]);
+    });
+
+    it('should keep reading a base the build cannot show is only spread as the first schema, as it did', async () => {
+      // SIG-728. An exported base may be changed by whoever imports it, so it is not
+      // a part of the schema and the first of the two literals is what is read
+      const read = await withSchema(
+        `export const base = { locales: { ${loader('de')} } };\nexport default { ...base, locales: { ${loader('fr')} } };\n`
+      );
+
+      expect(read.catalogs.map((c) => c.locale)).toEqual(['de']);
+    });
   });
 
   it('should answer nothing for an app that declares no locales', async () => {

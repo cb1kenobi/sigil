@@ -868,25 +868,31 @@ function literalTruthiness(node: Expression): boolean | undefined {
 }
 
 /**
- * Every object literal in a module that declares a property, with the ones
- * nested inside another such object left out.
+ * The property of an object literal a reader of `name` should be handed: the
+ * last plain one among the members the object evaluates to (SIG-728).
  *
- * A schema's `commands` holds commands, and a command may hold `commands` of
- * its own -- so the outermost is the schema and everything under it is a
- * subcommand whoever asked will reach anyway. The same is true of any property
- * a schema and a command both have.
+ * Read off `flatten()`'s list, so a spread of a literal -- or of a `const` the
+ * resolver answers for -- is what it holds, and the last spelling is the one an
+ * object literal keeps. The first one was what `plainProperty()` returned, which
+ * for a key spelled twice is the one the runtime does not read.
  *
- * One walk for three readers: `readAppCommands()` asks about `commands` and
- * about `run`, and `readAppCatalogs()` asks about `locales`, and two
- * implementations of "which object is the schema" is two answers to one
- * question.
- *
- * @param program - The module's tree.
+ * @param object - The object literal.
  * @param name - The property to look for.
- * @returns The outermost such objects, in source order.
+ * @param resolve - The object literal a name holds, where that is known.
+ * @returns The property, when it is a plain one.
  */
-export function outermostWith(program: Node, name: string): ObjectExpression[] {
-  return outermost(program, (object) => plainProperty(object, name) !== undefined);
+export function lastPlain(
+  object: ObjectExpression,
+  name: string,
+  resolve?: (name: string) => ObjectExpression | undefined
+): ObjectProperty | undefined {
+  return flatten(object, resolve).findLast(
+    (member): member is ObjectProperty =>
+      member.type !== 'SpreadElement' &&
+      propertyKey(member) === name &&
+      member.kind === 'init' &&
+      !member.method
+  );
 }
 
 /**
@@ -909,7 +915,7 @@ export function outermostWith(program: Node, name: string): ObjectExpression[] {
  * @returns The outermost objects declaring it, in source order.
  */
 export function outermostDeclaring(program: Node, name: string): ObjectExpression[] {
-  return outermost(program, (object) =>
+  return outermostWhere(program, (object) =>
     object.properties.some(
       (property) => property.type !== 'SpreadElement' && propertyKey(property) === name
     )
@@ -917,13 +923,14 @@ export function outermostDeclaring(program: Node, name: string): ObjectExpressio
 }
 
 /**
- * The walk both of the two above are.
+ * The walk `outermostDeclaring()` is, and the one `schemasWith()` in `bindings.ts`
+ * asks with its own question (SIG-728).
  *
  * @param program - The module's tree.
  * @param claims - Whether an object is one the caller is looking for.
  * @returns The outermost claimed objects, in source order.
  */
-function outermost(
+export function outermostWhere(
   program: Node,
   claims: (object: ObjectExpression) => boolean
 ): ObjectExpression[] {
