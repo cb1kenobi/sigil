@@ -802,8 +802,9 @@ makes it testable with a fixture directory and no bundler at all.
     placeholder's `name`, where a guess is a different app. So it is the shape the
     placeholders use for "may carry", a warning naming which of the three a spread
     may set that the module does not spell -- or spells before it, which it may
-    replace -- and asked of each spread for what it can carry, so a conditional
-    that can only carry an `alias` is not said to carry a `name`. A refusal would
+    replace -- and asked of each spread for what it can carry, every one of them,
+    so a conditional that can only carry an `alias` is not said to carry a `name`
+    and two spreads each say all they may set. A refusal would
     fail builds that are correct, on every routed module that spreads a mixin it
     cannot read. The cost is one more warning at a spread that `factsOf()` already
     warned about for `desc`, at the same position.
@@ -813,7 +814,9 @@ makes it testable with a fixture directory and no bundler at all.
     warning too, and **what is written is baked**, which is the one place this
     differs from `alias`: a mixin that carries no `commands` is the usual one, and
     a built app without subcommands the app has is a worse way to be wrong than
-    one with the ones it was written with, which is also what it did before. It
+    one with the ones it was written with, which is also what it did before --
+    but only for a value the build reads, an object literal: `commands: undefined`
+    beside a spread is the question of what the spread carries. It
     is a warning because the divergence is a built app with different commands
     than the app, which `warnUnbaked()` already says for every other key it drops
     and which SIG-320 is for. It is newly said for a placeholder with a spread the
@@ -822,9 +825,10 @@ makes it testable with a fixture directory and no bundler at all.
     already gets. None of the toolchain's own commands or the examples gains one,
     which was measured by `sigil check` over each.
 
-  `holdsReadObject()` asks `objectLiteral()` what the readers ask it, so a
-  `commands: command({ ... })` is as refused as the literal it wraps: the reader
-  looks through a one-argument call and the guard has to as well.
+  `holdsReadObject()` asks what each reader asks. The nested `commands` read looks
+  through a one-argument call, so `commands: command({ ... })` is as refused as
+  the literal it wraps; no other key's does, and a `desc: t({ ... })` shares
+  nothing the build reads, so it is not refused.
 
   Covered by the guard's list in `test/build/sealed-binding.test.ts`, `read a spread
   of a const carrying options ...`, `pointed a refusal about what a const carried at
