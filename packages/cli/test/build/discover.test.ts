@@ -1730,15 +1730,20 @@ export default {
       // SIG-725. A shallow copy shares an array or an object with the const, so
       // a key the build read and a hook then changed would be one it had baked
       // the other value of. Only those keys keep a const refused
-      for (const held of [
-        "alias: ['b']",
+      //
+      // What the refusal quotes is what the const may carry (SIG-731): every one of
+      // them holds `path` beside the key under test, and `name` and `load` are
+      // quoted only where the const holds them. A const that visibly lacks a key is
+      // no carrier of it, so it is not named in the refusal as it used to be
+      for (const [held, carries] of [
+        ["alias: ['b']", 'its "path"'],
         // (`commands` is the same refusal: asserted on the guard itself, and
         // through a read below, 'refused a placeholder spreading a const that holds
         // commands')
-        "name: ['b']",
-        'hidden: []',
-        "desc: { text: 'x' }",
-      ]) {
+        ["name: ['b']", 'its "name" or "path"'],
+        ['hidden: []', 'its "path"'],
+        ["desc: { text: 'x' }", 'its "path"'],
+      ] as const) {
         const source = `const base = { ${held}, path: './commands/a.js' };
 export default {
   baseDir: import.meta.dirname,
@@ -1752,7 +1757,7 @@ export default {
 
           expect(errors, held).toHaveLength(1);
           expect(errors[0], held).toContain(
-            'the "x" command spreads another object, which may carry its "name", "path" or "load"'
+            `the "x" command spreads another object, which may carry ${carries};`
           );
           expect(at(list, 'x').module, held).toBeUndefined();
         });
@@ -1993,12 +1998,13 @@ export default { baseDir: import.meta.dirname, commands: { stale: './commands/a.
       });
     });
 
-    it('read what a base spread inside a placeholder holds as a base, and refused it as it refuses one', async () => {
+    it('read what a base spread inside a placeholder holds as a base, and warned of the commands it cannot read', async () => {
       // SIG-725, SIG-728. A schema module holding a `const` with `commands` in it
       // could not be built, so the refusal was asserted on the guard and not through
-      // a read: the const is a part of the schema that spreads it, and the spread is
-      // refused because what it carries -- a shared `commands` -- is not a thing
-      // the build reads
+      // a read: the const is a part of the schema that spreads it, and what it
+      // carries -- a shared `commands` -- is not a thing the build reads. It was
+      // refused for a `name`, a `path` and a `load` it does not hold until SIG-731,
+      // and is a warning about the commands alone now
       const source = `const base = { commands: { sub: './commands/a.js' } };
 export default {
   baseDir: import.meta.dirname,
@@ -2012,8 +2018,16 @@ export default {
 
         expect(diagnostics.map((d) => d.message).join('\n')).not.toContain('schemas');
         expect(list.map((each) => each.name)).toEqual(['x']);
-        expect(errors).toHaveLength(1);
-        expect(errors[0]).toContain('the "x" command spreads another object');
+        // the const holds no `name`, `path` or `load`, so nothing about the command
+        // is unknown but what it carries beside them (SIG-731): it is read, and the
+        // `commands` the build cannot see are warned about, as for any spread
+        expect(errors).toEqual([]);
+        expect(at(list, 'x').module?.split(/[\\/]/).at(-1)).toBe('a.js');
+        expect(diagnostics.map((d) => d.message)).toEqual([
+          expect.stringContaining(
+            'the "x" command spreads another object, which may carry a "commands" this cannot see'
+          ),
+        ]);
         expect(at(list, 'x').commands).toEqual([]);
       });
     });
@@ -2186,10 +2200,14 @@ export default {
           const list = commands?.kind === 'inline' ? commands.commands : [];
           const errors = diagnostics.filter((d) => d.severity === 'error').map((d) => d.message);
 
-          // `x` has no module and no name the build can read: refused, once
+          // `x` has no module and no name the build can read: refused, once. What it
+          // quotes is what the const may carry: a const only ever written `path` to
+          // visibly holds no `name` and no `load` (SIG-731)
           expect(errors, what).toHaveLength(1);
           expect(errors[0], what).toContain(
-            'the "x" command spreads another object, which may carry its "name", "path" or "load"'
+            PATH_ONLY.has(what)
+              ? 'the "x" command spreads another object, which may carry its "path";'
+              : 'the "x" command spreads another object, which may carry its "name", "path" or "load"'
           );
           expect(at(list, 'x').module, what).toBeUndefined();
           // `y` writes `name` and `path` after the spread, which decides both;
@@ -2214,6 +2232,78 @@ export default {
           ).toBe(true);
         });
       }
+    });
+
+    it('read a placeholder that spreads a const visibly holding no name, path or load, though it is not sealed', async () => {
+      // SIG-731. The const has a member read (`mixin.tags.push()`), which keeps it from
+      // being read as the literal it is, and it holds none of the three keys that
+      // route and bundle a placeholder: nothing can have written one to it, so the
+      // spread carries none and the refusal for "may carry its name, path or load"
+      // was about nothing. It is the same question the replacing side asks (SIG-730)
+      const source = `const mixin = { tags: ['a'] };
+mixin.tags.push('b');
+export default {
+  baseDir: import.meta.dirname,
+  commands: {
+    x: { alias: 'why', ...mixin, path: './commands/a.js' },
+    y: { ...mixin, load: () => import('./commands/a.js') },
+  },
+};\n`;
+
+      await withSchema(source, (dir) => {
+        const { commands, diagnostics } = readAppCommands(discoverApp(dir));
+        const list = commands?.kind === 'inline' ? commands.commands : [];
+
+        expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
+        expect(list.map((each) => each.name)).toEqual(['x', 'y']);
+        expect(at(list, 'x').module?.split(/[\\/]/).at(-1)).toBe('a.js');
+        expect(at(list, 'y').module?.split(/[\\/]/).at(-1)).toBe('a.js');
+        // `alias` is written before a spread that holds none either
+        expect(at(list, 'x').alias).toEqual(['why']);
+        expect(diagnostics.map((d) => d.message)).toEqual([]);
+      });
+    });
+
+    it.each([
+      // [what the const is put through, the statement or declaration]
+      ['a write of the name', `const mixin = { tags: [] };\nmixin.name = 'later';`],
+      ['a write of the name by index', `const mixin = { tags: [] };\nmixin['name'] = 'later';`],
+      ['a write of a computed key', `const mixin = { tags: [] };\nmixin[process.env.K] = 'later';`],
+      ['a delete of the name', `const mixin = { tags: [] };\ndelete mixin.name;`],
+      [
+        'a write through a called member',
+        `const mixin = { tags: [] };\nmixin.valueOf().name = 'later';`,
+      ],
+      ['a tagged template', `const mixin = { tags: [] };\nmixin.tag\`x\`;`],
+      ['a constructed member', `const mixin = { tags: [] };\nnew mixin.Thing();`],
+      ['Object.assign', `const mixin = { tags: [] };\nObject.assign(mixin, { name: 'later' });`],
+      ['a call', `const mixin = { tags: [] };\nmutate(mixin);`],
+      ['a closure', `const mixin = { tags: [] };\nconst swap = () => { mixin.name = 'later'; };`],
+      ['an import', `import mixin from './mixin.js';`],
+      ['an export', `export const mixin = { tags: [] };`],
+      ['a let', `let mixin = { tags: [] };`],
+      ['a getter', `const mixin = { get tags() { return []; } };`],
+      ['a spread of a name', `const inner = { tags: [] };\nconst mixin = { ...inner };`],
+    ])('refused a spread of a const put through %s, as it was', async (what, declaration) => {
+      // SIG-731. Everything SIG-730 keeps a warning for stays a carrier here: the
+      // guard is one function, so what may write a `name` to the const is what may
+      // carry one into the placeholder. Nothing of the three is spelled by the
+      // placeholder after the spread, so `name` is the one asked about
+      const source = `${declaration}
+export default {
+  baseDir: import.meta.dirname,
+  commands: { x: { ...mixin, path: './commands/a.js' } },
+};\n`;
+
+      await withSchema(source, (dir) => {
+        const { diagnostics } = readAppCommands(discoverApp(dir));
+        const errors = diagnostics.filter((d) => d.severity === 'error').map((d) => d.message);
+
+        expect(errors, what).toHaveLength(1);
+        expect(errors[0], what).toContain(
+          'the "x" command spreads another object, which may carry its "name";'
+        );
+      });
     });
 
     it('should warn about an alias or a default it cannot read, naming the command', () => {

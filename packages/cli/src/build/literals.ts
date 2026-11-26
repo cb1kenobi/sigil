@@ -492,8 +492,8 @@ export const PLACEHOLDER_KEYS: ReadonlySet<string> = new Set([
  * @param computed - Whether a computed key that may be `key` is a carrier as
  *   well as a spread.
  * @param lacks - Whether a name is a same-module object that visibly holds no
- *   `key`, so that spreading it cannot replace one (SIG-730). Asked of what may
- *   replace a spelling and not of what may carry a key spelled nowhere.
+ *   `key`, so that spreading it cannot replace one (SIG-730) and is no carrier of
+ *   a key spelled nowhere (SIG-731).
  * @returns The spelling that runs, `undefined` where the key is not declared;
  *   whether a later property may replace it, and which; the accessor or method
  *   that is the spelling when a plain one was written before it; and a spread
@@ -543,7 +543,7 @@ export function spellingOf(
       ? undefined
       : found;
   return {
-    carrier: unspelledCarrier(members, key, computed),
+    carrier: unspelledCarrier(members, key, computed, lacks),
     declared,
     replaced,
     replacedBy: replaced ? members[replacing] : undefined,
@@ -675,16 +675,22 @@ export function lastReplacing(object: Members, key: string, lacks?: Lacks): numb
  * that missed one is not listed wrongly but answers to a different name or runs
  * nothing at all.
  *
+ * A spread of a name `lacks` says holds no `key` is no carrier: it is what it
+ * holds, which is nothing of this key (SIG-731).
+ *
  * @param object - The object literal, or its flattened members.
  * @param key - The key in question.
  * @param computed - Whether a computed key that may be `key` counts as well.
+ * @param lacks - Whether a name is a same-module object that visibly holds no
+ *   `key`, where the caller can say.
  * @returns The first such spread, or computed key when asked for them, or
  *   `undefined` where the key is spelled or nothing may carry it.
  */
 export function unspelledCarrier(
   object: Members,
   key: string,
-  computed = false
+  computed = false,
+  lacks?: Lacks
 ): SpreadElement | ObjectProperty | undefined {
   const members = membersOf(object);
   if (
@@ -696,7 +702,7 @@ export function unspelledCarrier(
   return members.find(
     (property): property is SpreadElement | ObjectProperty =>
       (property.type === 'SpreadElement' || (computed && property.computed)) &&
-      mayCarry(property, key)
+      mayCarry(property, key, lacks)
   );
 }
 

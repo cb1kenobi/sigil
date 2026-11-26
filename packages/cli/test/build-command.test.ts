@@ -1026,6 +1026,8 @@ describe('sigil build', () => {
       ['sh'],
       // a const carrying `options` and `args`, which the build never reads (SIG-725)
       ['withopts'],
+      // a const the build cannot seal that holds no name, path or load (SIG-731)
+      ['mixed'],
       [],
       ['--help'],
     ]) {
@@ -1037,6 +1039,7 @@ describe('sigil build', () => {
     expect(source('viaload').stdout).toBe('b ran\n');
     expect(source('sh').stdout).toBe('a ran\n');
     expect(source('withopts').stdout).toBe('a ran\n');
+    expect(source('mixed').stdout).toBe('b ran\n');
     expect(source().stdout).toBe('a ran\n');
     expect(source('--help').stdout).toMatch(/^\s+aliased\b.*Shared words$/m);
     expect(source('--help').stdout).not.toMatch(/^\s+named$/m);
@@ -1131,10 +1134,12 @@ describe('sigil build', () => {
     // SIG-440: a const the build would read, written to where it cannot see
     ['name-mutated', 'later', 'spreads another object, which may carry its "name"'],
     ['path-passed', 'x', 'spreads another object, which may carry its "path" or "load"'],
-    ['load-captured', 'x', 'spreads another object, which may carry its "path" or "load"'],
+    // (a const written to is refused for the key it may carry and not for one it
+    // visibly lacks: `load` here, and `path` below, where `name` is the key's own)
+    ['load-captured', 'x', 'spreads another object, which may carry its "load";'],
     // SIG-725: the array the const holds is written through a copy, by a name that
     // is not the const's, and the app answers to `x` for it
-    ['alias-pushed', 'x', 'spreads another object, which may carry its "path" or "load"'],
+    ['alias-pushed', 'x', 'spreads another object, which may carry its "path";'],
     // SIG-728: a const holding `commands` is refused the same way, and can be
     // written in a schema module now that it is not read as a second schema
     ['commands-held', 'x', 'spreads another object, which may carry its "name"'],

@@ -980,17 +980,15 @@ makes it testable with a fixture directory and no bundler at all.
     rule `sealedObject()` already has, cheap side first: the app answers a warning
     by writing the key after the spread. An imported, exported, `let` or called
     mixin still warns, because the build cannot see what it holds. It is applied
-    to what may replace a spelling, and to the `baseDir` carrier above, and **not**
-    to `unspelledCarrier()` --
-    the question of what a spread may carry for a key spelled nowhere -- which
-    would also have been correct and was left alone: asked there it moves the
-    refusal a placeholder's `name`, `path` and `load` get for a const something
-    writes `path` to from "may carry its name, path or load" to "may carry its
-    path", which is true and is a change to messages this ticket did not ask for.
-    A follow-up if the carried side should get it too. The one visible
-    consequence for an existing test is `refused a spread of a const that something
-    else can change`: a const only ever written `path` to no longer leaves a
-    placeholder's `alias`, written before the spread, unknown.
+    to what may replace a spelling, and to the `baseDir` carrier above, and was
+    **not** applied to `unspelledCarrier()` -- the question of what a spread may
+    carry for a key spelled nowhere -- until SIG-731, the entry below, which
+    moved the refusal a placeholder's `name`, `path` and `load` get for a const
+    something writes `path` to from "may carry its name, path or load" to "may
+    carry its path". The one visible consequence for an existing test is
+    `refused a spread of a const that something else can change`: a const only
+    ever written `path` to no longer leaves a placeholder's `alias`, written
+    before the spread, unknown.
 
   `sigil check` over `packages/cli` and every example under `examples/` was run
   against it and gained no warning and lost none -- there were none to lose.
@@ -1003,6 +1001,35 @@ makes it testable with a fixture directory and no bundler at all.
   source, the second and fourth are apps whose built form differs from the app
   and so are held to the warning, and the third agrees with source and says
   nothing.
+
+  **A spread that visibly lacks a key carries it nowhere, a getter-only `commands`
+  is the unbaked warning, and `baseDir: null` is none (SIG-731, SIG-732,
+  SIG-733).** Three follow-ups of the entry above, each in the question it was
+  left asking.
+
+  - **`unspelledCarrier()` takes the `lacks` resolver, so the carried side and
+    the replacing side are one answer (SIG-731).** `spellingOf()` hands it
+    `lacksResolver()` and `factsOf()` does for the module lift's `desc`, so a
+    spread of a same-module `const` that visibly holds no `name`, `path` or `load`
+    is no carrier of it. `{ ...mixin, path: './x.js' }` with `const mixin = {
+    tags: ['a'] }` and `mixin.tags.push('b')` -- a const `sealedObject()` gives up
+    on for the member read -- was refused for a `name` it cannot hold and is read
+    now; every placeholder key that goes through `placeholderSpelling()` moves
+    with it (`desc`, `hidden`, `alias`, `default`, a nested `commands`), and so
+    does the module lift's "may carry a desc". What stays a carrier is what
+    `lacksResolver()` keeps, which is the list in the entry above: a member write
+    of the key, a called, tagged or constructed member, `Object.assign`, a call,
+    a closure, an import, an export, a `let`, a getter, a spread of a name --
+    pinned for `name` by `refused a spread of a const put through ...`.
+    The messages that change are the ones that quoted the three keys for a const
+    that holds only some of them, and each now names what it may carry:
+    `alias-pushed` is "may carry its "path"" (its const holds `alias` and `path`),
+    `load-captured` is "its "load"", a const only ever written `path` to is "its
+    "path"", and a const that holds a `name` array beside `path` is "its "name" or
+    "path"". `commands-held` gained a `name` so that it stays the refusal it was
+    written to drive through a build: a const holding only `commands` is no
+    carrier of the three, and builds with the warning for the `commands` it cannot
+    see, which is the divergence that is real.
 
   **A known divergence, not a rule: a built app carries none of the rest of what
   a placeholder declares.** The runtime reads every property off a placeholder

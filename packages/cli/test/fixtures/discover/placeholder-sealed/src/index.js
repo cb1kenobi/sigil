@@ -11,6 +11,11 @@ const routing = { alias: 'sh', default: true };
 const words = { desc: 'Shared words', hidden: false };
 // carrying options and args, which the build never reads, is not a reason to refuse it (SIG-725)
 const shape = { options: { '--force': { type: 'bool' } }, args: ['[target]'] };
+// a const the build cannot seal, because something reads a member of it, that still
+// visibly holds no `name`, `path` or `load` (SIG-731): nothing can have written one
+// to it, so the spread decides none of the three and the placeholder is read
+const tagged = { tags: ['a'] };
+tagged.tags.push('b');
 
 export default {
   name: 'placeholder-sealed',
@@ -22,5 +27,6 @@ export default {
     // the default command, answering to `sh`, described by a const of its own
     aliased: { ...words, ...routing, ...pathed },
     withopts: { ...shape, ...pathed },
+    mixed: { ...tagged, path: './commands/b.js' },
   },
 };
