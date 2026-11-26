@@ -368,9 +368,11 @@ const lacking = new WeakMap<ParsedModule, Map<string, boolean>>();
  *   key that may carry it, a spread of a name inside it included, which is not
  *   looked into twice; and
  * - named nowhere except as an object spread's operand or as the object of a
- *   member access with a **different** static key. `base.options.push(x)` cannot
- *   write `commands`; `base.commands = x`, `base[k] = x`, `Object.assign(base, x)`
- *   and `mutate(base)` can, or might, and any of them keeps the warning. A member
+ *   member access with a **different** static key that is not called, tagged or
+ *   constructed. `base.options.push(x)` cannot write `commands`; `base.commands =
+ *   x`, `base[k] = x`, `Object.assign(base, x)`, `mutate(base)` and
+ *   `base.valueOf().commands = x` -- a called member is handed the object as
+ *   `this` -- can, or might, and any of them keeps the warning. A member
  *   access of `key` is refused even where it only reads, which is the cheap side
  *   to be wrong on, as it is for `sealedObject()`.
  *
@@ -601,7 +603,8 @@ function sealedObjectOf(parsed: ParsedModule, name: string): ObjectExpression | 
  * @param declarator - Its declaration.
  * @param except - A key whose accesses are the only ones that matter, where the
  *   question is about one key: a member access of any other static key is then
- *   allowed too (SIG-730).
+ *   allowed too, unless it is called, tagged or constructed, which hands the
+ *   object over as `this` (SIG-730).
  * @returns Whether every use of it is a spread.
  */
 function onlySpread(
@@ -641,9 +644,14 @@ function onlySpread(
       // a member that is *called* is handed the object as `this`: `mixin.valueOf()`
       // returns it and `mixin.set('commands', x)` writes it, so it is a use the build
       // cannot follow whatever the key is
-      const callee = unwrapShallow(
+      // through a parenthesized optional chain too, which `unwrapShallow()` does not
+      // look through and which keeps `this`: `(mixin?.valueOf)()`
+      let callee = unwrapShallow(
         (node.type === 'TaggedTemplateExpression' ? node.tag : node.callee) as Expression
       );
+      while (callee.type === 'ChainExpression') {
+        callee = unwrapShallow(callee.expression as Expression);
+      }
       if (callee.type === 'MemberExpression') {
         called.add(callee);
       }

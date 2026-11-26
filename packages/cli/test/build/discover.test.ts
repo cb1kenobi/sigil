@@ -1849,7 +1849,8 @@ export default { baseDir: import.meta.dirname, commands: { stale: './commands/a.
         ],
         [
           'a spread of a const that visibly holds no baseDir',
-          `const mixin = { name: 'x' };\nexport default { ...mixin, commands: './commands' };`,
+          // read for a member, so it is not sealed and `lacksResolver()` is what is asked
+          `const mixin = { name: 'x' };\nmixin.name = 'y';\nexport default { ...mixin, commands: './commands' };`,
           'sets no "baseDir"',
         ],
         [
@@ -1926,6 +1927,14 @@ export default { baseDir: import.meta.dirname, commands: { stale: './commands/a.
         ['an assign', `const mixin = { name: 'x' };\nObject.assign(mixin, other);`],
         ['a closure that calls it', `const mixin = { name: 'x' };\nconst f = () => mutate(mixin);`],
         ['a delete', `const mixin = { name: 'x' };\ndelete mixin.commands;`],
+        [
+          'a parenthesized optional call',
+          `const mixin = { name: 'x' };\n(mixin?.valueOf)().commands = {};`,
+        ],
+        [
+          'an optional call of a member',
+          `const mixin = { t() { this.commands = {}; } };\nmixin.t?.();`,
+        ],
         ['a method called on it', `const mixin = { name: 'x' };\nmixin.valueOf().commands = {};`],
         [
           'its own method called',

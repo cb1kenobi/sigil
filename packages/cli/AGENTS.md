@@ -967,8 +967,12 @@ makes it testable with a fixture directory and no bundler at all.
     static key, **and that member is not called**. `mixin.tags.push('x')` cannot
     write `commands`; `mixin.valueOf().commands = x` can, because a called member
     is handed the object as `this` and returns it, as do `mixin.set('commands',
-    x)`, `mixin.__defineGetter__(...)`, a tagged template and `new mixin.x()` --
-    refused whatever the key (review found all four, by running them).
+    x)`, `mixin.__defineGetter__(...)`, a tagged template, `new mixin.x()` and
+    `(mixin?.valueOf)()` -- refused whatever the key (review found them by running
+    them). **Not covered, and accepted:** an accessor inherited from
+    `Object.prototype` that a test or a module installs and then runs with the
+    const as `this` by a plain read or write (`mixin.late = {}`); it is the
+    general case of the `__proto__` exclusion, and nothing a schema module does.
     **A member assignment of that key keeps the warning, and so does a read of it
     and every use the build cannot follow** -- `mixin.commands = x`,
     `mixin['commands'] = x`, `mixin[k] = x`, `delete mixin.commands`,
