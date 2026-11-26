@@ -38,6 +38,7 @@ import type {
   Expression,
   ObjectExpression,
   ObjectProperty,
+  Node,
   VariableDeclarator,
 } from 'oxc-parser';
 
@@ -368,28 +369,32 @@ export function schemasWith(parsed: ParsedModule, key: string): ObjectExpression
       return true;
     }
 
-    return !found.some((other) => other !== object && spreads(other, name));
+    // dropped only when **every** spread of it is inside a literal found: one
+    // that is spread somewhere else is not known to be a part of a schema
+    const inside = found.reduce(
+      (count, other) => count + (other === object ? 0 : spreadsOf(other, name)),
+      0
+    );
+    return inside === 0 || inside !== spreadsOf(parsed.program, name);
   });
 }
 
-/** Whether an object literal has a spread of `name` anywhere inside it. */
-function spreads(inside: ObjectExpression, name: string): boolean {
-  let found = false;
+/** How many object spreads of `name` there are anywhere inside a node. */
+function spreadsOf(inside: Node, name: string): number {
+  let count = 0;
   walk(inside, (node) => {
-    if (
-      node.type === 'ObjectExpression' &&
-      node.properties.some(
-        (property) =>
-          property.type === 'SpreadElement' &&
-          unwrapShallow(property.argument).type === 'Identifier' &&
-          (unwrapShallow(property.argument) as { name?: string }).name === name
-      )
-    ) {
-      found = true;
+    if (node.type === 'ObjectExpression') {
+      for (const property of node.properties) {
+        const operand =
+          property.type === 'SpreadElement' ? unwrapShallow(property.argument) : undefined;
+        if (operand?.type === 'Identifier' && operand.name === name) {
+          count++;
+        }
+      }
     }
-    return !found;
+    return true;
   });
-  return found;
+  return count;
 }
 
 /**

@@ -865,8 +865,12 @@ makes it testable with a fixture directory and no bundler at all.
   is an object literal is not read through, so the spread of it in a placeholder
   is refused as any spread the build cannot read is, and the const that carried it
   is no longer a second schema in the way. Said exactly, because "keeps today's
-  behaviour" has two halves:
+  behaviour" is three answers:
 
+  - **Two literals that each spread one sealed base are two schemas**, where the
+    base alone used to be read: both claim the key through it, which is the
+    ambiguity the warning is for, and the old answer was the base, which is
+    neither of them.
   - **A const the build cannot show is only spread** -- a `let` or `var`, an
     exported `const`, a name bound twice, one assigned, passed to a call, captured
     or read by a member -- **is still a schema of its own**, and a module with it
@@ -874,10 +878,17 @@ makes it testable with a fixture directory and no bundler at all.
     catalog check still takes the first literal, which is the base.
   - **A const that is only spread but whose content is not read** -- an object
     literal under `commands`, an accessor -- is left out when it is spread inside
-    a literal that has the key, and what spreads it reports the spread: a
-    placeholder gets the refusal or the warning it always gets for a spread it
-    cannot read. Before, the module said `found 2 schemas` and nothing at all was
-    read, so no such report was ever made. A base that is spread **nowhere** inside
+    a literal that has the key **and every spread of it is inside a literal
+    found**, and what spreads it reports the spread: a placeholder gets the refusal
+    or the warning it always gets for a spread it cannot read, and a schema that
+    spells `commands` or `locales` **before** such a spread gets a warning that the
+    spread may replace it, since the app runs the last and the build read the one
+    written (review of SIG-728 found the build baking `stale` over a `real` with
+    nothing said, once the two-schemas warning no longer covered it). Before, the
+    module said `found 2 schemas` and nothing at all was read, so no such report
+    was ever made. The warning is new for any schema with a spread it cannot read
+    after its `commands`, an imported mixin included, which used to read the
+    written one in silence. A base that is spread **nowhere** inside
     a literal that has the key stays the schema -- including `{ ...base, run() {} }`
     over a base holding an object-literal `commands`, which does not spell the key
     itself and cannot be seen to carry it, so `base` is read directly as it was.

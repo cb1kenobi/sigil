@@ -314,6 +314,17 @@ describe('reading an app`s catalogs', () => {
       expect(read.catalogs.map((c) => c.locale)).toEqual(['de']);
     });
 
+    it('should warn when a spread the build cannot read follows the locales it read', async () => {
+      // SIG-728, review. The app loads the last `locales` spelled, which may be the base's
+      const read = await withSchema(
+        `const base = { locales: { ${loader('de')} }, get x() { return 1; } };\nexport default { locales: { ${loader('fr')} }, ...base };\n`
+      );
+
+      expect(read.diagnostics.map((d) => d.message)).toEqual([
+        expect.stringContaining('"locales" is written before a spread or a computed key'),
+      ]);
+    });
+
     it('should keep reading a base the build cannot show is only spread as the first schema, as it did', async () => {
       // SIG-728. An exported base may be changed by whoever imports it, so it is not
       // a part of the schema and the first of the two literals is what is read

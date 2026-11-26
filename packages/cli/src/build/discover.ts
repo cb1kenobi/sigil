@@ -549,6 +549,16 @@ export function readAppCommands(app: DiscoveredApp): {
   // runs (SIG-728)
   const resolver = sealedResolver(parsed);
   const declared = lastPlain(schemas[0]!, 'commands', resolver)!;
+  if (spellingOf(schemas[0]!, 'commands', resolver).replaced) {
+    // a spread the build cannot read, after the `commands` that was read: it may
+    // carry its own, and the app runs the last. Said rather than guessed (SIG-728)
+    diagnostics.push({
+      ...locate(parsed, declared.start),
+      message:
+        '"commands" is written before a spread or a computed key, which may replace it when the app runs, so what is read here may not be the app\'s commands; pass --commands to say which command directory to check',
+      severity: 'warning',
+    });
+  }
   const schemaDir = dirname(file);
 
   const asPath = literalString(declared.value);

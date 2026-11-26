@@ -39,6 +39,7 @@ import {
   loaderSpecifier,
   objectLiteral,
   propertyKey,
+  spellingOf,
 } from './literals.ts';
 import { MODULE_RE, type ParsedModule, parseModule, position } from './parse-module.ts';
 import { schemaModule } from './schema-module.ts';
@@ -398,7 +399,23 @@ export function readAppCatalogs(app: DiscoveredApp): AppCatalogs {
 
   // through the spreads the build can resolve, as `readAppCommands()` reads
   // `commands`: a sealed base's `locales` are the schema's (SIG-728)
-  const declared = objectLiteral(lastPlain(schemas[0]!, 'locales', sealedResolver(parsed))!.value);
+  const resolver = sealedResolver(parsed);
+  const own = lastPlain(schemas[0]!, 'locales', resolver)!;
+  const declared = objectLiteral(own.value);
+
+  if (spellingOf(schemas[0]!, 'locales', resolver).replaced) {
+    // the catalogs the app loads are the last `locales` spelled, which a spread
+    // after this one may be (SIG-728)
+    const { column, line } = position(parsed.source, own.start);
+    diagnostics.push({
+      column,
+      file,
+      line,
+      message:
+        '"locales" is written before a spread or a computed key, which may replace it when the app runs, so the catalogs checked here may not be the app\'s',
+      severity: 'warning',
+    });
+  }
 
   if (!declared) {
     const { column, line } = position(parsed.source, schemas[0]!.start);

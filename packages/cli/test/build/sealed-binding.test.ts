@@ -333,12 +333,34 @@ export default { ...base, name: 'app' };`)
 
   it('should keep a const spread nowhere inside another literal that has the key', () => {
     // not spread at all, and spread into something that is no schema: it is the
-    // only object that has the key, so it is the schema -- which is what a module
-    // with one `commands` and one shared base spread into a helper has always had
+    // only object that has the key, so it is the schema
     expect(schemas(`const base = { commands: { a: './a.js' } };`)).toHaveLength(1);
     expect(
       schemas(`const base = { commands: { a: './a.js' } };
 const other = { ...base, name: 'x' };`)
     ).toHaveLength(1);
+  });
+
+  it('should keep a const that is also spread somewhere that is not a literal it found', () => {
+    // SIG-728, review. One spread inside a literal that has the key is not every
+    // spread: the real schema `{ ...base, run() {} }` cannot claim an unreadable
+    // base, and dropping it because a helper literal spreads it would leave the
+    // helper as the only schema there is
+    const found = schemas(`const base = { commands: { a: './a.js' } };
+const other = { commands: './unused', nested: { ...base } };
+export default { ...base, run() {} };`);
+
+    expect(found).toHaveLength(2);
+  });
+
+  it('should count two literals that spread one sealed base as two schemas, which is what they are', () => {
+    // SIG-728, review. Both claim `commands` through the base, so the module has two
+    // schemas and the build says it cannot choose. It used to read the base, which
+    // was the one answer neither of them is
+    expect(
+      schemas(`const base = { commands: './commands' };
+export const one = { ...base, name: 'one' };
+export default { ...base, name: 'two' };`)
+    ).toHaveLength(2);
   });
 });

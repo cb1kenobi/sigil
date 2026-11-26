@@ -1764,6 +1764,23 @@ export default { ...base, commands: './commands' };\n`;
       });
     });
 
+    it('warned when a spread the build cannot read follows the commands it read', async () => {
+      // SIG-728, review. The base is a part of the schema and not a second one, so
+      // nothing said `found 2 schemas` any more -- while the app runs the base's
+      // `commands`, written last, and the build read `stale`
+      const source = `const base = { commands: { real: './commands/a.js' } };
+export default { baseDir: import.meta.dirname, commands: { stale: './commands/a.js' }, ...base };\n`;
+
+      await withSchema(source, (dir) => {
+        const { diagnostics } = readAppCommands(discoverApp(dir));
+
+        expect(diagnostics.map((d) => d.message)).toEqual([
+          expect.stringContaining('"commands" is written before a spread or a computed key'),
+        ]);
+        expect(diagnostics[0]).toMatchObject({ severity: 'warning' });
+      });
+    });
+
     it('read what a base spread inside a placeholder holds as a base, and refused it as it refuses one', async () => {
       // SIG-725, SIG-728. A schema module holding a `const` with `commands` in it
       // could not be built, so the refusal was asserted on the guard and not through
