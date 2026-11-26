@@ -1030,25 +1030,40 @@ makes it testable with a fixture directory and no bundler at all.
     written to drive through a build: a const holding only `commands` is no
     carrier of the three, and builds with the warning for the `commands` it cannot
     see, which is the divergence that is real.
-
-  **A known divergence, not a rule: a built app carries none of the rest of what
-  a placeholder declares.** The runtime reads every property off a placeholder
-  (`initCommand()` copies the declaration and `loadCommand()` merges it over a
-  module that left the key `undefined`), and the baked tree holds `desc`,
-  `hidden`, `alias`, `default`, `name`, the module and a nested `commands` written
-  as an object literal. So `run` (an inline handler with no module prints help and
-  exits 0), `options`, `args`, `examples`, `format`, `hooks`, `help`,
-  custom data, and a nested `commands` given as a path or a list are
-  dropped, and a placeholder with `options: { '--force': { type: 'bool' } }` and
-  `args: [{ name: 'target' }]` answers `remove --force x` as
-  `{"force":true,"target":"x"}` from source and `{"force":"x"}` built. That is a
-  bug, tracked as SIG-320, and not something the design wants. What this ticket
-  did about it is the warning: `warnUnbaked()` in `discover.ts` names the command
-  and the property for each one, so the build no longer says nothing. Add a
-  property to the baked set and to `BAKED` together, and delete the warning for it
-  with the fix. A spread or a computed key can carry any of them and is reported
-  by nothing -- except `commands`, which a spread the build cannot read is warned
-  about (SIG-726).
+  - **A placeholder whose only `commands` is an accessor or a method is
+    `warnUnbaked()`'s, and its wording is the right one (SIG-732).** The build
+    cannot run a getter, so the built app has none of the subcommands the runtime
+    gets from it; the message `declares "commands" in the schema, which sigil
+    build does not carry into a built app ... it applies when the app runs from
+    source and not after a build, so write it as an object literal of commands`
+    says exactly that, for a getter, a setter and a method, and it is the message a path or a
+    list of paths gets. A second message for the accessor was not written: it
+    would say the same thing in more words, and two messages for one dropped
+    property is two to keep in step. Pinned for all three, and built against
+    source by `placeholder-getter` in `discover/shared-base` (`x sub` runs from
+    source and not built). **Not fixed, and worth a ticket each:** a schema whose
+    only `commands` is a getter is reported as `no "commands" found in this
+    module`, which is an error and so not silent but says the wrong thing, and a
+    schema whose only `locales` is one is not claimed by `schemasWith()` at all,
+    so the catalog check is skipped and `sigil check` says `no problems found`.
+    **A known divergence, not a rule: a built app carries none of the rest of what
+    a placeholder declares.** The runtime reads every property off a placeholder
+    (`initCommand()` copies the declaration and `loadCommand()` merges it over a
+    module that left the key `undefined`), and the baked tree holds `desc`,
+    `hidden`, `alias`, `default`, `name`, the module and a nested `commands` written
+    as an object literal. So `run` (an inline handler with no module prints help and
+    exits 0), `options`, `args`, `examples`, `format`, `hooks`, `help`,
+    custom data, and a nested `commands` given as a path or a list are
+    dropped, and a placeholder with `options: { '--force': { type: 'bool' } }` and
+    `args: [{ name: 'target' }]` answers `remove --force x` as
+    `{"force":true,"target":"x"}` from source and `{"force":"x"}` built. That is a
+    bug, tracked as SIG-320, and not something the design wants. What this ticket
+    did about it is the warning: `warnUnbaked()` in `discover.ts` names the command
+    and the property for each one, so the build no longer says nothing. Add a
+    property to the baked set and to `BAKED` together, and delete the warning for it
+    with the fix. A spread or a computed key can carry any of them and is reported
+    by nothing -- except `commands`, which a spread the build cannot read is warned
+    about (SIG-726).
 
   **Settings are no longer one of the divergences, and a warning covers what is
   left of that one.** A built app used to lose every `settings` its own `main()`

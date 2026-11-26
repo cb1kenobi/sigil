@@ -1238,6 +1238,36 @@ export default {
       });
     });
 
+    it.each([
+      ['a getter', "get commands() { return { sub: './commands/a.js' }; }"],
+      ['a setter', 'set commands(value) {}'],
+      ['a method', "commands() { return { sub: './commands/a.js' }; }"],
+    ])(
+      'should say a placeholder whose only commands is %s is not carried into a built app',
+      async (_what, member) => {
+        // SIG-732. The build cannot run code, so the built app has none of the
+        // subcommands the runtime gets from it. That is `warnUnbaked()`'s message and
+        // nothing else's -- no accessor-specific one -- and it is worded for it: the
+        // property is not carried, it applies from source only, and the way out is an
+        // object literal
+        const source = `export default {
+  baseDir: import.meta.dirname,
+  commands: { x: { path: './commands/a.js', ${member} } },
+};\n`;
+
+        await withSchema(source, (dir) => {
+          const { commands, diagnostics } = readAppCommands(discoverApp(dir));
+          const list = commands?.kind === 'inline' ? commands.commands : [];
+
+          expect(diagnostics.map((d) => d.message)).toEqual([
+            'the "x" command declares "commands" in the schema, which `sigil build` does not carry into a built app (SIG-320); it applies when the app runs from source and not after a build, so write it as an object literal of commands, which is the one form the build reads',
+          ]);
+          expect(diagnostics[0]!.severity).toBe('warning');
+          expect(at(list, 'x').commands).toEqual([]);
+        });
+      }
+    );
+
     it('should warn about every property of a placeholder it does not bake', () => {
       const app = discoverApp(join(apps, 'unbaked'));
       const { diagnostics } = readAppCommands(app);

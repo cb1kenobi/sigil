@@ -1318,6 +1318,22 @@ describe('sigil build', () => {
       expect(built('a').stdout).not.toBe('a ran\n');
     }, 60_000);
 
+    it('should say a placeholder whose only commands is a getter has none in the built app', async () => {
+      // SIG-732. From source `x sub` is a command, because the runtime calls the
+      // getter; the build cannot run one, so the built app has no `sub`. It is the
+      // `warnUnbaked()` message that says so, and it is the right one: a getter is
+      // dropped whole, as a path to a directory of commands is
+      const { built, err, source } = await build('placeholder-getter');
+
+      expect(err).toContain(
+        'the "x" command declares "commands" in the schema, which `sigil build` does not carry into a built app (SIG-320); it applies when the app runs from source and not after a build, so write it as an object literal of commands, which is the one form the build reads'
+      );
+      expect(process.exitCode).toBeFalsy();
+      expect(source('x', 'sub').stdout).toBe('b ran\n');
+      expect(built('x', 'sub').stdout).not.toBe('b ran\n');
+      expect(built('x').stdout).toBe(source('x').stdout);
+    }, 60_000);
+
     it('should not warn that a spread may replace commands when its const spells none, and the apps agree', async () => {
       const { built, err, source } = await build('lacks');
 
