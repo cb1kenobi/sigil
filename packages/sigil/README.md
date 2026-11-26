@@ -2582,6 +2582,7 @@ strip(ansi.bold.red('error')); // 'error'
 hasAnsi('x'); // false
 hasIntroducer('a\tb'); // false: strip() leaves it, and every slice of it, alone
 stripWellFormed('caf\x9f rest', '?'); // 'caf? rest': strip() would answer 'caf'
+stripWellFormed('\x9dquoted\x9c rest', '?', { c1: 'text' }); // '?quoted? rest'
 
 ansi.level; // 0-3, detected from the terminal
 const forced = createAnsi({ level: 3 });
@@ -2598,6 +2599,11 @@ final byte, an OSC, DCS, SOS, PM or APC with its terminator, an `ESC` and the by
 escapes -- and replaces a lone `ESC` or C1 character, or a sequence cut off before its end, with
 `mark`, keeping the text after it. `strip()` reads a lone introducer the way a terminal does,
 as the start of a sequence that never ends, and takes the rest of the string with it.
+A C1 introducer that something later ends is still a whole sequence there, so Latin-1 text with
+a pair of curly quotes (U+009D, U+009C) loses the words between them. `{ c1: 'text' }` reads
+only the `ESC` form as a sequence and replaces every C1 character, U+0080 to U+009F, with
+`mark`, so no C1 character takes text and an `ESC ]` string is closed by `BEL` or `ESC \`
+alone. The default is unchanged.
 
 `hexChannels(digits)` is the hex reader `ansi.hex()` is built on, without the
 `#` and without the throw: three or six hex digits in either case become

@@ -151,7 +151,11 @@ export function labelLine(value: string): string {
  *   drew `caf`. A string a caller wrote may well hold one -- text decoded as
  *   Latin-1 when it was UTF-8 is full of them -- so this goes through
  *   `stripWellFormed()`, which keeps the text and draws the introducer as `\uFFFD`,
- *   the way `printable()` draws a control character.
+ *   the way `printable()` draws a control character;
+ * - only the `ESC` form is a sequence (SIG-724). A C1 character (U+0080 to U+009F) is
+ *   text and is drawn as `\uFFFD` whatever follows it, so a pair of curly quotes
+ *   decoded as Latin-1 keeps the words between them: nobody writes an 8-bit
+ *   introducer on purpose on a UTF-8 terminal, and styling arrives as `ESC [`.
  *
  * Not `labelLine()`: that collapses every run of whitespace to one space and
  * trims, which is right for a label and would change a `format()` result that
@@ -170,7 +174,7 @@ export function formatLine<Args extends unknown[]>(
   format: (...args: Args) => string,
   ...args: Args
 ): string {
-  return toDisplayLine(stripWellFormed(String(format(...args)), '\uFFFD'));
+  return toDisplayLine(stripWellFormed(String(format(...args)), '\uFFFD', { c1: 'text' }));
 }
 
 /**
