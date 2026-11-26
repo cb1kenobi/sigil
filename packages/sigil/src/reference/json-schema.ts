@@ -38,6 +38,10 @@
  *   invent them, and a model will.
  * - **What is hidden.** A hidden option still resolves, and is left out unless
  *   asked for, for the reason help leaves it out.
+ * - **A choice the type cannot hold.** String `choices` on an `int` or a
+ *   `number` are compared after coercion, so `'443'` is never among them and
+ *   the parser refuses every value; the `enum` says so, `[]`. Sound, and a
+ *   declaration nothing can satisfy -- which is the declaration's mistake.
  *
  * `auto` is `{}`, any value at all, because `checkValue()` passes a typed value
  * through untouched. A **string** sent to it is still guessed at, so `"007"`

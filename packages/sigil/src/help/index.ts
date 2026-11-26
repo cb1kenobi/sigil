@@ -23,11 +23,11 @@ import {
   type Schema,
 } from '../types.js';
 import { byCodeUnit } from '../util/by-code-unit.js';
+import { programName } from '../util/program-name.js';
 import { topicSeparator } from '../util/topic.js';
 import { terminalWidth } from '../wrap/index.js';
 import { type BuiltSection, byGroup, createSections, withoutTwins } from './sections.js';
 import { type Definition, hanging, heading, type ListOptions, section } from './template.js';
-import { basename } from 'node:path';
 
 export {
   type Definition,
@@ -192,7 +192,7 @@ export function helpView(target: HelpTarget, opts: HelpOptions = {}): Element {
       args,
       commands: commands.length > 0,
       defaulted: internal.commands.default !== undefined,
-      name: programName(target, opts),
+      name: usageName(target, opts),
       // a contributed section counts, but only when it has options in it: one
       // that contributes arguments alone is not a reason to promise options
       options:
@@ -319,20 +319,15 @@ function contributedBlocks(
 }
 
 /**
- * The program's name, for the usage line.
- *
- * The root context is named from the schema, and `parse()` calls it `global`
- * when the schema did not say -- an internal placeholder, and not something to
- * print. The name of the running script is the better guess, because it is what
- * the user typed.
+ * The program's name, for the usage line: what the caller asked for, else the
+ * one `programName()` gives every reader that prints it.
  *
  * @param target - The help target.
  * @param opts - The help options.
  * @returns The name to print.
  */
-function programName(target: HelpTarget, opts: HelpOptions): string {
-  const script = process.argv[1] ? basename(process.argv[1]) : undefined;
-  return opts.name ?? target.schema?.name ?? script ?? 'cli';
+function usageName(target: HelpTarget, opts: HelpOptions): string {
+  return opts.name ?? programName(target.schema?.name);
 }
 
 interface UsageParts {

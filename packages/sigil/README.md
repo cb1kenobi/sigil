@@ -1590,7 +1590,13 @@ named. What the mapping says and leaves out is under
 the same document from the toolchain.
 
 `schema.schema: false` adds nothing, and an app that declares its own `schema`
-command, or an alias of that name, keeps it.
+command, or an alias of that name, keeps it. A command resolves before a
+positional value, so an app whose root reads one (`mycli <who>`) answers
+`mycli schema` with this command, as it answers `mycli completion` and
+`mycli help` with theirs; `schema: false` gives the word back.
+
+With no `name` on the schema, the document names the program the way help's
+usage line does: the script's own file name.
 
 ---
 

@@ -97,6 +97,44 @@ describe('the schema command', () => {
     ]);
   });
 
+  it('should find a command whose module renames it, by the name it routes by', async () => {
+    // the module's own `name` wins the merge, so the loaded command is called
+    // `compile` while the registry and the surface both know it as `build`.
+    // Resolving `under` from the loaded command's name matched no surface path
+    // and printed an empty document with exit 0. Found by review
+    const renamed = app({
+      commands: {
+        build: {
+          load: () =>
+            Promise.resolve({
+              default: { name: 'compile', options: { '--minify': {} }, run() {} },
+            }),
+        },
+      },
+    });
+
+    const ran = await runCommand({ argv: ['schema', 'build'], schema: renamed });
+    expect(ran.code, ran.err).toBe(0);
+    expect(printed(ran.out)).toEqual(['build']);
+    expect(Object.keys(JSON.parse(ran.out).commands[0].inputSchema.properties)).toEqual([
+      'config',
+      'minify',
+    ]);
+  });
+
+  it('should answer for an app that declares no name, with the name help prints', async () => {
+    // `Schema.name` is optional and help falls back to the script's own name;
+    // `commandSurface()` refuses a missing one, so `schema` crashed on an app
+    // whose help listed it. Found by review
+    const { name: _, ...unnamed } = app();
+
+    const ran = await runCommand({ argv: ['schema'], schema: unnamed });
+    expect(ran.code, ran.err).toBe(0);
+
+    const usage = (await runCommand({ argv: ['--help'], schema: unnamed })).out;
+    expect(usage).toContain(`Usage: ${JSON.parse(ran.out).program} `);
+  });
+
   it('should refuse a command that does not exist the way help does', async () => {
     const ran = await runCommand({ argv: ['schema', 'deplyo'], schema: app() });
 
