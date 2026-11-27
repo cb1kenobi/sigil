@@ -432,6 +432,40 @@ export function visibleLiteral(parsed: ParsedModule, name: string): ObjectExpres
     : undefined;
 }
 
+/**
+ * The keys something writes to a same-module `const` by a member, anywhere in the
+ * module (SIG-736).
+ *
+ * `visibleLiteral()` is what the const was declared as, and `shared.options = x`
+ * puts a key on it that the literal never held. This is the occurrence scan
+ * `lacksResolver()` asks, taken for every key at once rather than for one. It
+ * lists the keys that are **written** -- assigned, updated, deleted into or
+ * destructured into -- and not the ones that are read: `lacksResolver()` refuses
+ * a read of its own key, which is the cheap side for a question about one key,
+ * while a list that named every key somebody read would report a key the const
+ * never held. A use the scan cannot follow -- a computed member (`shared[k] = x`), a call with the
+ * const as an argument, a closure, a called member -- may write any key at all,
+ * so no list of them exists and the answer is `undefined`: a caller asking for
+ * the keys has to say what it does about a spread that may carry anything, and
+ * `warnUnbaked()` says nothing for it, as for any spread it cannot read.
+ *
+ * @param parsed - The module.
+ * @param name - The binding.
+ * @returns The keys, or `undefined` where a use cannot be followed or the name is
+ *   not a plain same-module `const` of an object literal.
+ */
+export function writtenKeys(parsed: ParsedModule, name: string): ReadonlySet<string> | undefined {
+  const declared = declaredObject(parsed, name);
+  if (!declared) {
+    return undefined;
+  }
+
+  // `''` is the key whose accesses are refused, which no one writing a key to a
+  // const means: every other static key is allowed, and the written ones collected
+  const keys = new Set<string>();
+  return onlySpread(parsed, name, declared.declarator, '', keys) ? keys : undefined;
+}
+
 function lacksKey(parsed: ParsedModule, name: string, key: string): boolean {
   const declared = declaredObject(parsed, name);
   if (!declared) {
@@ -661,13 +695,19 @@ function sealedObjectOf(parsed: ParsedModule, name: string): ObjectExpression | 
  *   question is about one key: a member access of any other static key is then
  *   allowed too, unless it is called, tagged or constructed, which hands the
  *   object over as `this` (SIG-730).
+ * @param written - Where to collect the static key of each member access that
+ *   `except` allowed **and that is written** -- the target of an assignment, an
+ *   update or a `for ... of`, or inside a destructuring one -- for the caller that
+ *   wants to know which keys the const was given (SIG-736). One scan, so what
+ *   counts as a use cannot differ between the two questions.
  * @returns Whether every use of it is a spread.
  */
 function onlySpread(
   parsed: ParsedModule,
   name: string,
   declarator: VariableDeclarator,
-  except?: string
+  except?: string,
+  written?: Set<string>
 ): boolean {
   // every occurrence of the name but its declaration and an object spread's
   // operand is a use that might write -- or might hand the object to something
@@ -676,10 +716,20 @@ function onlySpread(
   // with `with` or a direct `eval` can bind or write any name without saying so
   const allowed = new Set<unknown>([declarator.id]);
   const called = new Set<unknown>();
+  const targets = new Set<unknown>();
   let used = false;
   walk(parsed.program, (node) => {
     if (node.type === 'WithStatement') {
       used = true;
+    } else if (written && ASSIGNING.has(node.type)) {
+      // everything inside the left side is written to, `[shared.a] = x` included, and
+      // the parent is visited before its members
+      const target =
+        node.type === 'UpdateExpression' ? node.argument : (node as { left: Node }).left;
+      walk(target, (inner) => {
+        targets.add(inner);
+        return true;
+      });
     } else if (node.type === 'ObjectExpression') {
       for (const property of node.properties) {
         if (property.type === 'SpreadElement') {
@@ -720,6 +770,9 @@ function onlySpread(
       otherKey(node, except)
     ) {
       allowed.add(node.object);
+      if (targets.has(node)) {
+        written?.add(staticKey(node)!);
+      }
     } else if (
       (node.type === 'Identifier' || node.type === 'JSXIdentifier') &&
       (node.name === 'eval' || (node.name === name && !allowed.has(node)))
@@ -733,16 +786,29 @@ function onlySpread(
   return !used;
 }
 
+/** The nodes that write to what is on their left, or in their argument. */
+const ASSIGNING: ReadonlySet<string> = new Set([
+  'AssignmentExpression',
+  'ForInStatement',
+  'ForOfStatement',
+  'UpdateExpression',
+]);
+
 /** Whether a member access names a static key that is neither `key` nor `__proto__`. */
 function otherKey(node: Node & { computed: boolean; property: Node }, key: string): boolean {
-  const name = node.computed
+  const name = staticKey(node);
+  return name !== undefined && name !== key && name !== '__proto__';
+}
+
+/** The key a member access names where it is written out: `.x` and `['x']`, and no other. */
+function staticKey(node: { computed: boolean; property: Node }): string | undefined {
+  return node.computed
     ? node.property.type === 'Literal' && typeof node.property.value === 'string'
       ? node.property.value
       : undefined
     : node.property.type === 'Identifier'
       ? node.property.name
       : undefined;
-  return name !== undefined && name !== key && name !== '__proto__';
 }
 
 /**

@@ -1370,6 +1370,15 @@ describe('sigil build', () => {
       expect(process.exitCode).toBeFalsy();
     }, 60_000);
 
+    it('should say a placeholder carries an option written to its spread const (SIG-736)', async () => {
+      const { err } = await build('written-options');
+
+      expect(err).toContain(
+        'the "x" command declares "options" in the schema, which `sigil build` does not carry into a built app (SIG-320)'
+      );
+      expect(process.exitCode).toBeFalsy();
+    }, 60_000);
+
     it('should not warn that a spread may replace commands when its const spells none, and the apps agree', async () => {
       const { built, err, source } = await build('lacks');
 

@@ -1042,9 +1042,8 @@ makes it testable with a fixture directory and no bundler at all.
     for one the placeholder spells after the spread, so a const holding `path`
     that the placeholder respells, or one something merely reads `path` of, was
     neither refused nor reported. A const that is also refused is reported twice
-    at worst. Not covered: a key written to the const later
-    (`shared.options = {}`) is not in its literal and is not reported, which is
-    still one warning at the spread for whatever the literal holds.
+    at worst. A key written to the const later (`shared.options = {}`) is not in
+    its literal, and was not reported until SIG-736, the entry below.
   - **A placeholder whose only `commands` is an accessor or a method is
     `warnUnbaked()`'s, and its wording is the right one (SIG-732).** The build
     cannot run a getter, so the built app has none of the subcommands the runtime
@@ -1056,11 +1055,10 @@ makes it testable with a fixture directory and no bundler at all.
     would say the same thing in more words, and two messages for one dropped
     property is two to keep in step. Pinned for all three, and built against
     source by `placeholder-getter` in `discover/shared-base` (`x sub` runs from
-    source and not built). **Not fixed, and worth a ticket each:** a schema whose
-    only `commands` is a getter is reported as `no "commands" found in this
-    module`, which is an error and so not silent but says the wrong thing, and a
-    schema whose only `locales` is one is not claimed by `schemasWith()` at all,
-    so the catalog check is skipped and `sigil check` says `no problems found`.
+    source and not built). The same shape on the **schema** was reported as `no
+    "commands" found in this module`, and a schema whose only `locales` is one
+    was not claimed at all, so `sigil check` said `no problems found`: SIG-734 and
+    SIG-735, the entry below.
   - **`baseDir: null` is none, as the runtime reads it (SIG-733).**
     `resolveDeclaredPath()` asks `baseDir ? resolve(baseDir, file) : file`, so
     every falsy `baseDir` leaves a relative path to the working directory --
@@ -1085,6 +1083,64 @@ makes it testable with a fixture directory and no bundler at all.
   (agrees with source), `placeholder-getter` and `null-basedir` in
   `discover/shared-base` (the built form differs from the app, and the warning is
   what says so).
+
+  **A schema whose only `commands` or `locales` is an accessor or a method is
+  claimed, and the build says it cannot read it (SIG-734, SIG-735); a key written
+  to a spread `const` is a key it carries (SIG-736).** Follow-ups of the entry
+  above, the two it listed as not fixed and the one it listed as not covered.
+
+  - **`schemasWith()` claims a literal that spells the key as a getter, a setter or
+    a method, whether or not a plain spelling is the one read.** The runtime reads
+    the accessor, so that literal **is** the schema; left unclaimed, it was `no
+    "commands" found` for the command tree and nothing at all for the catalogs.
+    It claims through `flatten()` as everything else does, so a sealed base holding
+    the getter is the schema's own spelling. `lastPlain()` still answers `undefined`
+    for it, and the two readers ask `spellingIn().declared` for what is there.
+    Claiming it widens the set by a literal that writes `commands() {}` or `get
+    locales()` for some other reason, which is a literal already claimed for a
+    plain `commands: x` written anywhere.
+  - **For `commands` it is an error, and for `locales` a warning, because that is
+    what each already was for the computed shape.** A computed `commands` is an
+    error since a built app would silently lack the commands the app has, and so
+    is a getter: `"commands" is an accessor or a method rather than an object
+    literal, so it cannot be read at build time and a built app will not have
+    these commands; it applies when the app runs from source and not after a
+    build, so write it as an object literal of commands, or pass --commands to
+    name a command directory` -- SIG-732's wording for the placeholder, which is
+    a warning there only because the rest of that app is still baked. `readAppCommands()`
+    returns `found: true`, so `sigil check` does not add `no "commands" found` on top.
+    `locales` is read for the check and the bundler follows the literal `import()`s
+    itself, so what is lost is the check: `"locales" is an accessor or a method
+    rather than an object literal, so the catalogs cannot be read at build time
+    and are not checked`, a warning, with the computed message's wording, and
+    `declared` is `true` as it is there.
+  - **`warnUnbaked()` reports a key a member write puts on a spread `const`
+    (SIG-736), from the scan `lacksResolver()` already does.** `writtenKeys()` in
+    `bindings.ts` is `onlySpread()`'s own walk, handed a collector, so what counts as
+    a use cannot differ: a static-key member that is the target of an assignment
+    (`=`, `??=`, `+=`), an update, a `for ... in/of`, or inside a destructuring
+    target, is a key the const carries, and the key is reported at the spread
+    unless the literal already held it. A **read** of a key is not a write and is
+    not reported -- `lacksResolver()` refuses a read of its own key, which is the
+    cheap side for a question about one key, while a list of every key somebody
+    read would name keys the const never held. **A computed write (`shared[k] =
+    x`), a call with the const in it, a closure and a called member are a use the
+    scan cannot follow, so no list of keys exists and nothing is added**: the
+    spread is the one the build cannot read and is reported by nothing, as before.
+    A written `commands` is always reported, since the build reads no write; a
+    written baked key (`shared.desc = 'x'`) is the other readers' (`mayCarry()`).
+
+  `sigil check` over `packages/cli` and every example under `examples/` was run
+  and gained no warning and lost none (`system-monitor` has no entry module, as
+  on `main`). Covered by `said a schema whose only commands is ... cannot be
+  read`, `read the schema that holds the getter through a shared base` and `a key
+  written to a spread const after its declaration` in `test/build/discover.test.ts`,
+  `should warn that a schema whose only locales is ... cannot be checked` in
+  `test/i18n.test.ts`, and built by `test/build-command.test.ts` over
+  `getter-commands`, `getter-locales` and `written-options` in
+  `discover/shared-base`. Each was sabotaged: removing the claim fails the first
+  two groups and the getter's build test, and emptying `writtenKeys()` fails
+  all of the third.
 
   **A known divergence, not a rule: a built app carries none of the rest of what
   a placeholder declares.** The runtime reads every property off a placeholder

@@ -1268,6 +1268,92 @@ export default {
       }
     );
 
+    describe('a key written to a spread const after its declaration (SIG-736)', () => {
+      const placeholder = (before: string, spread = '...shared') =>
+        `${before}\nexport default { baseDir: import.meta.dirname, commands: { x: { ${spread}, path: './commands/a.js' } } };\n`;
+      const read = (source: string) =>
+        withSchema(source, (dir) => readAppCommands(discoverApp(dir)).diagnostics);
+      const unbaked = (diagnostics: readonly { message: string }[]) =>
+        diagnostics
+          .map((d) => /declares "(\w+)" in the schema/.exec(d.message)?.[1])
+          .filter((key) => key !== undefined);
+
+      it.each([
+        ['a property assignment', `shared.options = { '--force': {} };`],
+        ['a string-keyed one', `shared['options'] = { '--force': {} };`],
+        ['a logical assignment', `shared.options ??= {};`],
+        ['a destructuring target', `[shared.options] = [{}];`],
+        ['one inside a function', `function late() { shared.options = {}; }`],
+      ])(
+        'should report a key the const is given by %s as the spread carrying it',
+        async (_what, write) => {
+          // the literal holds `hidden` and nothing else, so `options` was reported by
+          // nothing while the runtime's placeholder has it
+          const diagnostics = await read(placeholder(`const shared = { hidden: true };\n${write}`));
+
+          expect(unbaked(diagnostics)).toEqual(['options']);
+          expect(diagnostics.find((d) => d.message.includes('"options"'))).toMatchObject({
+            severity: 'warning',
+          });
+        }
+      );
+
+      it('should not report a key that is only read, which the const never held', async () => {
+        // a read cannot add a key, and `sealedObject()` gives up on the const for it all
+        // the same
+        const diagnostics = await read(
+          placeholder(`const shared = { hidden: true };\nconsole.log(shared.options);`)
+        );
+
+        expect(unbaked(diagnostics)).toEqual([]);
+      });
+
+      it('should report the key once when the literal holds it too', async () => {
+        const diagnostics = await read(
+          placeholder(`const shared = { options: {} };\nshared.options = { '--force': {} };`)
+        );
+
+        expect(unbaked(diagnostics)).toEqual(['options']);
+      });
+
+      it('should report each key written, and not a baked one', async () => {
+        const diagnostics = await read(
+          placeholder(
+            `const shared = { hidden: true };\nshared.options = {};\nshared.run = () => {};\nshared.desc = 'x';`
+          )
+        );
+
+        // `desc` is baked and is the other readers' to report, not this one's
+        expect(unbaked(diagnostics).sort()).toEqual(['options', 'run']);
+      });
+
+      it('should report commands written to the const, which the build never reads from a write', async () => {
+        const diagnostics = await read(
+          placeholder(
+            `const shared = { hidden: true };\nshared.commands = { sub: './commands/a.js' };`
+          )
+        );
+
+        expect(unbaked(diagnostics)).toEqual(['commands']);
+      });
+
+      it('should say nothing more for a computed write, which may be any key, than for any spread it cannot read', async () => {
+        // `shared[k] = x` is no list of keys: the answer is the one a spread of an
+        // unreadable name has always had, and the literal's own keys are still reported
+        const diagnostics = await read(
+          placeholder(`const shared = { run() {} };\nconst k = 'options';\nshared[k] = {};`)
+        );
+
+        expect(unbaked(diagnostics)).toEqual(['run']);
+      });
+
+      it('should report nothing for a const nothing is written to that holds only baked keys', async () => {
+        const diagnostics = await read(placeholder(`const shared = { hidden: true };`));
+
+        expect(unbaked(diagnostics)).toEqual([]);
+      });
+    });
+
     it('should warn about every property of a placeholder it does not bake', () => {
       const app = discoverApp(join(apps, 'unbaked'));
       const { diagnostics } = readAppCommands(app);

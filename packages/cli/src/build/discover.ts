@@ -45,6 +45,7 @@ import {
   sealedResolver,
   spellingIn,
   visibleLiteral,
+  writtenKeys,
 } from './bindings.ts';
 import { type Diagnostic, displayPath } from './diagnostic.ts';
 import { type CommandFacts, factsOf, type RoutedBy } from './extract.ts';
@@ -1654,29 +1655,43 @@ function warnUnbaked(
   // a spread of a const the resolver gave up on is refused only for the keys that
   // route a placeholder, and not for one it spells after the spread or a const that
   // holds none of them, so what else it holds is said here, at the spread (SIG-731)
+  // and a key written to such a const anywhere in the module is one it carries as
+  // well (SIG-736): the literal is what it was declared as, and `shared.options = x`
+  // is not in it. Asked of the scan `lacksResolver()` answers from, for every key at
+  // once; where a use cannot be followed -- `shared[k] = x`, `mutate(shared)` -- the
+  // keys are not a list, and the spread is reported by nothing, as every spread the
+  // build cannot read is
   const members = flatten(object, sealedResolver(parsed)).flatMap((member) => {
     const operand = member.type === 'SpreadElement' ? unwrapShallow(member.argument) : undefined;
     const literal =
       operand?.type === 'Identifier' ? visibleLiteral(parsed, operand.name) : undefined;
-    return literal
-      ? flatten(literal).map((property) => ({ at: member.start, property }))
-      : [{ at: member.start, property: member }];
-  });
-
-  for (const { at, property } of members) {
-    if (property.type === 'SpreadElement') {
-      continue;
+    if (!literal || operand?.type !== 'Identifier') {
+      return [{ at: member.start, key: keyOf(member), written: false, value: valueOf(member) }];
     }
 
-    const key = propertyKey(property);
+    const spelled = flatten(literal).map((property) => ({
+      at: member.start,
+      key: keyOf(property),
+      value: valueOf(property),
+      written: false,
+    }));
+    const held = new Set(spelled.map((each) => each.key));
+    const written = [...(writtenKeys(parsed, operand.name) ?? [])]
+      .filter((key) => !held.has(key))
+      .map((key) => ({ at: member.start, key, value: undefined, written: true }));
+    return [...spelled, ...written];
+  });
+
+  for (const { at, key, value, written } of members) {
     if (key === undefined || key === '__proto__') {
       continue;
     }
 
     // `commands` is carried only in the one shape the build reads, and the
-    // others are dropped whole -- a path to a directory of them, a list
+    // others are dropped whole -- a path to a directory of them, a list. What was
+    // written to a const is not read at all
     if (key === 'commands') {
-      if (property.kind === 'init' && !property.method && objectLiteral(property.value)) {
+      if (!written && value !== undefined && objectLiteral(value)) {
         continue;
       }
     } else if (BAKED.has(key)) {
@@ -1689,6 +1704,22 @@ function warnUnbaked(
       severity: 'warning',
     });
   }
+}
+
+/** The key a member of a literal declares, where it declares one statically. */
+function keyOf(member: ObjectExpression['properties'][number]): string | undefined {
+  return member.type === 'SpreadElement' ? undefined : propertyKey(member);
+}
+
+/**
+ * What a member of a literal holds, where it is a plain property: an accessor or a
+ * method holds nothing the build reads, so `commands` as one is not the object
+ * literal the build bakes.
+ */
+function valueOf(member: ObjectExpression['properties'][number]): Expression | undefined {
+  return member.type !== 'SpreadElement' && member.kind === 'init' && !member.method
+    ? (member.value as Expression)
+    : undefined;
 }
 
 /**
