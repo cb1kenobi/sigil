@@ -214,6 +214,9 @@ importers:
       '@ttylabs/config-yaml':
         specifier: workspace:*
         version: link:../packages/config-yaml
+      '@ttylabs/mcp':
+        specifier: workspace:*
+        version: link:../packages/mcp
       '@ttylabs/screenshot':
         specifier: workspace:*
         version: link:../packages/screenshot

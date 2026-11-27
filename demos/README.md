@@ -324,6 +324,39 @@ watcher written to in the moment after it is created can lose its event, measure
 at about 3% under heavy parallel load, so the demo makes one throwaway change and
 waits for it rather than reporting a silence that is not one.
 
+## MCP
+
+|                                        |                                                                                  |
+| -------------------------------------- | -------------------------------------------------------------------------------- |
+| [`mcp/01-server.js`](mcp/01-server.js) | An app's commands as MCP tools, by adding one command, and a client calling them |
+
+```sh
+node demos/mcp/01-server.js                     # it starts itself as a server and calls it
+node demos/mcp/01-server.js mcp                 # the server itself, for a real client
+claude mcp add sigil-ops -- node "$PWD/demos/mcp/01-server.js" mcp
+```
+
+[`@ttylabs/mcp`](../packages/mcp) turns an app into an MCP server with one entry
+in its `commands`: `mcp: mcpCommand()`. Every command that runs is a tool, named
+after its path (`cache clear` is `cache_clear`); its options and arguments are
+the tool's input schema, the same JSON Schema `mycli schema` prints; and what it
+declares about running it -- `readOnly`, `destructive`, `idempotent` -- are the
+tool's annotations, which is what a client reads before asking whether to run it.
+
+Run with no arguments, the file is its own client. It starts itself with `mcp`,
+speaks JSON-RPC over the pipe and prints each exchange: the handshake, the tool
+list, and five calls. What a command returns is the call's `structuredContent`;
+what a command prints is its answer when it returns nothing, and never reaches
+the protocol stream, because each call runs in a child process of its own; and a
+usage error comes back as `isError` with its `code`, so an agent can tell a call
+it got wrong from a command that broke.
+
+The `sum -5 12 30` call is the one to look at. Arguments travel as data rather
+than as a rebuilt command line, so `-5` arrives as a number. From the command
+line the same app cannot take it at all -- `sum -- -5 12` is
+`Extra arguments are not allowed`, because what follows `--` is extra arguments
+rather than positionals -- which is the reason the server does not rebuild argv.
+
 ## Components
 
 |                                                                                          |                                                                                     |
