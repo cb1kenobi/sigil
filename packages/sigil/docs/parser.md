@@ -1722,8 +1722,8 @@ the message it is safe to branch on:
 | `unexpected-argument` | Gave a positional argument with nothing to take it                                   |
 | `extra-arguments`     | Put something after `--` where `allowExtraArguments` is off                          |
 | `missing-value`       | Gave an option that takes a value none                                               |
-| `missing-argument`    | Left out a required argument                                                         |
-| `missing-option`      | Left out a required option                                                           |
+| `missing-argument`    | Left out a required argument, or one a prompt asks for when there is no terminal     |
+| `missing-option`      | Left out a required option, or one a prompt asks for when there is no terminal       |
 | `invalid-value`       | Gave a value its type rejects (`--port eight` on an `int`), or one outside `choices` |
 | `unsupported-format`  | Asked for an output format the command does not present                              |
 

@@ -55,6 +55,12 @@
         "type": "number"
       },
       {
+        "description": "The option or argument whose value answers this prompt: an option's spelling, `--region` or `-r`, or an argument's name, `target`. Looked up in `state` the way argv would reach it, so an ancestor's option answers too. One the command does not declare is refused with a `PromptError`, as is one with no `state`.",
+        "name": "option",
+        "optional": true,
+        "type": "string"
+      },
+      {
         "description": "Refuse an empty selection. Defaults to `false`. Same as `min: 1`.",
         "default": "`false`",
         "name": "required",
@@ -72,6 +78,12 @@
         "name": "signal",
         "optional": true,
         "type": "AbortSignal"
+      },
+      {
+        "description": "The parse state of the command that is asking, which `option` is read from.",
+        "name": "state",
+        "optional": true,
+        "type": "ParseState"
       },
       {
         "description": "Where keys come from. Defaults to the terminal's input.",
