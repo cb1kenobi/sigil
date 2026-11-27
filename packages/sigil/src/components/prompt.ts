@@ -328,8 +328,11 @@ function givenAnswer(state: ParseState, source: AnswerSource): { value: unknown 
     (parsed) => parsed.type === 'Option' && (parsed as ParsedOption).option[Internal].dest === dest
   );
   const envs = [...source.opt[Internal].envs, ...(negatedTwin?.[Internal].envs ?? [])];
+  // a call's input says it as plainly as argv does: an MCP tool call passes
+  // `{ yes: false }` because somebody chose false
+  const passed = state.input !== undefined && state.input[dest] !== undefined;
 
-  return typed || envValue(state.env, envs) !== undefined ? { value } : undefined;
+  return typed || passed || envValue(state.env, envs) !== undefined ? { value } : undefined;
 }
 
 /**

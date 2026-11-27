@@ -3262,9 +3262,10 @@ terminal, it asks as before. With no `--region` and no terminal it fails with a
 terminal; pass --region <us|eu>` -- and the code `missing-option` (or
 `missing-argument`), exit 2, and in the selected format under `--json`. What
 answers it is what the user supplied: a value in argv, one from the option's
-environment variable, or a `default` the declaration names. A flag's implied
-`false` is not an answer -- nobody said it -- so `confirm({ option: '--yes' })`
-still asks unless `--yes`, `--no-yes` or its variable was used. A given value is
+environment variable, one `main({ input })` passed, or a `default` the declaration
+names. A flag's implied `false` is not an answer -- nobody said it -- so
+`confirm({ option: '--yes' })` still asks unless `--yes`, `--no-yes`, its variable
+or an `input` of `yes` was used. A given value is
 held to what a typed one is: `select()` and `multiselect()` refuse a value that is
 not one of the choices on offer, a disabled one included, and `text()` runs its
 `validate`, each as `invalid-value`. `min` and `max` are about what a person ticks

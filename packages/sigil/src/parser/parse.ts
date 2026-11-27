@@ -791,6 +791,7 @@ function applyInput(state: ParseState, input: Record<string, unknown> | undefine
   if (!input) {
     return;
   }
+  state.input = input;
 
   for (const [dest, value] of Object.entries(input)) {
     if (value === undefined) {

@@ -752,6 +752,13 @@ export interface ParseState<Argv = Record<string, unknown>> {
   contexts: InternalCommand[];
   env: Record<string, string | undefined>;
   /**
+   * The values `main({ input })` or `parse({ input })` passed, as given. What
+   * they put on `argv` is there already; this is for asking whether one was
+   * passed at all, which `argv` cannot say for a flag -- a prompt answered by
+   * `--yes` counts a `yes` passed here as said, as it counts one typed.
+   */
+  input?: Record<string, unknown>;
+  /**
    * Set when argv asked for help rather than for work. `main()` prints it and
    * runs nothing; a caller using `parse()` on its own decides for itself.
    */

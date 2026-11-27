@@ -16985,7 +16985,10 @@ and `state`, and `answerOr()` in `prompt.ts` is the whole of it.
   that is **not** an answer is a flag's implied `false` or `0`, which the parser
   wrote and nobody said, so `confirm({ option: '--yes' })` is not skipped by the
   flag merely existing. Telling the two apart reads `state.$` for a typed spelling
-  of the destination and `envValue()` for its variables, the twin's included --
+  of the destination, `state.input` for a value `main({ input })` passed -- which
+  is how an MCP tool call passes its arguments, so `{ "yes": false }` there is a
+  `false` somebody chose (found merging SIG-721 over this) -- and `envValue()` for
+  its variables, the twin's included --
   `envValue()` is published on `@ttylabs/sigil/coerce` for this, because an
   ejected prompt may only import what the package exports.
 - **No terminal and no answer is a `UsageError` that says what to pass**, with
