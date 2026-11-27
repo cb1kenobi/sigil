@@ -2132,6 +2132,49 @@ export default { baseDir: import.meta.dirname, commands: { stale: './commands/a.
         expect(found).toBe(true);
       });
 
+      it.each([
+        [
+          'a named export of schema',
+          `export const schema = { baseDir: import.meta.dirname, get commands() { return {}; } };\n`,
+        ],
+        [
+          'an export of a const as default',
+          `const schema = { get commands() { return {}; } };\nexport { schema as default };\n`,
+        ],
+        [
+          'the object main() is given',
+          `import { main } from '@ttylabs/sigil';\nawait main({ get commands() { return {}; } });\n`,
+        ],
+        [
+          'a const main() is given',
+          `import { main } from '@ttylabs/sigil';\nconst schema = { get commands() { return {}; } };\nawait main(schema);\n`,
+        ],
+        [
+          'a schema key of the object main() is given',
+          `import { main } from '@ttylabs/sigil';\nawait main({ schema: { get commands() { return {}; } } });\n`,
+        ],
+      ])(
+        'claimed the getter of commands in %s, which is where the app reads its schema',
+        async (_what, source) => {
+          // review round 2: only `export default` was seen, so these were `no "commands" found`
+          const { diagnostics, found } = await read(source);
+
+          expect(messages(diagnostics)).toEqual([expect.stringContaining('accessor or a method')]);
+          expect(found).toBe(true);
+        }
+      );
+
+      it('did not claim a base with a getter once the schema spells commands plainly after it', async () => {
+        // review round 2: the app works, since the plain `commands` wins at runtime, and
+        // the base was a second schema: `found 2 schemas` and nothing read
+        const { commands, diagnostics } = await read(
+          `const base = { name: 'x', get commands() { return {}; } };\nconsole.log(base.name);\nexport default { ...base, baseDir: import.meta.dirname, commands: { x: './commands/a.js' } };\n`
+        );
+
+        expect(messages(diagnostics).filter((m) => m.includes('2 schemas'))).toEqual([]);
+        expect(commands?.kind).toBe('inline');
+      });
+
       it('did not claim a setter alone, which the runtime reads as no commands at all', async () => {
         const { diagnostics, found } = await read(
           `export default { baseDir: import.meta.dirname, set commands(value) {}, run() {} };\n`

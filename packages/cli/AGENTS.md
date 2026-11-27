@@ -1090,12 +1090,19 @@ makes it testable with a fixture directory and no bundler at all.
   above, the two it listed as not fixed and the one it listed as not covered.
 
   - **`schemasWith()` claims a literal that spells the key as a getter or a method,
-    but only the exported schema and the `const` literals it spreads.** The runtime
-    reads the accessor, so that literal **is** the schema; left unclaimed, it was
-    `no "commands" found` for the command tree and nothing at all for the
-    catalogs. `exportedParts()` is the whole of "exported": the literal `export
-    default` is (or a one-argument call over one, or a `const` of the module it
-    names) and the `const` literals its own members spread. A plain `commands: x`
+    but only the schema the module hands the app and the `const` literals it spreads.**
+    The runtime reads the accessor, so that literal **is** the schema; left
+    unclaimed, it was `no "commands" found` for the command tree and nothing at all
+    for the catalogs. `exportedLiterals()` in `schema-module.ts` is "hands the app":
+    `export default`, `export { x as default }`, the `schema` export and the object
+    (or its `schema` key) a `main()` call is given, each a literal, a one-argument
+    call over one or a `const` of the module holding one -- the places
+    `findSchema()` reads -- and `exportedParts()` adds the `const` literals those
+    spread, **only where the schema spells no plain key of its own** (a base with a
+    getter under a schema that writes `commands` after it was a second schema, and
+    the plain one is what runs). **Not followed:** a two-argument wrapper, a `let`,
+    a second spread level, a spread of a literal written in place or of a
+    conditional, a wrapped base, and a computed `['commands']`. A plain `commands: x`
     is claimed wherever a literal writes one, and the first version claimed an
     accessor the same way -- review found that a helper `{ commands() {} }` read by
     a member, or a getter in a literal nested in a `run`, turned a working app into

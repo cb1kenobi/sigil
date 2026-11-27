@@ -368,6 +368,15 @@ describe('reading an app`s catalogs', () => {
       expect(read.catalogs.map((c) => c.locale)).toEqual(['fr']);
     });
 
+    it('should read the locales the schema spells after a base that has a getter of the name (review)', async () => {
+      const read = await withSchema(
+        `const base = { name: 'x', get locales() { return {}; } };\nconsole.log(base.name);\nexport default { ...base, locales: { ${loader('fr')} } };\n`
+      );
+
+      expect(read.diagnostics).toEqual([]);
+      expect(read.catalogs.map((c) => c.locale)).toEqual(['fr']);
+    });
+
     it('should not warn about a spread of a const that visibly holds no locales (SIG-730)', async () => {
       const read = await withSchema(
         `const mixin = { name: 'x', tags: [] };\nmixin.tags.push('y');\nexport default { locales: { ${loader('fr')} }, ...mixin };\n`

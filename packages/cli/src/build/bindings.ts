@@ -35,6 +35,7 @@ import {
   type Lacks,
 } from './literals.ts';
 import { type ParsedModule } from './parse-module.ts';
+import { exportedLiterals } from './schema-module.ts';
 import { walk } from './walk.ts';
 import type {
   CallExpression,
@@ -515,7 +516,7 @@ function lacksKey(parsed: ParsedModule, name: string, key: string): boolean {
  */
 export function schemasWith(parsed: ParsedModule, key: string): ObjectExpression[] {
   const resolve = sealedResolver(parsed);
-  const exported = exportedParts(parsed);
+  const exported = exportedParts(parsed, key, resolve);
   const found = outermostWhere(
     parsed.program,
     (object) =>
@@ -573,38 +574,35 @@ function spellsAccessor(object: ObjectExpression, key: string): boolean {
 
 /**
  * The literals that are the module's exported schema, or are spread straight into
- * it: what `export default` is, by a literal, a one-argument call over one, or a
- * `const` of the module's own holding one, and the `const` literals its own members
- * spread (SIG-734).
+ * it: what `exportedLiterals()` finds, and the `const` literals its own members
+ * spread where it spells no plain `key` itself (SIG-734).
  *
  * The only objects an accessor or a method of `commands` or `locales` is claimed
  * for. A helper `{ get commands() {} }` anywhere else in the module is not a
  * schema, and calling it one would turn a working app into an error.
  */
-function exportedParts(parsed: ParsedModule): Set<ObjectExpression> {
+function exportedParts(
+  parsed: ParsedModule,
+  key: string,
+  resolve: (name: string) => ObjectExpression | undefined
+): Set<ObjectExpression> {
   const parts = new Set<ObjectExpression>();
-  const exported = parsed.program.body.find((node) => node.type === 'ExportDefaultDeclaration');
-  const expression = exported?.declaration as Expression | undefined;
-  if (!expression) {
-    return parts;
-  }
+  for (const schema of exportedLiterals(parsed)) {
+    parts.add(schema);
 
-  const unwrapped = unwrapShallow(expression);
-  const schema =
-    unwrapped.type === 'Identifier'
-      ? bindingObject(parsed, unwrapped.name, true)
-      : literalOf(expression, true);
-  if (!schema) {
-    return parts;
-  }
+    // a base is a part of the schema only where the schema does not spell the key
+    // plainly itself, which is the spelling that runs when it comes after
+    if (lastPlain(schema, key, resolve) !== undefined) {
+      continue;
+    }
 
-  parts.add(schema);
-  for (const member of schema.properties) {
-    const operand = member.type === 'SpreadElement' ? unwrapShallow(member.argument) : undefined;
-    const base =
-      operand?.type === 'Identifier' ? bindingObject(parsed, operand.name, false) : undefined;
-    if (base) {
-      parts.add(base);
+    for (const member of schema.properties) {
+      const operand = member.type === 'SpreadElement' ? unwrapShallow(member.argument) : undefined;
+      const base =
+        operand?.type === 'Identifier' ? bindingObject(parsed, operand.name, false) : undefined;
+      if (base) {
+        parts.add(base);
+      }
     }
   }
 
