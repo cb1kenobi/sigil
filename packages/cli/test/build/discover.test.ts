@@ -1998,6 +1998,49 @@ export default { baseDir: import.meta.dirname, commands: { stale: './commands/a.
         ]);
       });
 
+      it.each([
+        ['a getter', `get commands() { return { z: './commands/a.js' }; }`],
+        ['a setter', `set commands(value) {}`],
+        ['a method', `commands() { return { z: './commands/a.js' }; }`],
+      ])(
+        'said a schema whose only commands is %s cannot be read, and not that there are none (SIG-734)',
+        async (_what, member) => {
+          // the schema has commands, the build cannot run the code that gives them, and
+          // the built app has none: an error, as a computed `commands` is
+          const { commands, diagnostics, found } = await read(
+            `export default { baseDir: import.meta.dirname, ${member} };\n`
+          );
+
+          expect(messages(diagnostics)).toEqual([
+            '"commands" is an accessor or a method rather than an object literal, so it cannot be read at build time and a built app will not have these commands; it applies when the app runs from source and not after a build, so write it as an object literal of commands, or pass --commands to name a command directory',
+          ]);
+          expect(diagnostics[0]).toMatchObject({ column: 48, line: 1, severity: 'error' });
+          // `found` is what keeps `sigil check` from adding `no "commands" found`
+          expect(found).toBe(true);
+          expect(commands).toBeUndefined();
+        }
+      );
+
+      it('read the schema that holds the getter through a shared base, as the schema it is', async () => {
+        const { diagnostics, found } = await read(
+          `const base = { get commands() { return {}; } };\nexport default { ...base, baseDir: import.meta.dirname, run() {} };\n`
+        );
+
+        expect(messages(diagnostics)).toEqual([
+          expect.stringContaining('is an accessor or a method'),
+        ]);
+        expect(found).toBe(true);
+      });
+
+      it('did not claim a schema for an accessor of another name', async () => {
+        const { diagnostics, found } = await read(
+          `export default { baseDir: import.meta.dirname, get desc() { return 'x'; } };\n`
+        );
+
+        expect(diagnostics).toEqual([]);
+        expect(found).toBe(false);
+      });
+
       it('did not warn about an accessor that comes before the plain commands, which wins', async () => {
         const { diagnostics } = await read(
           `export default { baseDir: import.meta.dirname, get commands() { return {}; }, commands: { a: './commands/a.js' } };\n`

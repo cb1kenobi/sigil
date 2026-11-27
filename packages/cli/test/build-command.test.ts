@@ -1348,6 +1348,19 @@ describe('sigil build', () => {
       expect(built('x').stdout).toBe(source('x').stdout);
     }, 60_000);
 
+    it('should say a schema whose only commands is a getter cannot be built, and not that it has none (SIG-734)', async () => {
+      // `a` is a command from source and the built app would have none: an error that
+      // says so, where `no "commands" found` said the module had none
+      const { err, source } = await build('getter-commands');
+
+      expect(err).toContain(
+        '"commands" is an accessor or a method rather than an object literal, so it cannot be read at build time and a built app will not have these commands'
+      );
+      expect(err).not.toContain('no "commands" found');
+      expect(process.exitCode).toBe(1);
+      expect(source('a').stdout).toBe('a ran\n');
+    }, 60_000);
+
     it('should not warn that a spread may replace commands when its const spells none, and the apps agree', async () => {
       const { built, err, source } = await build('lacks');
 

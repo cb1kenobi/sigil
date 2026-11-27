@@ -556,8 +556,23 @@ export function readAppCommands(app: DiscoveredApp): {
   // and `baseDir` are what the schema has, and the last spelling is the one that
   // runs (SIG-728)
   const resolver = sealedResolver(parsed);
-  const declared = lastPlain(schemas[0]!, 'commands', resolver)!;
+  const declared = lastPlain(schemas[0]!, 'commands', resolver);
   const commandsSpelling = spellingIn(parsed, schemas[0]!, 'commands');
+  if (!declared) {
+    // claimed for spelling `commands` as a getter, a setter or a method, which the
+    // runtime reads and a build cannot run: the app has commands and the built one
+    // would have none. An error, as a computed `commands` is, and for the same
+    // reason -- it would build an app that silently lacks what the source app has,
+    // where the placeholder's is a warning because the rest of the app is still
+    // baked (SIG-734). Worded as that one is (SIG-732)
+    diagnostics.push({
+      ...locate(parsed, commandsSpelling.declared!.start),
+      message:
+        '"commands" is an accessor or a method rather than an object literal, so it cannot be read at build time and a built app will not have these commands; it applies when the app runs from source and not after a build, so write it as an object literal of commands, or pass --commands to name a command directory',
+      severity: 'error',
+    });
+    return { diagnostics, found: true, root: false };
+  }
   if (commandsSpelling.replaced || commandsSpelling.shadowedBy) {
     // a spread the build cannot read, after the `commands` that was read: it may
     // carry its own, and the app runs the last -- and an accessor of the same key

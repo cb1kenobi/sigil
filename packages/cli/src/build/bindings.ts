@@ -484,7 +484,8 @@ export function schemasWith(parsed: ParsedModule, key: string): ObjectExpression
   const resolve = sealedResolver(parsed);
   const found = outermostWhere(
     parsed.program,
-    (object) => lastPlain(object, key, resolve) !== undefined
+    (object) =>
+      lastPlain(object, key, resolve) !== undefined || spellsAccessor(object, key, resolve)
   );
 
   return found.filter((object) => {
@@ -509,6 +510,30 @@ export function schemasWith(parsed: ParsedModule, key: string): ObjectExpression
     );
     return inside === 0 || inside !== spreadsOf(parsed.program, name);
   });
+}
+
+/**
+ * Whether an object spells `key` as an accessor or a method, and no plain
+ * property of it is the one that runs (SIG-734, SIG-735).
+ *
+ * The runtime reads a getter, so such a literal **is** the schema, and the build
+ * cannot read what it returns. Left unclaimed, a schema whose only `commands` is
+ * a getter was `no "commands" found in this module` and one whose only `locales`
+ * is one was not looked at at all, so `sigil check` said `no problems found`. A
+ * claim is what lets the two readers say what is true of it. `lastPlain()` is the
+ * other half of the same question and is asked first by the caller.
+ */
+function spellsAccessor(
+  object: ObjectExpression,
+  key: string,
+  resolve: (name: string) => ObjectExpression | undefined
+): boolean {
+  return flatten(object, resolve).some(
+    (member) =>
+      member.type !== 'SpreadElement' &&
+      propertyKey(member) === key &&
+      (member.kind !== 'init' || member.method)
+  );
 }
 
 /** How many object spreads of `name` there are anywhere inside a node. */
