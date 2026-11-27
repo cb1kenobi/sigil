@@ -164,7 +164,11 @@ export function skillFiles(surface: CommandSurface, opts: SkillOptions = {}): Sk
   const lines = [
     '---',
     `name: ${skillName(program)}`,
-    `description: ${skillDescription(program, root?.desc, json)}`,
+    // quoted, because unquoted YAML cannot hold the `: ` it always has, nor a
+    // ` #` or a leading `[`. A JSON string is a double-quoted YAML one; the
+    // `DEL` and C1 that JSON leaves raw cannot be here, since a description
+    // drops control characters and the surface refuses a name holding one
+    `description: ${JSON.stringify(skillDescription(program, root?.desc, json))}`,
     '---',
     '',
     `# \`${program}\``,

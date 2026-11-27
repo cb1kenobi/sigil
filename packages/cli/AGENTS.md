@@ -8092,7 +8092,11 @@ two packages is one definition in the package both depend on.
   format. The fixture's skill is committed and `--check` is the snapshot, the way
   this package's own reference is, and its front matter is held by
   `expectSkillFrontMatter()` in `test/skill-format.ts`, the one the shipped skills
-  are held by.
+  are held by. The `description` is a JSON string, the reference's rule above:
+  it always holds `: `, which an unquoted YAML value cannot, so the first version
+  was front matter every real parser refused, and the tests passed because
+  `frontMatter()` split lines with a regex. It reads the block with `yaml` now, a
+  devDependency, so a skill an agent's loader would refuse fails the test.
 - **A built app prints the same document with `mycli schema`**, a command `parse()`
   adds to the root as it adds `completion`, decided by Chris over
   `--help --format json`. `registerSchemaCommand()` in

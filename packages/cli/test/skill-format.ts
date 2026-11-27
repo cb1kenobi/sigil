@@ -6,11 +6,14 @@
  */
 
 import { expect } from 'vitest';
+import { parseDocument } from 'yaml';
 
 /**
- * A `SKILL.md`'s front matter, as its keys and values. Every value the format
- * takes is a string on one line, so a line is a key. Either line ending, because
- * a committed `SKILL.md` is checked out with CRLF on Windows.
+ * A `SKILL.md`'s front matter, as its keys and values, read by a YAML parser
+ * because that is what an agent's loader reads it with -- a line split passed an
+ * unquoted description holding `: `, which every real parser refuses. Every value
+ * the format takes is a string. Either line ending, because a committed
+ * `SKILL.md` is checked out with CRLF on Windows.
  *
  * @param markdown - The file.
  * @returns The keys and values.
@@ -20,13 +23,20 @@ export function frontMatter(markdown: string): Map<string, string> {
   if (block === undefined) {
     throw new Error('no front matter');
   }
+  const doc = parseDocument(block, { prettyErrors: false, uniqueKeys: true });
+  if (doc.errors.length > 0) {
+    throw new Error(`front matter is not YAML: ${doc.errors[0]!.message}`);
+  }
+  const meta: unknown = doc.toJS();
+  if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) {
+    throw new Error('front matter is not a mapping');
+  }
   return new Map(
-    block.split('\n').map((line) => {
-      const match = /^([\w-]+):[ \t]*(.*)$/.exec(line);
-      if (!match) {
-        throw new Error(`not a key: ${line}`);
+    Object.entries(meta).map(([key, value]) => {
+      if (typeof value !== 'string') {
+        throw new Error(`front matter "${key}" is not a string`);
       }
-      return [match[1]!, match[2]!.replace(/^(['"])(.*)\1$/, '$2')];
+      return [key, value];
     })
   );
 }

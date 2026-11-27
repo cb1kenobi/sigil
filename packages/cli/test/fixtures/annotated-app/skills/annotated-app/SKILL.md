@@ -1,6 +1,6 @@
 ---
 name: annotated-app
-description: The annotated-app command-line tool. Use it to run annotated-app from an agent: which commands it has, what each one takes and whether it changes anything, and what its errors mean.
+description: "The annotated-app command-line tool. Use it to run annotated-app from an agent: which commands it has, what each one takes and whether it changes anything, and what its errors mean."
 ---
 
 # `annotated-app`

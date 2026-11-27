@@ -9,7 +9,7 @@
 
 import { skillFiles, skillName } from '../src/reference/skill.ts';
 import { linkedFixture } from './copy-fixture.ts';
-import { expectSkillFrontMatter } from './skill-format.ts';
+import { expectSkillFrontMatter, frontMatter } from './skill-format.ts';
 import { run as spawnNode } from './spawned.ts';
 import { tempDir } from './temp.ts';
 import type { Schema } from '@ttylabs/sigil';
@@ -115,7 +115,24 @@ describe('an app skill', () => {
         commands: { go: { run() {} } },
         desc: 'Ship <things>\nto places.',
       });
-      expect(body).toMatch(/^description: mycli: Ship things to places\. Use it to run mycli/mu);
+      expect(frontMatter(body).get('description')).toMatch(
+        /^mycli: Ship things to places\. Use it to run mycli/u
+      );
+    });
+
+    it('should write the description as YAML a real parser reads back, whatever the app said', async () => {
+      const controls = String.fromCharCode(0x7f, 0x85);
+      const body = await skillOf({
+        commands: { go: { run() {} } },
+        desc: `[draft] Deploy: "fast" # not a comment, from C:\\temp ${controls}& *done`,
+      });
+
+      expect(body).toMatch(/^description: "/mu);
+      // DEL and C1 are dropped rather than written: YAML refuses them raw even
+      // in quotes, and JSON leaves them raw
+      expect(frontMatter(body).get('description')).toMatch(
+        /^mycli: \[draft\] Deploy: "fast" # not a comment, from C:\\temp & \*done\. Use it/u
+      );
     });
 
     it('should leave out a hidden command and a namespace, which nobody runs', async () => {
