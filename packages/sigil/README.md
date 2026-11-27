@@ -3239,6 +3239,39 @@ const features = await multiselect({
 `text()` takes `default`, `placeholder`, `mask`, and a `validate` that may be
 async — return a string to reject the answer with that message.
 
+**A prompt can name the option that answers it**, so a run with nobody to ask --
+an agent, a CI job, a script -- has a way past it and is told what that way is.
+`text()`, `password()`, `confirm()`, `select()` and `multiselect()` take `option`,
+an option's spelling or an argument's name, and the `state` the command's `run()`
+was handed:
+
+```js
+async run(state) {
+  const region = await select({
+    message: 'Which region?',
+    choices: ['us', 'eu'],
+    option: '--region',
+    state,
+  });
+}
+```
+
+`mycli deploy --region eu` answers it without asking. With no `--region` and a
+terminal, it asks as before. With no `--region` and no terminal it fails with a
+`UsageError` that says what to pass -- `Cannot ask "Which region?" without a
+terminal; pass --region <us|eu>` -- and the code `missing-option` (or
+`missing-argument`), exit 2, and in the selected format under `--json`. What
+answers it is what the user supplied: a value in argv, one from the option's
+environment variable, or a `default` the declaration names. A flag's implied
+`false` is not an answer -- nobody said it -- so `confirm({ option: '--yes' })`
+still asks unless `--yes`, `--no-yes` or its variable was used. A given value is
+held to what a typed one is: `select()` and `multiselect()` refuse a value that is
+not one of the choices on offer, a disabled one included, and `text()` runs its
+`validate`, each as `invalid-value`. `min` and `max` are about what a person ticks
+and are not applied. Naming an option the command does not declare, or passing
+`option` without `state`, is a `PromptError`: that is the app's mistake, not the
+user's.
+
 **Every prompt takes a `value`: an answer to start from**, typed as the answer it
 gives, so one name works whatever is being asked -- the field opens holding it, a
 list with that choice highlighted, a multiselect with exactly those ticked, a sort
@@ -8987,13 +9020,14 @@ it.
 Turns a string into a value of a declared data type, the way the parser does.
 
 ```js
-import { daysInMonth, transformValue } from '@ttylabs/sigil/coerce';
+import { daysInMonth, envValue, transformValue } from '@ttylabs/sigil/coerce';
 
 transformValue('8080', 'int'); // 8080
 transformValue('yes', 'bool'); // true
 transformValue('2024-06-15', 'date'); // a Date
 transformValue('eight', 'int'); // throws: Invalid integer: eight
 daysInMonth(2024, 2); // 29
+envValue({ PORT: '', APP_PORT: '80' }, ['PORT', 'APP_PORT']); // '80': the first set and not empty
 ```
 
 It is the function behind `--port 8080`, so whatever it accepts is what the

@@ -713,6 +713,63 @@ describe('extracting a command module', () => {
     );
   });
 
+  describe('a spread of a const that visibly holds no such key (SIG-730)', () => {
+    it('should read a desc written before it, though the const is not sealed', () => {
+      const { diagnostics, facts } = extractCommand(
+        'a.js',
+        `const mixin = { run() {}, tags: [] };\nmixin.tags.push('x');\nexport default { desc: 'early', ...mixin };`
+      );
+
+      expect(facts).to.deep.equal({ desc: 'early' });
+      expect(diagnostics).to.deep.equal([]);
+    });
+
+    it('should not say a spread may carry a desc nobody wrote, when the const holds none (SIG-731)', () => {
+      // the same question from the other side: a desc spelled nowhere is absent,
+      // not unknown, where nothing can have put one on the spread const
+      const { diagnostics, facts } = extractCommand(
+        'a.js',
+        `const mixin = { tags: [] };\nmixin.tags.push('x');\nexport default { ...mixin, run() {} };`
+      );
+
+      expect(facts).to.deep.equal({});
+      expect(diagnostics).to.deep.equal([]);
+    });
+
+    it('should still say a spread may carry a desc once something writes one to the const', () => {
+      const { diagnostics } = extractCommand(
+        'a.js',
+        `const mixin = { tags: [] };\nmixin.desc = 'late';\nexport default { ...mixin, run() {} };`
+      );
+
+      expect(diagnostics).to.have.lengthOf(1);
+      expect(diagnostics[0]!.message).to.contain('which may carry a "desc" this cannot see');
+    });
+
+    it('should leave the desc unknown once a method of the const is called, which is handed it', () => {
+      const { diagnostics, facts } = extractCommand(
+        'a.js',
+        `const mixin = { run() {} };\nmixin.valueOf().desc = 'late';\nexport default { desc: 'early', ...mixin };`
+      );
+
+      expect(facts).to.deep.equal({});
+      expect(diagnostics).to.have.lengthOf(1);
+    });
+
+    it('should leave the desc unknown once something writes one to the const', () => {
+      const { diagnostics, facts } = extractCommand(
+        'a.js',
+        `const mixin = { run() {} };\nmixin.desc = 'late';\nexport default { desc: 'early', ...mixin };`
+      );
+
+      expect(facts).to.deep.equal({});
+      expect(diagnostics).to.have.lengthOf(1);
+      expect(diagnostics[0]!.message).to.contain(
+        '"desc" is written before a spread or a computed key'
+      );
+    });
+  });
+
   describe('a key written twice', () => {
     it.each([
       ['a computed value', `export default { desc: 'a', desc: f() };`, '"desc" is computed'],

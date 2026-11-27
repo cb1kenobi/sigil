@@ -1238,6 +1238,36 @@ export default {
       });
     });
 
+    it.each([
+      ['a getter', "get commands() { return { sub: './commands/a.js' }; }"],
+      ['a setter', 'set commands(value) {}'],
+      ['a method', "commands() { return { sub: './commands/a.js' }; }"],
+    ])(
+      'should say a placeholder whose only commands is %s is not carried into a built app',
+      async (_what, member) => {
+        // SIG-732. The build cannot run code, so the built app has none of the
+        // subcommands the runtime gets from it. That is `warnUnbaked()`'s message and
+        // nothing else's -- no accessor-specific one -- and it is worded for it: the
+        // property is not carried, it applies from source only, and the way out is an
+        // object literal
+        const source = `export default {
+  baseDir: import.meta.dirname,
+  commands: { x: { path: './commands/a.js', ${member} } },
+};\n`;
+
+        await withSchema(source, (dir) => {
+          const { commands, diagnostics } = readAppCommands(discoverApp(dir));
+          const list = commands?.kind === 'inline' ? commands.commands : [];
+
+          expect(diagnostics.map((d) => d.message)).toEqual([
+            'the "x" command declares "commands" in the schema, which `sigil build` does not carry into a built app (SIG-320); it applies when the app runs from source and not after a build, so write it as an object literal of commands, which is the one form the build reads',
+          ]);
+          expect(diagnostics[0]!.severity).toBe('warning');
+          expect(at(list, 'x').commands).toEqual([]);
+        });
+      }
+    );
+
     it('should warn about every property of a placeholder it does not bake', () => {
       const app = discoverApp(join(apps, 'unbaked'));
       const { diagnostics } = readAppCommands(app);
@@ -1730,15 +1760,20 @@ export default {
       // SIG-725. A shallow copy shares an array or an object with the const, so
       // a key the build read and a hook then changed would be one it had baked
       // the other value of. Only those keys keep a const refused
-      for (const held of [
-        "alias: ['b']",
+      //
+      // What the refusal quotes is what the const may carry (SIG-731): every one of
+      // them holds `path` beside the key under test, and `name` and `load` are
+      // quoted only where the const holds them. A const that visibly lacks a key is
+      // no carrier of it, so it is not named in the refusal as it used to be
+      for (const [held, carries] of [
+        ["alias: ['b']", 'its "path"'],
         // (`commands` is the same refusal: asserted on the guard itself, and
         // through a read below, 'refused a placeholder spreading a const that holds
         // commands')
-        "name: ['b']",
-        'hidden: []',
-        "desc: { text: 'x' }",
-      ]) {
+        ["name: ['b']", 'its "name" or "path"'],
+        ['hidden: []', 'its "path"'],
+        ["desc: { text: 'x' }", 'its "path"'],
+      ] as const) {
         const source = `const base = { ${held}, path: './commands/a.js' };
 export default {
   baseDir: import.meta.dirname,
@@ -1752,7 +1787,7 @@ export default {
 
           expect(errors, held).toHaveLength(1);
           expect(errors[0], held).toContain(
-            'the "x" command spreads another object, which may carry its "name", "path" or "load"'
+            `the "x" command spreads another object, which may carry ${carries};`
           );
           expect(at(list, 'x').module, held).toBeUndefined();
         });
@@ -1808,12 +1843,243 @@ export default { baseDir: import.meta.dirname, commands: { stale: './commands/a.
       });
     });
 
-    it('read what a base spread inside a placeholder holds as a base, and refused it as it refuses one', async () => {
+    describe('what may set the baseDir, or replace the commands, of a schema (SIG-729, SIG-730)', () => {
+      const read = (source: string) =>
+        withSchema(source, (dir) => readAppCommands(discoverApp(dir)));
+      const messages = (diagnostics: readonly { message: string }[]) =>
+        diagnostics.map((d) => d.message);
+
+      it.each([
+        ['a let', `let base = { baseDir: import.meta.dirname };`],
+        ['an exported const', `export const base = { baseDir: import.meta.dirname };`],
+        ['an import', `import { base } from './base.js';`],
+        ['a call', `const base = load();`],
+      ])(
+        'said a spread of %s may carry the baseDir, and not that the schema sets none',
+        async (_what, declaration) => {
+          // the runtime reads the `baseDir` the spread carries; the build could not read
+          // it and said there was none, which is a claim about the app it cannot make
+          const { commands, diagnostics } = await read(
+            `${declaration}\nexport default { ...base, commands: './commands' };\n`
+          );
+
+          expect(messages(diagnostics)).toEqual([
+            expect.stringContaining('a spread in the schema may carry a "baseDir" this cannot see'),
+          ]);
+          expect(messages(diagnostics)[0]).not.toContain('sets no "baseDir"');
+          expect(diagnostics[0]).toMatchObject({ column: 18, line: 2, severity: 'warning' });
+          expect(commands?.kind).toBe('directory');
+        }
+      );
+
+      it('said a computed key may carry the baseDir, and where it is', async () => {
+        const { diagnostics } = await read(
+          `export default { [key()]: 1, commands: './commands' };\n`
+        );
+
+        expect(messages(diagnostics)).toEqual([
+          expect.stringContaining('a computed key in the schema may carry a "baseDir"'),
+        ]);
+      });
+
+      it.each([
+        ['nothing', `export default { commands: './commands' };`, 'sets no "baseDir"'],
+        [
+          'a spread that cannot carry one',
+          `export default { ...{ name: 'x' }, ...null, commands: './commands' };`,
+          'sets no "baseDir"',
+        ],
+        [
+          'a baseDir the spread follows, which is still spelled',
+          `let base = {};\nexport default { baseDir: import.meta.dirname, ...base, commands: './commands' };`,
+          undefined,
+        ],
+        [
+          'a baseDir after the spread',
+          `let base = {};\nexport default { ...base, baseDir: import.meta.dirname, commands: './commands' };`,
+          undefined,
+        ],
+        [
+          'a baseDir of undefined followed by a spread that may carry one',
+          `let base = {};\nexport default { baseDir: undefined, ...base, commands: './commands' };`,
+          'a spread in the schema may carry a "baseDir"',
+        ],
+        [
+          'a baseDir of undefined and nothing after it',
+          `export default { baseDir: undefined, commands: './commands' };`,
+          'sets no "baseDir"',
+        ],
+        [
+          'a spread of a const that visibly holds no baseDir',
+          // read for a member, so it is not sealed and `lacksResolver()` is what is asked
+          `const mixin = { name: 'x' };\nmixin.name = 'y';\nexport default { ...mixin, commands: './commands' };`,
+          'sets no "baseDir"',
+        ],
+        [
+          'an accessor baseDir, which the runtime reads',
+          `export default { get baseDir() { return import.meta.dirname; }, commands: './commands' };`,
+          undefined,
+        ],
+      ])('kept the answer for %s', async (_what, source, said) => {
+        const { diagnostics } = await read(`${source}\n`);
+
+        if (said) {
+          expect(messages(diagnostics)).toEqual([expect.stringContaining(said)]);
+        } else {
+          expect(diagnostics).toEqual([]);
+        }
+      });
+
+      it.each([
+        ['null', 'null'],
+        ['an empty string', "''"],
+        ['an empty template', '``'],
+        ['false', 'false'],
+        ['0', '0'],
+      ])(
+        'warned that a baseDir of %s sets none, as the runtime resolves from the working directory',
+        async (_what, value) => {
+          // SIG-733. `initCommand()` asks `baseDir ? resolve(baseDir, file) : file`, so
+          // a falsy `baseDir` is none to the runtime, as `undefined` is -- measured by
+          // running an app with each, from a directory its commands are not under,
+          // where relative `commands` were not found for any of them
+          const { diagnostics } = await read(
+            `export default { baseDir: ${value}, commands: './commands' };\n`
+          );
+
+          expect(messages(diagnostics)).toEqual([expect.stringContaining('sets no "baseDir"')]);
+          expect(diagnostics[0]).toMatchObject({ severity: 'warning' });
+        }
+      );
+
+      it.each([
+        ['a string', "'/srv/app'"],
+        ['a call', 'process.cwd()'],
+        ['a name', 'dir'],
+      ])('did not warn that a baseDir of %s sets none, which it may not', async (_what, value) => {
+        // only a literal that is falsy is known to be none
+        const { diagnostics } = await read(
+          `const dir = '/srv/app';\nexport default { baseDir: ${value}, commands: './commands' };\n`
+        );
+
+        expect(diagnostics).toEqual([]);
+      });
+
+      it('said a spread may carry the baseDir after a baseDir of null, as it does after undefined', async () => {
+        const { diagnostics } = await read(
+          `let base = {};\nexport default { baseDir: null, ...base, commands: './commands' };\n`
+        );
+
+        expect(messages(diagnostics)).toEqual([
+          expect.stringContaining('a spread in the schema may carry a "baseDir"'),
+        ]);
+      });
+
+      it.each([
+        ['get', `get commands() { return { b: './commands/a.js' }; }`],
+        ['set', `set commands(value) {}`],
+        ['method', `commands() {}`],
+      ])('warned that %s of commands after a plain one replaces it', async (_what, accessor) => {
+        // `lastPlain()` skips an accessor, so the build baked `./commands` over a
+        // schema whose app runs the getter, and said nothing
+        const { commands, diagnostics } = await read(
+          `export default { baseDir: import.meta.dirname, commands: { a: './commands/a.js' }, ${accessor} };\n`
+        );
+
+        expect(messages(diagnostics)).toEqual([
+          expect.stringContaining(
+            '"commands" is written before an accessor or a method of the same name, which replaces it when the app runs'
+          ),
+        ]);
+        expect(diagnostics[0]).toMatchObject({ severity: 'warning' });
+        // what is read is what was written, as it is for a spread
+        expect(commands?.kind === 'inline' ? commands.commands.map((c) => c.name) : []).toEqual([
+          'a',
+        ]);
+      });
+
+      it('did not warn about an accessor that comes before the plain commands, which wins', async () => {
+        const { diagnostics } = await read(
+          `export default { baseDir: import.meta.dirname, get commands() { return {}; }, commands: { a: './commands/a.js' } };\n`
+        );
+
+        expect(diagnostics).toEqual([]);
+      });
+
+      it('gave one warning when a spread and an accessor both follow', async () => {
+        const { diagnostics } = await read(
+          `let base = {};\nexport default { baseDir: import.meta.dirname, commands: {}, ...base, get commands() { return {}; } };\n`
+        );
+
+        // the accessor is the spelling that runs and `lastPlain()` still answers the
+        // plain one: one warning for the pair
+        expect(diagnostics).toHaveLength(1);
+        expect(messages(diagnostics)[0]).toContain('"commands" is written before');
+      });
+
+      it('warned about nothing for a spread of a const that something reads, which visibly holds no commands', async () => {
+        // the const is not sealed -- a member of it is read -- and cannot hold a `commands`
+        const { diagnostics } = await read(
+          `const mixin = { name: 'x', tags: [] };\nmixin.tags.push('y');\nexport default { baseDir: import.meta.dirname, commands: { a: './commands/a.js' }, ...mixin };\n`
+        );
+
+        expect(diagnostics).toEqual([]);
+      });
+
+      it.each([
+        ['a member assignment of commands', `const mixin = { name: 'x' };\nmixin.commands = {};`],
+        ['a string-keyed one', `const mixin = { name: 'x' };\nmixin['commands'] = {};`],
+        ['a computed one', `const mixin = { name: 'x' };\nmixin[key()] = {};`],
+        ['a read of it', `const mixin = { name: 'x' };\nconsole.log(mixin.commands);`],
+        ['an assign', `const mixin = { name: 'x' };\nObject.assign(mixin, other);`],
+        ['a closure that calls it', `const mixin = { name: 'x' };\nconst f = () => mutate(mixin);`],
+        ['a delete', `const mixin = { name: 'x' };\ndelete mixin.commands;`],
+        [
+          'a parenthesized optional call',
+          `const mixin = { name: 'x' };\n(mixin?.valueOf)().commands = {};`,
+        ],
+        [
+          'an optional call of a member',
+          `const mixin = { t() { this.commands = {}; } };\nmixin.t?.();`,
+        ],
+        ['a method called on it', `const mixin = { name: 'x' };\nmixin.valueOf().commands = {};`],
+        [
+          'its own method called',
+          `const mixin = { set(k, v) { this[k] = v; } };\nmixin.set('commands', {});`,
+        ],
+        [
+          'an inherited setter called',
+          `const mixin = { name: 'x' };\nmixin.__defineGetter__('commands', () => ({}));`,
+        ],
+        ['a member tagged', `const mixin = { t() { this.commands = {}; } };\nmixin.t\`\`;`],
+        ['a member constructed', `const mixin = { name: 'x' };\nnew mixin.constructor();`],
+        ['a literal that has commands', `const mixin = { commands: {} };`],
+        ['a literal with an accessor', `const mixin = { get x() { return 1; } };`],
+        ['a literal with a __proto__', `const mixin = { __proto__: other };`],
+        ['a literal with a computed key', `const mixin = { [key()]: 1 };`],
+        ['a literal that spreads a name', `const inner = { a: 1 };\nconst mixin = { ...inner };`],
+        ['a let', `let mixin = { name: 'x' };`],
+        ['an export', `export const mixin = { name: 'x' };`],
+        ['an import', `import { mixin } from './mixin.js';`],
+        ['a call', `const mixin = make();`],
+      ])('kept warning that a spread may replace commands for %s', async (_what, declaration) => {
+        const { diagnostics } = await read(
+          `${declaration}\nexport default { baseDir: import.meta.dirname, commands: { a: './commands/a.js' }, ...mixin };\n`
+        );
+
+        expect(messages(diagnostics)).toEqual([
+          expect.stringContaining('"commands" is written before a spread or a computed key'),
+        ]);
+      });
+    });
+
+    it('read what a base spread inside a placeholder holds as a base, and warned of the commands it cannot read', async () => {
       // SIG-725, SIG-728. A schema module holding a `const` with `commands` in it
       // could not be built, so the refusal was asserted on the guard and not through
-      // a read: the const is a part of the schema that spreads it, and the spread is
-      // refused because what it carries -- a shared `commands` -- is not a thing
-      // the build reads
+      // a read: the const is a part of the schema that spreads it, and what it
+      // carries -- a shared `commands` -- is not a thing the build reads. It was
+      // refused for a `name`, a `path` and a `load` it does not hold until SIG-731,
+      // and is a warning about the commands alone now
       const source = `const base = { commands: { sub: './commands/a.js' } };
 export default {
   baseDir: import.meta.dirname,
@@ -1827,8 +2093,16 @@ export default {
 
         expect(diagnostics.map((d) => d.message).join('\n')).not.toContain('schemas');
         expect(list.map((each) => each.name)).toEqual(['x']);
-        expect(errors).toHaveLength(1);
-        expect(errors[0]).toContain('the "x" command spreads another object');
+        // the const holds no `name`, `path` or `load`, so nothing about the command
+        // is unknown but what it carries beside them (SIG-731): it is read, and the
+        // `commands` the build cannot see are warned about, as for any spread
+        expect(errors).toEqual([]);
+        expect(at(list, 'x').module?.split(/[\\/]/).at(-1)).toBe('a.js');
+        expect(diagnostics.map((d) => d.message)).toEqual([
+          expect.stringContaining(
+            'the "x" command spreads another object, which may carry a "commands" this cannot see'
+          ),
+        ]);
         expect(at(list, 'x').commands).toEqual([]);
       });
     });
@@ -1984,6 +2258,8 @@ export default {
         ['called-in', 'const base = freeze({ path: "./commands/a.js" });'],
       ];
 
+      const PATH_ONLY = new Set(['assigned', 'captured']);
+
       for (const [what, declaration] of cases) {
         const source = `${declaration}
 export default {
@@ -1999,14 +2275,25 @@ export default {
           const list = commands?.kind === 'inline' ? commands.commands : [];
           const errors = diagnostics.filter((d) => d.severity === 'error').map((d) => d.message);
 
-          // `x` has no module and no name the build can read: refused, once
+          // `x` has no module and no name the build can read: refused, once. What it
+          // quotes is what the const may carry: a const only ever written `path` to
+          // visibly holds no `name` and no `load` (SIG-731)
           expect(errors, what).toHaveLength(1);
           expect(errors[0], what).toContain(
-            'the "x" command spreads another object, which may carry its "name", "path" or "load"'
+            PATH_ONLY.has(what)
+              ? 'the "x" command spreads another object, which may carry its "path";'
+              : 'the "x" command spreads another object, which may carry its "name", "path" or "load"'
           );
           expect(at(list, 'x').module, what).toBeUndefined();
           // `y` writes `name` and `path` after the spread, which decides both;
-          // `alias` and `default` are written before it, so they are unknown
+          // `alias` and `default` are written before it, so they are unknown --
+          // unless all that touches the const is a write of `path`, which cannot
+          // put an `alias` there: that is read, as a const that visibly holds no
+          // such key always is (SIG-730)
+          if (PATH_ONLY.has(what)) {
+            expect(at(list, 'y').alias, what).toEqual(['why']);
+            return;
+          }
           expect(at(list, 'y').alias, what).toBeUndefined();
           expect(at(list, 'y').default, what).toBeUndefined();
           const warnings = diagnostics
@@ -2020,6 +2307,152 @@ export default {
           ).toBe(true);
         });
       }
+    });
+
+    it('read a placeholder that spreads a const visibly holding no name, path or load, though it is not sealed', async () => {
+      // SIG-731. The const has a member read (`mixin.tags.push()`), which keeps it from
+      // being read as the literal it is, and it holds none of the three keys that
+      // route and bundle a placeholder: nothing can have written one to it, so the
+      // spread carries none and the refusal for "may carry its name, path or load"
+      // was about nothing. It is the same question the replacing side asks (SIG-730)
+      const source = `const mixin = { tags: ['a'] };
+mixin.tags.push('b');
+export default {
+  baseDir: import.meta.dirname,
+  commands: {
+    x: { alias: 'why', ...mixin, path: './commands/a.js' },
+    y: { ...mixin, load: () => import('./commands/a.js') },
+  },
+};\n`;
+
+      await withSchema(source, (dir) => {
+        const { commands, diagnostics } = readAppCommands(discoverApp(dir));
+        const list = commands?.kind === 'inline' ? commands.commands : [];
+
+        expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
+        expect(list.map((each) => each.name)).toEqual(['x', 'y']);
+        expect(at(list, 'x').module?.split(/[\\/]/).at(-1)).toBe('a.js');
+        expect(at(list, 'y').module?.split(/[\\/]/).at(-1)).toBe('a.js');
+        // `alias` is written before a spread that holds none either
+        expect(at(list, 'x').alias).toEqual(['why']);
+        // what else it holds is said, at the spread, as it is for a sealed one
+        expect(
+          diagnostics.map((d) => /the "(\w+)" command declares "(\w+)"/.exec(d.message)?.[0])
+        ).toEqual(['the "x" command declares "tags"', 'the "y" command declares "tags"']);
+      });
+    });
+
+    it.each([
+      ['an inline run', 'run() {}', ['run']],
+      ['options', "options: { '--force': { desc: 'x' } }", ['options']],
+      ['hooks and args', "hooks: {}, args: ['<x>']", ['hooks', 'args']],
+    ])(
+      'warned of what a spread of an unsealed const holding %s does not carry',
+      async (_what, held, keys) => {
+        // SIG-731, review. The const holds none of `name`, `path` and `load`, so it is no
+        // longer refused for them -- and that refusal was the only thing that said
+        // what else the const holds, which a built app does not carry. Silently
+        // building it was a built app that prints help where the app runs `run`
+        const source = `const shared = { ${held} };
+console.log(shared.run);
+export default {
+  baseDir: import.meta.dirname,
+  commands: { rm: { ...shared, path: './commands/a.js' } },
+};\n`;
+
+        await withSchema(source, (dir) => {
+          const { diagnostics } = readAppCommands(discoverApp(dir));
+
+          expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
+          expect(diagnostics.map((d) => /declares "(\w+)"/.exec(d.message)?.[1])).toEqual(keys);
+          expect(diagnostics.every((d) => d.line === 5 && d.message.includes('SIG-320'))).toBe(
+            true
+          );
+        });
+      }
+    );
+
+    it.each([
+      // [what it is, the const, what the placeholder writes after the spread]
+      [
+        'a path the placeholder respells',
+        "const shared = { path: './commands/b.js', run() {} };",
+        "path: './commands/a.js'",
+      ],
+      [
+        'a path something reads',
+        'const shared = { run() {} };\nconsole.log(shared.path);',
+        "path: './commands/a.js'",
+      ],
+      [
+        'a name, a path and a load the placeholder respells',
+        "const shared = { name: 'q', run() {}, options: {} };",
+        "name: 'rm', path: './commands/a.js', load: undefined",
+      ],
+    ])(
+      'warned of what a spread of a const with %s does not carry',
+      async (_what, declaration, after) => {
+        // SIG-731, review round 2. The refusal is per key and skipped for one the
+        // placeholder spells after the spread, so a const could be neither refused nor
+        // reported: the keys are reported for any const whose members are all visible
+        const source = `${declaration}
+console.log(shared.run);
+export default {
+  baseDir: import.meta.dirname,
+  commands: { rm: { ...shared, ${after} } },
+};\n`;
+
+        await withSchema(source, (dir) => {
+          const { diagnostics } = readAppCommands(discoverApp(dir));
+
+          expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
+          expect(
+            diagnostics.map((d) => /declares "(\w+)"/.exec(d.message)?.[1]).filter(Boolean)
+          ).toContain('run');
+        });
+      }
+    );
+
+    it.each([
+      // [what the const is put through, the statement or declaration]
+      ['a write of the name', `const mixin = { tags: [] };\nmixin.name = 'later';`],
+      ['a write of the name by index', `const mixin = { tags: [] };\nmixin['name'] = 'later';`],
+      ['a write of a computed key', `const mixin = { tags: [] };\nmixin[process.env.K] = 'later';`],
+      ['a delete of the name', `const mixin = { tags: [] };\ndelete mixin.name;`],
+      [
+        'a write through a called member',
+        `const mixin = { tags: [] };\nmixin.valueOf().name = 'later';`,
+      ],
+      ['a tagged template', `const mixin = { tags: [] };\nmixin.tag\`x\`;`],
+      ['a constructed member', `const mixin = { tags: [] };\nnew mixin.Thing();`],
+      ['Object.assign', `const mixin = { tags: [] };\nObject.assign(mixin, { name: 'later' });`],
+      ['a call', `const mixin = { tags: [] };\nmutate(mixin);`],
+      ['a closure', `const mixin = { tags: [] };\nconst swap = () => { mixin.name = 'later'; };`],
+      ['an import', `import mixin from './mixin.js';`],
+      ['an export', `export const mixin = { tags: [] };`],
+      ['a let', `let mixin = { tags: [] };`],
+      ['a getter', `const mixin = { get tags() { return []; } };`],
+      ['a spread of a name', `const inner = { tags: [] };\nconst mixin = { ...inner };`],
+    ])('refused a spread of a const put through %s, as it was', async (what, declaration) => {
+      // SIG-731. Everything SIG-730 keeps a warning for stays a carrier here: the
+      // guard is one function, so what may write a `name` to the const is what may
+      // carry one into the placeholder. Nothing of the three is spelled by the
+      // placeholder after the spread, so `name` is the one asked about
+      const source = `${declaration}
+export default {
+  baseDir: import.meta.dirname,
+  commands: { x: { ...mixin, path: './commands/a.js' } },
+};\n`;
+
+      await withSchema(source, (dir) => {
+        const { diagnostics } = readAppCommands(discoverApp(dir));
+        const errors = diagnostics.filter((d) => d.severity === 'error').map((d) => d.message);
+
+        expect(errors, what).toHaveLength(1);
+        expect(errors[0], what).toContain(
+          'the "x" command spreads another object, which may carry its "name";'
+        );
+      });
     });
 
     it('should warn about an alias or a default it cannot read, naming the command', () => {

@@ -387,6 +387,9 @@ function entryMap() {
  */
 const BARRELLED = new Map([
   ['src/types.ts', 'index'],
+  // what a prompt answered by an option reads to tell a flag set through its
+  // variable from one nobody said (SIG-719)
+  ['src/util/env-value.ts', 'coerce'],
   ['src/util/by-code-unit.ts', 'reference'],
   ['src/util/escape-regexp.ts', 'reference'],
   ['src/util/error-message.ts', 'error-handler'],

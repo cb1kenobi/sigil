@@ -1026,6 +1026,8 @@ describe('sigil build', () => {
       ['sh'],
       // a const carrying `options` and `args`, which the build never reads (SIG-725)
       ['withopts'],
+      // a const the build cannot seal that holds no name, path or load (SIG-731)
+      ['mixed'],
       [],
       ['--help'],
     ]) {
@@ -1037,6 +1039,7 @@ describe('sigil build', () => {
     expect(source('viaload').stdout).toBe('b ran\n');
     expect(source('sh').stdout).toBe('a ran\n');
     expect(source('withopts').stdout).toBe('a ran\n');
+    expect(source('mixed').stdout).toBe('b ran\n');
     expect(source().stdout).toBe('a ran\n');
     expect(source('--help').stdout).toMatch(/^\s+aliased\b.*Shared words$/m);
     expect(source('--help').stdout).not.toMatch(/^\s+named$/m);
@@ -1131,10 +1134,12 @@ describe('sigil build', () => {
     // SIG-440: a const the build would read, written to where it cannot see
     ['name-mutated', 'later', 'spreads another object, which may carry its "name"'],
     ['path-passed', 'x', 'spreads another object, which may carry its "path" or "load"'],
-    ['load-captured', 'x', 'spreads another object, which may carry its "path" or "load"'],
+    // (a const written to is refused for the key it may carry and not for one it
+    // visibly lacks: `load` here, and `path` below, where `name` is the key's own)
+    ['load-captured', 'x', 'spreads another object, which may carry its "load";'],
     // SIG-725: the array the const holds is written through a copy, by a name that
     // is not the const's, and the app answers to `x` for it
-    ['alias-pushed', 'x', 'spreads another object, which may carry its "path" or "load"'],
+    ['alias-pushed', 'x', 'spreads another object, which may carry its "path";'],
     // SIG-728: a const holding `commands` is refused the same way, and can be
     // written in a schema module now that it is not read as a second schema
     ['commands-held', 'x', 'spreads another object, which may carry its "name"'],
@@ -1260,6 +1265,110 @@ describe('sigil build', () => {
     },
     60_000
   );
+
+  describe('what may set or replace a key of the schema (SIG-729, SIG-730)', () => {
+    const app = join(fixtures, 'discover', 'shared-base');
+    const build = async (name: string) => {
+      const { err } = await sigil(
+        'build',
+        app,
+        '--entry',
+        `src/${name}.js`,
+        '--out',
+        out,
+        '--no-sourcemap'
+      );
+      const run = (file: string, argv: string[]) => {
+        const { status, stdout } = spawnSync(process.execPath, [file, ...argv], {
+          cwd: tmpdir(),
+          encoding: 'utf-8',
+          env: { ...process.env, SCHEMA: join(app, 'src', `${name}.js`) },
+        });
+        return { status, stdout };
+      };
+      return {
+        built: (...argv: string[]) => run(join(out, 'shared-base.mjs'), argv),
+        err,
+        source: (...argv: string[]) => run(join(app, 'dev.ts'), argv),
+      };
+    };
+
+    it('should say a spread it cannot read may carry the baseDir, and not that the schema sets none', async () => {
+      // the runtime reads `baseDir` through the spread, so the relative `commands`
+      // are found from source and the app answers the same built
+      const { built, err, source } = await build('unsealed-basedir');
+
+      expect(err).toContain('a spread in the schema may carry a "baseDir" this cannot see');
+      expect(err).not.toContain('sets no "baseDir"');
+      expect(process.exitCode).toBeFalsy();
+      expect(source('a').stdout).toBe('a ran\n');
+      expect(built('a')).toStrictEqual(source('a'));
+    }, 60_000);
+
+    it('should warn that a baseDir of null sets none, as the runtime reads it', async () => {
+      // SIG-733. From source the relative `commands` resolve against the working
+      // directory, which is not the app's, so the app fails to find them; the build
+      // resolves them against the schema and the built app works. That is the
+      // divergence the warning is for, and `null` is as much none as `undefined`
+      const { built, err, source } = await build('null-basedir');
+
+      expect(err).toContain('"commands" is a relative path and the schema sets no "baseDir"');
+      expect(process.exitCode).toBeFalsy();
+      expect(source('a').status).not.toBe(0);
+      expect(source('a').stdout).not.toBe('a ran\n');
+      expect(built('a').stdout).toBe('a ran\n');
+    }, 60_000);
+
+    it('should warn that a getter after a plain commands replaces it, which the built app does not run', async () => {
+      // the app runs the getter's `a` and `b`; the build can only read `old`, and the
+      // warning is what says the two differ
+      const { built, err, source } = await build('getter');
+
+      expect(err).toContain(
+        '"commands" is written before an accessor or a method of the same name, which replaces it when the app runs'
+      );
+      expect(process.exitCode).toBeFalsy();
+      expect(source('a').stdout).toBe('a ran\n');
+      expect(built('a').stdout).not.toBe('a ran\n');
+    }, 60_000);
+
+    it('should say a placeholder whose only commands is a getter has none in the built app', async () => {
+      // SIG-732. From source `x sub` is a command, because the runtime calls the
+      // getter; the build cannot run one, so the built app has no `sub`. It is the
+      // `warnUnbaked()` message that says so, and it is the right one: a getter is
+      // dropped whole, as a path to a directory of commands is
+      const { built, err, source } = await build('placeholder-getter');
+
+      expect(err).toContain(
+        'the "x" command declares "commands" in the schema, which `sigil build` does not carry into a built app (SIG-320); it applies when the app runs from source and not after a build, so write it as an object literal of commands, which is the one form the build reads'
+      );
+      expect(process.exitCode).toBeFalsy();
+      expect(source('x', 'sub').stdout).toBe('b ran\n');
+      expect(built('x', 'sub').stdout).not.toBe('b ran\n');
+      expect(built('x').stdout).toBe(source('x').stdout);
+    }, 60_000);
+
+    it('should not warn that a spread may replace commands when its const spells none, and the apps agree', async () => {
+      const { built, err, source } = await build('lacks');
+
+      expect(err).not.toContain('which may replace it');
+      expect(process.exitCode).toBeFalsy();
+      for (const argv of [['a'], ['b'], ['--help']]) {
+        expect(built(...argv), argv.join(' ')).toStrictEqual(source(...argv));
+      }
+      expect(source('b').stdout).toBe('b ran\n');
+    }, 60_000);
+
+    it('should still warn when something writes a commands to that const, which the app runs', async () => {
+      // the assignment is the divergence: `c` is a command from source and the build
+      // read `a` and `b`, so a warning is owed for the spread
+      const { built, err, source } = await build('mutated');
+
+      expect(err).toContain('"commands" is written before a spread or a computed key');
+      expect(source('c').stdout).toBe('b ran\n');
+      expect(built('c').stdout).not.toBe('b ran\n');
+    }, 60_000);
+  });
 
   it('should check the locales the schema ends with when a shared base carries others', async () => {
     // SIG-728. The check read the base's `locales`, which the schema replaces, so it

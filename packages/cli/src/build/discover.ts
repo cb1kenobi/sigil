@@ -39,12 +39,19 @@
  * from (`schemaModule()`) -- because running it would run the app.
  */
 
-import { schemasWith, sealedResolver } from './bindings.ts';
+import {
+  lacksResolver,
+  schemasWith,
+  sealedResolver,
+  spellingIn,
+  visibleLiteral,
+} from './bindings.ts';
 import { type Diagnostic, displayPath } from './diagnostic.ts';
 import { type CommandFacts, factsOf, type RoutedBy } from './extract.ts';
 import { translatedKey } from './i18n.ts';
 import {
   flatten,
+  isNoBaseDir,
   isUndefined,
   isWrongType,
   lastPlain,
@@ -52,12 +59,13 @@ import {
   literalString,
   literalType,
   loaderSpecifier,
+  mayCarry,
   objectLiteral,
   outermostDeclaring,
   PLACEHOLDER_KEYS,
   plainProperty,
   propertyKey,
-  spellingOf,
+  replacerPhrase,
   stringList,
   unwrapShallow,
 } from './literals.ts';
@@ -549,13 +557,15 @@ export function readAppCommands(app: DiscoveredApp): {
   // runs (SIG-728)
   const resolver = sealedResolver(parsed);
   const declared = lastPlain(schemas[0]!, 'commands', resolver)!;
-  if (spellingOf(schemas[0]!, 'commands', resolver).replaced) {
+  const commandsSpelling = spellingIn(parsed, schemas[0]!, 'commands');
+  if (commandsSpelling.replaced || commandsSpelling.shadowedBy) {
     // a spread the build cannot read, after the `commands` that was read: it may
-    // carry its own, and the app runs the last. Said rather than guessed (SIG-728)
+    // carry its own, and the app runs the last -- and an accessor of the same key
+    // does carry one, which `lastPlain()` leaves out. Said rather than guessed
+    // (SIG-728, SIG-730)
     diagnostics.push({
       ...locate(parsed, declared.start),
-      message:
-        '"commands" is written before a spread or a computed key, which may replace it when the app runs, so what is read here may not be the app\'s commands; pass --commands to say which command directory to check',
+      message: `"commands" is written before ${replacerPhrase(commandsSpelling)}, so what is read here may not be the app's commands; pass --commands to say which command directory to check`,
       severity: 'warning',
     });
   }
@@ -574,15 +584,54 @@ export function readAppCommands(app: DiscoveredApp): {
     // A warning rather than an error because the *built* app is genuinely
     // fine, and an app that only ever ships bundled is not wrong. What is
     // wrong is this command having nothing to say about it.
-    if (!isAbsolute(asPath) && !lastPlain(schemas[0]!, 'baseDir', resolver)) {
-      diagnostics.push({
-        ...locate(parsed, declared.value.start),
-        message:
-          `"commands" is a relative path and the schema sets no "baseDir", so this resolves it ` +
-          `against ${displayPath(schemaDir)} while the runtime resolves it against the working ` +
-          `directory. Add \`baseDir: import.meta.dirname\` to the schema.`,
-        severity: 'warning',
-      });
+    // a `baseDir` spelled in any way counts, an accessor included: the runtime
+    // reads it. What is not known is whether a spread or a computed key the build
+    // cannot read carries one, which is said as that and not as there being none
+    // (SIG-729)
+    const members = flatten(schemas[0]!, resolver);
+    const spelled = members.findLastIndex(
+      (member) => member.type !== 'SpreadElement' && propertyKey(member) === 'baseDir'
+    );
+    const last = spelled < 0 ? undefined : members[spelled];
+    // `baseDir: undefined` is none, as it is to the runtime, and so are `null` and
+    // an empty string, which it reads as falsy (SIG-733)
+    const unset =
+      last !== undefined &&
+      last.type !== 'SpreadElement' &&
+      last.kind === 'init' &&
+      !last.method &&
+      isNoBaseDir(last.value);
+    // what may set it after the last spelling of it, and what it is known to hold
+    // nothing of is not asked about
+    const lacks = lacksResolver(parsed);
+    const carrier = members
+      .slice(spelled + 1)
+      .find(
+        (member) =>
+          (member.type === 'SpreadElement' || member.computed) && mayCarry(member, 'baseDir', lacks)
+      );
+    if (!isAbsolute(asPath) && (spelled < 0 || unset)) {
+      const resolves =
+        `this resolves it against ${displayPath(schemaDir)} ` +
+        `while the runtime resolves it against the working directory`;
+      diagnostics.push(
+        carrier
+          ? {
+              ...locate(parsed, carrier.start),
+              message:
+                `"commands" is a relative path and ${carrier.type === 'SpreadElement' ? 'a spread' : 'a computed key'} ` +
+                `in the schema may carry a "baseDir" this cannot see; if it does not, ${resolves}. ` +
+                `Add \`baseDir: import.meta.dirname\` to the schema, after the last spread or computed key.`,
+              severity: 'warning',
+            }
+          : {
+              ...locate(parsed, declared.value.start),
+              message:
+                `"commands" is a relative path and the schema sets no "baseDir", so ${resolves}. ` +
+                `Add \`baseDir: import.meta.dirname\` to the schema.`,
+              severity: 'warning',
+            }
+      );
     }
 
     return {
@@ -989,7 +1038,7 @@ function placeholderSpelling(
   declared: ObjectProperty | undefined;
   replaced: boolean;
 } {
-  return spellingOf(object, key, sealedResolver(parsed), computed);
+  return spellingIn(parsed, object, key, computed);
 }
 
 /**
@@ -1587,7 +1636,19 @@ function warnUnbaked(
   // what the object spells, as the build reads it: an unbaked key inside a
   // literal spread or under a computed key written as a string is as unbaked as
   // one written plainly
-  for (const property of flatten(object, sealedResolver(parsed))) {
+  // a spread of a const the resolver gave up on is refused only for the keys that
+  // route a placeholder, and not for one it spells after the spread or a const that
+  // holds none of them, so what else it holds is said here, at the spread (SIG-731)
+  const members = flatten(object, sealedResolver(parsed)).flatMap((member) => {
+    const operand = member.type === 'SpreadElement' ? unwrapShallow(member.argument) : undefined;
+    const literal =
+      operand?.type === 'Identifier' ? visibleLiteral(parsed, operand.name) : undefined;
+    return literal
+      ? flatten(literal).map((property) => ({ at: member.start, property }))
+      : [{ at: member.start, property: member }];
+  });
+
+  for (const { at, property } of members) {
     if (property.type === 'SpreadElement') {
       continue;
     }
@@ -1608,7 +1669,7 @@ function warnUnbaked(
     }
 
     diagnostics.push({
-      ...locate(parsed, property.start),
+      ...locate(parsed, at),
       message: `the "${name}" command declares "${escapeControls(key)}" in the schema, which \`sigil build\` does not carry into a built app (SIG-320); it applies when the app runs from source and not after a build${advice(key)}`,
       severity: 'warning',
     });

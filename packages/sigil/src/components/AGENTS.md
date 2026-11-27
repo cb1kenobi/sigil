@@ -16966,3 +16966,51 @@ click was two single clicks, so it picked the tile twice and activated nothing.
   one toggles twice: there is nothing to activate.
 - **The example needed only a test.** Its map's `onActivate` was already `map it`,
   so a double click on a tile maps the directory, as on a row.
+
+### A prompt answered by an option (SIG-719)
+
+`text()`, `password()`, `confirm()`, `select()` and `multiselect()` take `option`
+and `state`, and `answerOr()` in `prompt.ts` is the whole of it.
+
+- **The option is named by its spelling and looked up the way argv reaches it.**
+  Options across the context chain, nearest first, then the running command's
+  arguments by name or destination. Nothing new is declared on the option: the
+  prompt says which option answers it, because the prompt is what has a message,
+  choices and a `validate`, and the parse is already done by the time `run()`
+  asks.
+- **What answers it is what the user supplied, and a declared `default` is
+  that.** argv, the environment, or the declaration's own `default`, since a
+  default is an answer the author wrote down and a prompt that ignored it would
+  ask a question the app had already answered. The one thing on a destination
+  that is **not** an answer is a flag's implied `false` or `0`, which the parser
+  wrote and nobody said, so `confirm({ option: '--yes' })` is not skipped by the
+  flag merely existing. Telling the two apart reads `state.$` for a typed spelling
+  of the destination and `envValue()` for its variables, the twin's included --
+  `envValue()` is published on `@ttylabs/sigil/coerce` for this, because an
+  ejected prompt may only import what the package exports.
+- **No terminal and no answer is a `UsageError` that says what to pass**, with
+  the codes a missing required option or argument already has. A prompt that
+  cannot be answered makes the option it names required for that run, so a second
+  pair of codes would be two names for one fact. The spelling is the option's long
+  form and its declared `choices`, else the prompt's own values, else its hint:
+  `pass --region <us|eu>`. A plain `PromptError` stays the answer for a prompt
+  that names no option, which is every prompt written before this.
+- **A given value is held to what a person could have given.** `select()` and
+  `multiselect()` compare it, `Object.is`, against the values on offer, disabled
+  ones excluded, and `text()` runs its `validate`; each refusal is
+  `invalid-value`, the first in the parser's own sentence. `min` and `max` are
+  not applied: they bound how many a person ticks, and argv is bounded by the
+  option's declaration.
+- **Naming an option nothing declares, or `option` without `state`, is a
+  `PromptError`.** That is the app's mistake, and refusing it rather than asking
+  is what stops a prompt that would ask every time and tell a run with no
+  terminal to pass something argv refuses.
+- **It is in `prompt.ts` rather than a module of its own** because a sibling
+  module would need a subpath, a facade and a manifest entry to keep the prompt
+  ejectable, for five functions only the prompt calls. `escapeControls` and
+  `UsageError` come in through `../error-handler.js` in one import, so the ejected
+  copy names that subpath once, which `registry.test.ts` requires. That puts the
+  error handler's module on the prompt's graph: 46 modules and 274,435 B to 48 and
+  277,314 B for `components/prompt`, as of this change.
+- **Not done:** `number()`, `date()`, `path()`, `groupMultiselect()` and the rest.
+  Each has its own answer type, and the five here are the ones the ticket named.

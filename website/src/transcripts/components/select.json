@@ -42,6 +42,12 @@
         "type": "boolean"
       },
       {
+        "description": "The option or argument whose value answers this prompt: an option's spelling, `--region` or `-r`, or an argument's name, `target`. Looked up in `state` the way argv would reach it, so an ancestor's option answers too. One the command does not declare is refused with a `PromptError`, as is one with no `state`.",
+        "name": "option",
+        "optional": true,
+        "type": "string"
+      },
+      {
         "description": "The input router to read keys through. One is built if not given.",
         "name": "router",
         "optional": true,
@@ -52,6 +58,12 @@
         "name": "signal",
         "optional": true,
         "type": "AbortSignal"
+      },
+      {
+        "description": "The parse state of the command that is asking, which `option` is read from.",
+        "name": "state",
+        "optional": true,
+        "type": "ParseState"
       },
       {
         "description": "Where keys come from. Defaults to the terminal's input.",

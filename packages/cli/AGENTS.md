@@ -911,6 +911,181 @@ makes it testable with a fixture directory and no bundler at all.
   `discover/shared-base` (`override`, `path` and `locales`, each compared with the
   app run from source) and `commands-held` in `discover/placeholder-single`.
 
+  **What may set a key of the schema, or replace one, is decided by what the
+  build can see in a spread and in an accessor (SIG-729, SIG-730).** Three
+  decisions, all in the question "may something later change what I read", and
+  each through the one definition rather than beside it.
+
+  - **A spread the build cannot read may carry a `baseDir`, and the check says
+    that rather than that there is none (SIG-729).** The relative-`commands`
+    warning asked `lastPlain()` and said `the schema sets no "baseDir"` whenever
+    it found none, so `{ ...base, commands: './commands' }` with an unsealed
+    `base` -- a `let`, an import, an exported `const`, a call -- was told it sets
+    none while the runtime reads one through the spread. It asks `spellingIn()`
+    now, with computed keys counted: a spelling of any kind is a `baseDir` (an
+    accessor included, which the runtime reads and `lastPlain()` skipped), and
+    where there is none -- or the last is `baseDir: undefined`, which is none, as
+    it is to the runtime -- and a spread or a computed key after it may carry one,
+    the warning says `a spread in the schema may carry a "baseDir" this cannot
+    see`, at the first such spread, with the same fix, written after the last of
+    them. A spread of a same-module `const` that visibly holds no `baseDir` (the
+    rule below) is not one that may carry it. "Sets no `baseDir`" is kept for a
+    schema nothing in can carry one. A `baseDir` written before a spread still
+    counts as one -- what the spread may replace it with is not a reason to say
+    there is none.
+  - **An accessor or a method written after a plain `commands` or `locales` is the
+    spelling that runs, and the build says so (SIG-730).** `lastPlain()` skips it
+    by design, so `{ commands: './x', get commands() { ... } }` read `./x` and
+    reported nothing, and `spellingOf().replaced` never saw it because it asks
+    about a later spread or computed key and the accessor is the last spelling of
+    the key rather than something after it. `spellingOf()` answers `shadowedBy`
+    -- the accessor or method, where a plain spelling was written before it --
+    and the two readers that use `lastPlain()` (the schema's `commands` and its
+    `locales`) warn on it in the shape they use for a spread, worded for what it
+    is: `an accessor or a method of the same name, which replaces it`, with no
+    `may`, because it does. What is read is still the plain value, as it is for a
+    spread. `replacerPhrase()` says it, so the two messages cannot disagree. The
+    placeholder readers needed nothing: they read `spellingOf().declared`, which
+    is the accessor, and each already refuses or warns about an accessor under
+    its own key (`name`, `path` and `load` refused, `alias` and `default`
+    warned, a nested `commands` named by `warnUnbaked()`). `mayCarry()` is
+    unchanged for the same reason -- an accessor is a spelling, not something
+    that carries -- which also keeps `{ default: true, default() {} }` the
+    refusal it was rather than a warning.
+  - **A spread of a same-module `const` that visibly holds no such key does not
+    replace one, sealed or not (SIG-730).** `lacksResolver()` in `bindings.ts` is
+    the question, asked by `mayCarry()` of a spread of a name and so by
+    `lastReplacing()`, which is what the schema's `commands` and `locales`, a
+    placeholder's keys and a routed module's lifted `desc` and `hidden` all ask.
+    It is **per key**, which is what lets it answer for a const `sealedObject()`
+    gives up on: a `const` of the module's own, not exported, bound once, whose
+    literal spells no such key -- no property, no `__proto__`, no accessor of any
+    key (a getter runs when the object is spread, and what it does is not read),
+    no spread or computed key that may carry it and no spread of a name at all,
+    which is not looked into twice -- and which occurs nowhere but as an object
+    spread's operand or as the object of a member access with a **different**
+    static key, **and that member is not called**. `mixin.tags.push('x')` cannot
+    write `commands`; `mixin.valueOf().commands = x` can, because a called member
+    is handed the object as `this` and returns it, as do `mixin.set('commands',
+    x)`, `mixin.__defineGetter__(...)`, a tagged template, `new mixin.x()` and
+    `(mixin?.valueOf)()` -- refused whatever the key (review found them by running
+    them). **Not covered, and accepted:** an accessor inherited from
+    `Object.prototype` that a test or a module installs and then runs with the
+    const as `this` by a plain read or write (`mixin.late = {}`); it is the
+    general case of the `__proto__` exclusion, and nothing a schema module does.
+    **A member assignment of that key keeps the warning, and so does a read of it
+    and every use the build cannot follow** -- `mixin.commands = x`,
+    `mixin['commands'] = x`, `mixin[k] = x`, `delete mixin.commands`,
+    `Object.assign(mixin, x)`, `mutate(mixin)`, a closure over it -- which is the
+    rule `sealedObject()` already has, cheap side first: the app answers a warning
+    by writing the key after the spread. An imported, exported, `let` or called
+    mixin still warns, because the build cannot see what it holds. It is applied
+    to what may replace a spelling, and to the `baseDir` carrier above, and was
+    **not** applied to `unspelledCarrier()` -- the question of what a spread may
+    carry for a key spelled nowhere -- until SIG-731, the entry below, which
+    moved the refusal a placeholder's `name`, `path` and `load` get for a const
+    something writes `path` to from "may carry its name, path or load" to "may
+    carry its path". The one visible consequence for an existing test is
+    `refused a spread of a const that something else can change`: a const only
+    ever written `path` to no longer leaves a placeholder's `alias`, written
+    before the spread, unknown.
+
+  `sigil check` over `packages/cli` and every example under `examples/` was run
+  against it and gained no warning and lost none -- there were none to lose.
+  Covered by `what may set the baseDir, or replace the commands, of a schema` in
+  `test/build/discover.test.ts`, `an accessor after the locales` and `a spread of a
+  const that visibly holds no locales` in `test/i18n.test.ts`, `a spread of a const
+  that visibly holds no such key` in `test/build/extract.test.ts`, and built
+  against source by `test/build-command.test.ts` over `unsealed-basedir`,
+  `getter`, `lacks` and `mutated` in `discover/shared-base`: the first agrees with
+  source, the second and fourth are apps whose built form differs from the app
+  and so are held to the warning, and the third agrees with source and says
+  nothing.
+
+  **A spread that visibly lacks a key carries it nowhere, a getter-only `commands`
+  is the unbaked warning, and `baseDir: null` is none (SIG-731, SIG-732,
+  SIG-733).** Three follow-ups of the entry above, each in the question it was
+  left asking.
+
+  - **`unspelledCarrier()` takes the `lacks` resolver, so the carried side and
+    the replacing side are one answer (SIG-731).** `spellingOf()` hands it
+    `lacksResolver()` and `factsOf()` does for the module lift's `desc`, so a
+    spread of a same-module `const` that visibly holds no `name`, `path` or `load`
+    is no carrier of it. `{ ...mixin, path: './x.js' }` with `const mixin = {
+    tags: ['a'] }` and `mixin.tags.push('b')` -- a const `sealedObject()` gives up
+    on for the member read -- was refused for a `name` it cannot hold and is read
+    now; every placeholder key that goes through `placeholderSpelling()` moves
+    with it (`desc`, `hidden`, `alias`, `default`, a nested `commands`), and so
+    does the module lift's "may carry a desc". What stays a carrier is what
+    `lacksResolver()` keeps, which is the list in the entry above: a member write
+    of the key, a called, tagged or constructed member, `Object.assign`, a call,
+    a closure, an import, an export, a `let`, a getter, a spread of a name --
+    pinned for `name` by `refused a spread of a const put through ...`.
+    The messages that change are the ones that quoted the three keys for a const
+    that holds only some of them, and each now names what it may carry:
+    `alias-pushed` is "may carry its "path"" (its const holds `alias` and `path`),
+    `load-captured` is "its "load"", a const only ever written `path` to is "its
+    "path"", and a const that holds a `name` array beside `path` is "its "name" or
+    "path"". `commands-held` gained a `name` so that it stays the refusal it was
+    written to drive through a build: a const holding only `commands` is no
+    carrier of the three, and builds with the warning for the `commands` it cannot
+    see, which is the divergence that is real.
+    **What the refusal used to report and no longer can** (review): it was the
+    only thing that said what else the const holds, since `warnUnbaked()` reads
+    what `flatten()` resolves and a const `sealedObject()` gives up on is not
+    resolved. A const holding `run`, `options` or `hooks` that something reads a
+    member of built silently into an app that prints help where the app runs
+    `run`. `visibleLiteral()` in `bindings.ts` hands `warnUnbaked()` the literal
+    of any same-module `const` whose members are all plain properties, and its
+    keys are reported at the spread as a sealed const's are. Round 2 widened it
+    from "holds none of the three": the refusal is decided per key and skipped
+    for one the placeholder spells after the spread, so a const holding `path`
+    that the placeholder respells, or one something merely reads `path` of, was
+    neither refused nor reported. A const that is also refused is reported twice
+    at worst. Not covered: a key written to the const later
+    (`shared.options = {}`) is not in its literal and is not reported, which is
+    still one warning at the spread for whatever the literal holds.
+  - **A placeholder whose only `commands` is an accessor or a method is
+    `warnUnbaked()`'s, and its wording is the right one (SIG-732).** The build
+    cannot run a getter, so the built app has none of the subcommands the runtime
+    gets from it; the message `declares "commands" in the schema, which sigil
+    build does not carry into a built app ... it applies when the app runs from
+    source and not after a build, so write it as an object literal of commands`
+    says exactly that, for a getter, a setter and a method, and it is the message a path or a
+    list of paths gets. A second message for the accessor was not written: it
+    would say the same thing in more words, and two messages for one dropped
+    property is two to keep in step. Pinned for all three, and built against
+    source by `placeholder-getter` in `discover/shared-base` (`x sub` runs from
+    source and not built). **Not fixed, and worth a ticket each:** a schema whose
+    only `commands` is a getter is reported as `no "commands" found in this
+    module`, which is an error and so not silent but says the wrong thing, and a
+    schema whose only `locales` is one is not claimed by `schemasWith()` at all,
+    so the catalog check is skipped and `sigil check` says `no problems found`.
+  - **`baseDir: null` is none, as the runtime reads it (SIG-733).**
+    `resolveDeclaredPath()` asks `baseDir ? resolve(baseDir, file) : file`, so
+    every falsy `baseDir` leaves a relative path to the working directory --
+    measured by running an app with `undefined`, `null` and `''` from a directory
+    its commands were not under: all three failed to find them, and with the real
+    directory all three ran. A non-string truthy `baseDir` throws from
+    `resolve()`, which is the runtime's. `isNoBaseDir()` in `literals.ts` is the
+    one definition: `undefined`, and a literal that is falsy -- `null`, `''`, an
+    empty template, `false`, `0`. Only a literal is read, since a name or a call
+    is not known to be falsy, and the warning is the same one `undefined` gets,
+    with the same carrier rule for a spread after it.
+
+  `sigil check` over `packages/cli` and every example under `examples/` was run
+  against all three and gained no warning and lost none (`system-monitor` has no
+  entry module, on `main` as here). Covered by `read a placeholder that spreads a
+  const visibly holding no name, path or load`, `refused a spread of a const put
+  through ...`, `should say a placeholder whose only commands is ... not carried
+  into a built app` and `warned that a baseDir of ... sets none` in
+  `test/build/discover.test.ts`, `should not say a spread may carry a desc nobody
+  wrote` in `test/build/extract.test.ts`, and built against source by
+  `test/build-command.test.ts` over `mixed` in `discover/placeholder-sealed`
+  (agrees with source), `placeholder-getter` and `null-basedir` in
+  `discover/shared-base` (the built form differs from the app, and the warning is
+  what says so).
+
   **A known divergence, not a rule: a built app carries none of the rest of what
   a placeholder declares.** The runtime reads every property off a placeholder
   (`initCommand()` copies the declaration and `loadCommand()` merges it over a

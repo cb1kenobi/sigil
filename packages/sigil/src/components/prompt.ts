@@ -7,6 +7,8 @@ import {
   text as textNode,
   toDisplayText,
 } from '../element/index.js';
+// one import for the two, so an ejected copy names the subpath once
+import { escapeControls, UsageError } from '../error-handler.js';
 import { __, __n, confirmKeys } from '../i18n/index.js';
 import {
   type BindingHelp,
@@ -26,6 +28,14 @@ import { handOver } from '../renderer/index.js';
 import { State, untrack } from '../signals/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { TOKEN_ROLE } from '../theme/index.js';
+import {
+  Internal,
+  type InternalArgument,
+  type InternalOption,
+  type ParsedOption,
+  type ParseState,
+} from '../types.js';
+import { envValue } from '../util/env-value.js';
 import { graphemes, graphemeWidth, stringWidth } from '../width/index.js';
 import { wrap } from '../wrap/index.js';
 import { controlFault, holdsControl } from './control-character.js';
@@ -216,7 +226,223 @@ export interface AccessibleOptions {
   accessible?: boolean;
 }
 
-export interface TextOptions extends PromptOptions, AccessibleOptions {
+/**
+ * Where a prompt's answer can come from instead of a person (SIG-719).
+ *
+ * A prompt asks a person, and a run with nobody to ask -- an agent, a CI job, a
+ * script -- needs a way to answer it anyway and to be told what that way is. So a
+ * prompt can name the option or the argument whose value answers it. Given, the
+ * prompt is skipped and the value is the answer; not given and with no terminal,
+ * the run fails with a usage error that says what to pass, `pass --region
+ * <us|eu>`, which is something a caller can act on where "the input is not a
+ * terminal" is not.
+ */
+export interface AnsweredByOptions {
+  /**
+   * The option or argument whose value answers this prompt: an option's spelling,
+   * `--region` or `-r`, or an argument's name, `target`. Looked up in `state` the
+   * way argv would reach it, so an ancestor's option answers too. One the command
+   * does not declare is refused with a `PromptError`, as is one with no `state`.
+   *
+   * What counts as given is what the user supplied: a value typed in argv, one
+   * set through the environment, or a `default` the declaration names, since a
+   * default is an answer the author wrote down. A flag's implied `false` is not --
+   * nobody said it -- so a `confirm()` answered by `--yes` still asks unless
+   * `--yes`, `--no-yes` or its variable was used.
+   */
+  option?: string;
+  /** The parse state of the command that is asking, which `option` is read from. */
+  state?: ParseState;
+}
+
+/** What a prompt's `option` names, found. */
+type AnswerSource =
+  | { readonly kind: 'argument'; readonly arg: InternalArgument }
+  | { readonly kind: 'option'; readonly opt: InternalOption };
+
+/**
+ * The option or argument a prompt names, looked up the way argv reaches it:
+ * options across the whole context chain, nearest first, and arguments on the
+ * command being run.
+ *
+ * @param opts - The prompt's options, with an `option`.
+ * @param option - What it names.
+ * @returns What it names.
+ * @throws A `PromptError` where there is no `state`, or nothing by that name.
+ */
+function answerSource(opts: PromptOptions & AnsweredByOptions, option: string): AnswerSource {
+  const state = opts.state;
+  if (!state) {
+    throw new PromptError(
+      `"${opts.message}" is answered by ${escapeControls(option)}, and has no \`state\` to read it from`
+    );
+  }
+
+  for (const ctx of state.contexts) {
+    const opt = ctx[Internal].options.find(option);
+    if (opt) {
+      return { kind: 'option', opt };
+    }
+  }
+
+  const arg = state.contexts[0]?.[Internal].args.find(
+    (it) => it.name === option || it[Internal].dest === option
+  );
+  if (arg) {
+    return { arg, kind: 'argument' };
+  }
+
+  // the app's mistake rather than the user's, so a prompt error and not a usage
+  // one: a prompt answered by an option nothing declares would ask every time,
+  // and the run that has no terminal would be told to pass something argv refuses
+  throw new PromptError(
+    `"${opts.message}" is answered by ${escapeControls(option)}, which the command does not declare`
+  );
+}
+
+/**
+ * The value that answers a prompt, where the user supplied one.
+ *
+ * Whatever is on the destination answers it -- argv, the environment and a
+ * declared `default` alike -- except a flag's implied `false` or `0`, which the
+ * parser wrote and nobody said. That one counts only where a spelling of the
+ * destination was typed or one of its variables is set.
+ *
+ * @param state - The parse state.
+ * @param source - What the prompt names.
+ * @returns The value, boxed, or nothing.
+ */
+function givenAnswer(state: ParseState, source: AnswerSource): { value: unknown } | undefined {
+  const internal = source.kind === 'option' ? source.opt[Internal] : source.arg[Internal];
+  const value = state.argv[internal.dest];
+
+  if (value === undefined) {
+    return undefined;
+  }
+  if (source.kind === 'argument' || !source.opt[Internal].impliedDefault) {
+    return { value };
+  }
+
+  const { dest, negatedTwin } = source.opt[Internal];
+  const typed = state.$.some(
+    (parsed) => parsed.type === 'Option' && (parsed as ParsedOption).option[Internal].dest === dest
+  );
+  const envs = [...source.opt[Internal].envs, ...(negatedTwin?.[Internal].envs ?? [])];
+
+  return typed || envValue(state.env, envs) !== undefined ? { value } : undefined;
+}
+
+/**
+ * How to pass what a prompt is answered by, for a message: `--region <us|eu>`,
+ * `--yes`, `<target>`. The values are the declaration's `choices`, else the ones
+ * the prompt offers, else the option's hint.
+ *
+ * @param source - What the prompt names.
+ * @param offered - The values the prompt offers, if it is a choice list.
+ * @returns The spelling, escaped.
+ */
+function answerUsage(source: AnswerSource, offered: readonly unknown[] | undefined): string {
+  const declared = source.kind === 'option' ? source.opt.choices : source.arg.choices;
+  const values = Array.isArray(declared) && declared.length > 0 ? declared : offered;
+  const placeholder = (name: string): string =>
+    `<${values && values.length > 0 ? values.map((it) => String(it)).join('|') : name}>`;
+
+  if (source.kind === 'argument') {
+    return escapeControls(placeholder(source.arg.name));
+  }
+
+  const { isFlag, long, short } = source.opt[Internal];
+  const spelling = [...long][0] ?? [...short][0] ?? `--${source.opt.name}`;
+  return escapeControls(
+    isFlag ? spelling : `${spelling} ${placeholder(source.opt.hint ?? source.opt.name)}`
+  );
+}
+
+/**
+ * Answers a prompt from what it names, where that was given, and asks a person
+ * otherwise -- or says what to pass, where there is no person to ask.
+ *
+ * @param opts - The prompt's options.
+ * @param read - Turns the given value into the prompt's answer, or throws.
+ * @param ask - The prompt itself, for when nothing answered it.
+ * @param offered - The values a choice list offers, for the message.
+ * @returns The answer.
+ */
+function answerOr<T>(
+  opts: PromptOptions & AnsweredByOptions,
+  read: (value: unknown, usage: string) => T | Promise<T>,
+  ask: () => Promise<T>,
+  offered?: readonly unknown[]
+): Promise<T> {
+  const option = opts.option;
+  if (option === undefined) {
+    return ask();
+  }
+
+  try {
+    const source = answerSource(opts, option);
+    const usage = answerUsage(source, offered);
+    const given = givenAnswer(opts.state!, source);
+
+    if (given) {
+      return Promise.resolve().then(() => read(given.value, usage));
+    }
+
+    // asked here rather than left to the prompt, so the refusal can say what to
+    // pass -- the one thing the prompt's own "not a terminal" cannot. A usage
+    // error, exit 2, because the answer is input the run did not carry: the code
+    // is the one a missing required option or argument already has, which is what
+    // a prompt with nobody to answer it makes of the option it names
+    if (!canReadKeys({ stdin: opts.stdin, terminal: opts.terminal })) {
+      return Promise.reject(
+        new UsageError(
+          __`Cannot ask "${escapeControls(opts.message)}" without a terminal; pass ${usage}`,
+          source.kind === 'option' ? 'missing-option' : 'missing-argument'
+        )
+      );
+    }
+
+    return ask();
+  } catch (err) {
+    return Promise.reject(err);
+  }
+}
+
+/**
+ * The refusal of a given value a prompt could not have been answered with: the
+ * message a value outside an option's `choices` is refused with, and its code.
+ *
+ * @param value - What was given.
+ * @param usage - How the answer is passed, which names the option.
+ * @returns The error.
+ */
+function notAnAnswer(value: unknown, usage: string): UsageError {
+  return new UsageError(
+    __`Invalid value "${escapeControls(typeof value === 'string' ? value : (JSON.stringify(value) ?? String(value)))}" for ${usage}`,
+    'invalid-value'
+  );
+}
+
+/**
+ * The values a choice list offers, which is what an answer given in argv has to
+ * be one of: a disabled choice is left out, because a person could not pick it.
+ *
+ * @param choices - The list.
+ * @returns The values on offer.
+ */
+function offeredValues<T>(choices: readonly ChoiceEntry<T>[]): T[] {
+  const values: T[] = [];
+  for (const entry of choices) {
+    if (typeof entry === 'string') {
+      values.push(entry as T);
+    } else if (!('separator' in entry) && !entry.disabled) {
+      values.push((entry.value === undefined ? entry.label : entry.value) as T);
+    }
+  }
+  return values;
+}
+
+export interface TextOptions extends PromptOptions, AccessibleOptions, AnsweredByOptions {
   /** Used when the answer is empty. */
   default?: string;
   /**
@@ -239,14 +465,14 @@ export interface TextOptions extends PromptOptions, AccessibleOptions {
   value?: string;
 }
 
-export interface ConfirmOptions extends PromptOptions, AccessibleOptions {
+export interface ConfirmOptions extends PromptOptions, AccessibleOptions, AnsweredByOptions {
   /** What Enter alone means. Defaults to `true`. */
   default?: boolean;
   /** An answer to start from, which is what Enter alone means. Beats `default`. */
   value?: boolean;
 }
 
-export interface SelectOptions<T> extends PromptOptions, AccessibleOptions {
+export interface SelectOptions<T> extends PromptOptions, AccessibleOptions, AnsweredByOptions {
   /** What to offer. */
   choices: readonly ChoiceEntry<T>[];
   /**
@@ -1304,6 +1530,29 @@ function summaryOf(written: string): string {
  * @returns What was typed.
  */
 export function text(opts: TextOptions): Promise<string> {
+  if (opts.option !== undefined) {
+    // the given value is held to what a typed one is: its own `validate`, whose
+    // message is the reason, and refused with the option named
+    return answerOr(
+      opts,
+      async (value, usage) => {
+        if (typeof value !== 'string' && typeof value !== 'number') {
+          throw notAnAnswer(value, usage);
+        }
+        const answer = String(value);
+        const problem = await opts.validate?.(answer);
+        if (problem) {
+          throw new UsageError(
+            __`Invalid value "${escapeControls(answer)}" for ${usage}: ${escapeControls(problem)}`,
+            'invalid-value'
+          );
+        }
+        return answer;
+      },
+      () => text({ ...opts, option: undefined })
+    );
+  }
+
   const terminal = opts.terminal ?? defaultTerminal;
 
   // the mask is drawn in place of every column of the value, so a tab in it hides
@@ -2508,6 +2757,19 @@ export function multiline(opts: MultilineOptions): Promise<string> {
  * @returns The answer.
  */
 export function confirm(opts: ConfirmOptions): Promise<boolean> {
+  if (opts.option !== undefined) {
+    return answerOr(
+      opts,
+      (value, usage) => {
+        if (typeof value !== 'boolean') {
+          throw notAnAnswer(value, usage);
+        }
+        return value;
+      },
+      () => confirm({ ...opts, option: undefined })
+    );
+  }
+
   // a starting answer is what Enter alone means, which is what `default` already
   // is -- so the two are one setting here, and the answer a person gave wins
   const fallback = typeof opts.value === 'boolean' ? opts.value : (opts.default ?? true);
@@ -2890,6 +3152,23 @@ function offering<T>(
  * @returns The chosen value.
  */
 export function select<T = string>(opts: SelectOptions<T>): Promise<T> {
+  if (opts.option !== undefined) {
+    const values = offeredValues(opts.choices);
+    // compared the way `value` is, as a `Map` compares keys, and only against what
+    // a person could have picked
+    return answerOr(
+      opts,
+      (value, usage) => {
+        if (!values.some((it) => Object.is(it, value))) {
+          throw notAnAnswer(value, usage);
+        }
+        return value as T;
+      },
+      () => select({ ...opts, option: undefined }),
+      values
+    );
+  }
+
   const offer = offering(opts, opts.value);
 
   if (offer instanceof PromptError) {
@@ -2978,6 +3257,27 @@ export function select<T = string>(opts: SelectOptions<T>): Promise<T> {
  * @returns The chosen values, in the order they are listed.
  */
 export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[]> {
+  if (opts.option !== undefined) {
+    const values = offeredValues(opts.choices);
+    // a single value is a list of one, which is how a repeatable option with one
+    // use and a plain option both arrive. Each member is checked as `select()`
+    // checks its answer; `min` and `max` are not, since they are about how many a
+    // person ticks and the option's own declaration is what bounds argv
+    return answerOr(
+      opts,
+      (value, usage) => {
+        const list = Array.isArray(value) ? value : [value];
+        const outside = list.findIndex((member) => !values.some((it) => Object.is(it, member)));
+        if (outside !== -1) {
+          throw notAnAnswer(list[outside], usage);
+        }
+        return list as T[];
+      },
+      () => multiselect({ ...opts, option: undefined }),
+      values
+    );
+  }
+
   const offer = offering(opts);
 
   if (offer instanceof PromptError) {

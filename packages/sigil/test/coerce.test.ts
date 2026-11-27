@@ -8,7 +8,7 @@ describe('@ttylabs/sigil/coerce', () => {
     // data type sets, checkValue() and assertChoices() are the parser's own and
     // stay behind `transform.ts`, so a helper added there does not become
     // public by being exported from its own module
-    expect(Object.keys(coerce).sort()).toEqual(['daysInMonth', 'transformValue']);
+    expect(Object.keys(coerce).sort()).toEqual(['daysInMonth', 'envValue', 'transformValue']);
   });
 
   it('should be the function the parser coerces with rather than a copy', () => {
