@@ -30,7 +30,8 @@ Idempotent: running it again with the same input changes nothing more.
 | `--entry [file]` | `string` | The module declaring the app's schema, when the conventions find the wrong one |
 | `--json` | `bool` | Print a stable snapshot of the command surface rather than markdown |
 | `--json-schema` | `bool` | Print each runnable command's input as JSON Schema, for a tool that calls the app |
-| `--out [path]` | `string` | Where it goes: a directory for the pages, a file for --json or --json-schema. Overrides sigil.json |
+| `--out [path]` | `string` | Where it goes: a directory for the pages or the skill, a file for --json or --json-schema. Overrides sigil.json |
+| `--skill` | `bool` | Write an agent skill for the app: a SKILL.md and its reference, in skills/\<name\> unless --out says |
 
 ## Examples
 
@@ -56,4 +57,10 @@ Print what each command takes, for an agent or a tool definition
 
 ```
 sigil reference --json-schema
+```
+
+Write the app's own agent skill
+
+```
+sigil reference --skill
 ```

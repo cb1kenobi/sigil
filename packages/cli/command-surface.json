@@ -712,6 +712,19 @@
           "short": [],
           "takesValue": true,
           "type": "string"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--skill"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": false,
+          "type": "bool"
         }
       ],
       "path": [

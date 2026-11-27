@@ -25,6 +25,9 @@ which provides the `sigil` command.
   `destructive: true` on one that can delete or overwrite, and `idempotent: true`
   on one that is safe to retry. An agent decides whether to run a command from
   these, and `schema` hands them over.
+- `sigil reference --skill` writes this app's own agent skill to `skills/<name>/`,
+  from the command declarations. Run it again after changing a command, and keep
+  `skills` in the manifest's `files` so the skill is published.
 - Wrap a command in `command()` from `@ttylabs/sigil`, so that `argv` is typed
   from its format strings. Dashed names are camel-cased: `--dry-run` is
   `argv.dryRun`.

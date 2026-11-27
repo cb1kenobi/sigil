@@ -8074,6 +8074,29 @@ two packages is one definition in the package both depend on.
   a placeholder's one and its module's other are refused together.
   `annotations-build.test.ts` builds a fixture that declares them and asserts the
   built app and the source print the same document.
+- **`sigil reference --skill` writes the app's own agent skill (SIG-720)**, in
+  `src/reference/skill.ts`. Here rather than in `sigil build` for the reason the
+  reference is its own command: a command's options live only in its module, and
+  a skill listing commands without their input would be worse than none. Two
+  files: a short `SKILL.md` -- the commands with what running each does, then
+  `<app> schema` for exact input, `--json` where a command offers it, and the exit
+  codes and every usage `code`, the last checked against `UsageErrorCode` in both
+  directions at compile time -- and `reference.md`, which is
+  `referenceDocument()` and not a second printer. It lands in `skills/<name>` by
+  default, the name folded to the format's lowercase-and-hyphens, with no
+  `sigil.json` key: that path is where the format looks. A `files` list in the
+  app's manifest that leaves the skill out is **warned about, never edited**,
+  since `files` is the author's statement of what ships. The schema bullet is
+  dropped where `<app> schema` is not the framework's -- `schema: false`, or an
+  app command of that name -- and the JSON bullet where no command offers a
+  format. The fixture's skill is committed and `--check` is the snapshot, the way
+  this package's own reference is, and its front matter is held by
+  `expectSkillFrontMatter()` in `test/skill-format.ts`, the one the shipped skills
+  are held by. The `description` is a JSON string, the reference's rule above:
+  it always holds `: `, which an unquoted YAML value cannot, so the first version
+  was front matter every real parser refused, and the tests passed because
+  `frontMatter()` split lines with a regex. It reads the block with `yaml` now, a
+  devDependency, so a skill an agent's loader would refuse fails the test.
 - **A built app prints the same document with `mycli schema`**, a command `parse()`
   adds to the root as it adds `completion`, decided by Chris over
   `--help --format json`. `registerSchemaCommand()` in
