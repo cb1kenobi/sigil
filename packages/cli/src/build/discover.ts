@@ -39,12 +39,19 @@
  * from (`schemaModule()`) -- because running it would run the app.
  */
 
-import { lacksResolver, schemasWith, sealedResolver, spellingIn } from './bindings.ts';
+import {
+  lacksResolver,
+  schemasWith,
+  sealedResolver,
+  spellingIn,
+  visibleLiteral,
+} from './bindings.ts';
 import { type Diagnostic, displayPath } from './diagnostic.ts';
 import { type CommandFacts, factsOf, type RoutedBy } from './extract.ts';
 import { translatedKey } from './i18n.ts';
 import {
   flatten,
+  isNoBaseDir,
   isUndefined,
   isWrongType,
   lastPlain,
@@ -586,13 +593,14 @@ export function readAppCommands(app: DiscoveredApp): {
       (member) => member.type !== 'SpreadElement' && propertyKey(member) === 'baseDir'
     );
     const last = spelled < 0 ? undefined : members[spelled];
-    // `baseDir: undefined` is none, as it is to the runtime
+    // `baseDir: undefined` is none, as it is to the runtime, and so are `null` and
+    // an empty string, which it reads as falsy (SIG-733)
     const unset =
       last !== undefined &&
       last.type !== 'SpreadElement' &&
       last.kind === 'init' &&
       !last.method &&
-      isUndefined(last.value);
+      isNoBaseDir(last.value);
     // what may set it after the last spelling of it, and what it is known to hold
     // nothing of is not asked about
     const lacks = lacksResolver(parsed);
@@ -1628,7 +1636,19 @@ function warnUnbaked(
   // what the object spells, as the build reads it: an unbaked key inside a
   // literal spread or under a computed key written as a string is as unbaked as
   // one written plainly
-  for (const property of flatten(object, sealedResolver(parsed))) {
+  // a spread of a const the resolver gave up on is refused only for the keys that
+  // route a placeholder, and not for one it spells after the spread or a const that
+  // holds none of them, so what else it holds is said here, at the spread (SIG-731)
+  const members = flatten(object, sealedResolver(parsed)).flatMap((member) => {
+    const operand = member.type === 'SpreadElement' ? unwrapShallow(member.argument) : undefined;
+    const literal =
+      operand?.type === 'Identifier' ? visibleLiteral(parsed, operand.name) : undefined;
+    return literal
+      ? flatten(literal).map((property) => ({ at: member.start, property }))
+      : [{ at: member.start, property: member }];
+  });
+
+  for (const { at, property } of members) {
     if (property.type === 'SpreadElement') {
       continue;
     }
@@ -1649,7 +1669,7 @@ function warnUnbaked(
     }
 
     diagnostics.push({
-      ...locate(parsed, property.start),
+      ...locate(parsed, at),
       message: `the "${name}" command declares "${escapeControls(key)}" in the schema, which \`sigil build\` does not carry into a built app (SIG-320); it applies when the app runs from source and not after a build${advice(key)}`,
       severity: 'warning',
     });

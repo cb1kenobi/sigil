@@ -401,6 +401,37 @@ export function lacksResolver(parsed: ParsedModule): Lacks {
   };
 }
 
+/**
+ * The object literal of a same-module `const` whose keys are all visible, which
+ * is what `warnUnbaked()` reads for a spread `sealedObject()` gave up on
+ * (SIG-731).
+ *
+ * The refusal for a spread that may carry a `name`, `path` or `load` was the only
+ * thing that reported what else such a const holds, since `flatten()` reads only
+ * a const `sealedObject()` resolves; and it is decided per key and skipped for a
+ * key the placeholder spells after the spread. So the keys are reported for any
+ * const whose members are plain properties -- no accessor, spread or computed key
+ * -- whatever it holds, and what a refusal also says is said twice at worst.
+ *
+ * @param parsed - The module.
+ * @param name - The name that is spread.
+ * @returns The literal, or `undefined` where the name is not such a const.
+ */
+export function visibleLiteral(parsed: ParsedModule, name: string): ObjectExpression | undefined {
+  const object = declaredObject(parsed, name)?.object;
+  return object &&
+    flatten(object).every(
+      (member) =>
+        member.type !== 'SpreadElement' &&
+        !member.computed &&
+        member.kind === 'init' &&
+        propertyKey(member) !== undefined &&
+        propertyKey(member) !== '__proto__'
+    )
+    ? object
+    : undefined;
+}
+
 function lacksKey(parsed: ParsedModule, name: string, key: string): boolean {
   const declared = declaredObject(parsed, name);
   if (!declared) {

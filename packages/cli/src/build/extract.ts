@@ -325,7 +325,7 @@ export function factsOf(parsed: ParsedModule, routedBy?: RoutedBy): Extracted {
   // rather than absent -- which is the whole difference between a description
   // the build missed and one nobody wrote. A `desc` written anywhere has been
   // read or reported already, by name
-  const carrier = unspelledCarrier(members, 'desc');
+  const carrier = unspelledCarrier(members, 'desc', false, lacksResolver(parsed));
   if (carrier) {
     diagnostics.push({
       ...at(carrier.start),
