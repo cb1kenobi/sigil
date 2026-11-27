@@ -1089,16 +1089,22 @@ makes it testable with a fixture directory and no bundler at all.
   to a spread `const` is a key it carries (SIG-736).** Follow-ups of the entry
   above, the two it listed as not fixed and the one it listed as not covered.
 
-  - **`schemasWith()` claims a literal that spells the key as a getter, a setter or
-    a method, whether or not a plain spelling is the one read.** The runtime reads
-    the accessor, so that literal **is** the schema; left unclaimed, it was `no
-    "commands" found` for the command tree and nothing at all for the catalogs.
-    It claims through `flatten()` as everything else does, so a sealed base holding
-    the getter is the schema's own spelling. `lastPlain()` still answers `undefined`
-    for it, and the two readers ask `spellingIn().declared` for what is there.
-    Claiming it widens the set by a literal that writes `commands() {}` or `get
-    locales()` for some other reason, which is a literal already claimed for a
-    plain `commands: x` written anywhere.
+  - **`schemasWith()` claims a literal that spells the key as a getter or a method,
+    but only the exported schema and the `const` literals it spreads.** The runtime
+    reads the accessor, so that literal **is** the schema; left unclaimed, it was
+    `no "commands" found` for the command tree and nothing at all for the
+    catalogs. `exportedParts()` is the whole of "exported": the literal `export
+    default` is (or a one-argument call over one, or a `const` of the module it
+    names) and the `const` literals its own members spread. A plain `commands: x`
+    is claimed wherever a literal writes one, and the first version claimed an
+    accessor the same way -- review found that a helper `{ commands() {} }` read by
+    a member, or a getter in a literal nested in a `run`, turned a working app into
+    an error or into `found 2 schemas`, and a helper above the schema took the
+    catalog check's `schemas[0]`, so the real catalogs were never read. **A setter
+    alone is not claimed**: the runtime reads `undefined` from it, the app has no
+    such key and `no "commands" found` is true of it. `lastPlain()` still answers
+    `undefined` for an accessor, and the two readers ask `spellingIn().declared`
+    for what is there.
   - **For `commands` it is an error, and for `locales` a warning, because that is
     what each already was for the computed shape.** A computed `commands` is an
     error since a built app would silently lack the commands the app has, and so
@@ -1118,8 +1124,10 @@ makes it testable with a fixture directory and no bundler at all.
     (SIG-736), from the scan `lacksResolver()` already does.** `writtenKeys()` in
     `bindings.ts` is `onlySpread()`'s own walk, handed a collector, so what counts as
     a use cannot differ: a static-key member that is the target of an assignment
-    (`=`, `??=`, `+=`), an update, a `for ... in/of`, or inside a destructuring
-    target, is a key the const carries, and the key is reported at the spread
+    (`=`, `??=`, `+=`), an update, a `for ... in/of`, or a leaf of a destructuring
+    target (`writeTargets()`), is a key the const carries -- and not what is read to
+    reach it, so `cache[shared.id] = x` and `[a = shared.d] = []` write nothing to
+    `shared`, and the key is reported at the spread
     unless the literal already held it. A **read** of a key is not a write and is
     not reported -- `lacksResolver()` refuses a read of its own key, which is the
     cheap side for a question about one key, while a list of every key somebody

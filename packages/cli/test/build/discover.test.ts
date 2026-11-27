@@ -1283,6 +1283,8 @@ export default {
         ['a string-keyed one', `shared['options'] = { '--force': {} };`],
         ['a logical assignment', `shared.options ??= {};`],
         ['a destructuring target', `[shared.options] = [{}];`],
+        ['an object pattern with a default', `({ a: shared.options = {} } = {});`],
+        ['an update', `shared.options++;`],
         ['one inside a function', `function late() { shared.options = {}; }`],
       ])(
         'should report a key the const is given by %s as the spread carrying it',
@@ -1305,6 +1307,19 @@ export default {
           placeholder(`const shared = { hidden: true };\nconsole.log(shared.options);`)
         );
 
+        expect(unbaked(diagnostics)).toEqual([]);
+      });
+
+      it.each([
+        ['a computed key of a write', `cache[shared.id] = 1;`],
+        ['a default of a pattern', `[x = shared.dflt] = [];`],
+        ['the object a member write goes through', `shared.nested.leaf = 1;`],
+      ])('should not report what is only read to reach a write: %s', async (_what, write) => {
+        const diagnostics = await read(
+          placeholder(`const shared = { hidden: true };\nconst cache = {};\nlet x;\n${write}`)
+        );
+
+        // `nested` is read to reach the leaf and writes nothing to the const
         expect(unbaked(diagnostics)).toEqual([]);
       });
 
@@ -2086,7 +2101,6 @@ export default { baseDir: import.meta.dirname, commands: { stale: './commands/a.
 
       it.each([
         ['a getter', `get commands() { return { z: './commands/a.js' }; }`],
-        ['a setter', `set commands(value) {}`],
         ['a method', `commands() { return { z: './commands/a.js' }; }`],
       ])(
         'said a schema whose only commands is %s cannot be read, and not that there are none (SIG-734)',
@@ -2117,6 +2131,45 @@ export default { baseDir: import.meta.dirname, commands: { stale: './commands/a.
         ]);
         expect(found).toBe(true);
       });
+
+      it('did not claim a setter alone, which the runtime reads as no commands at all', async () => {
+        const { diagnostics, found } = await read(
+          `export default { baseDir: import.meta.dirname, set commands(value) {}, run() {} };\n`
+        );
+
+        expect(diagnostics).toEqual([]);
+        expect(found).toBe(false);
+      });
+
+      it.each([
+        [
+          'a helper that is read by a member',
+          `const registry = { get commands() { return []; } };\nconsole.log(registry.commands);\nexport default { baseDir: import.meta.dirname, commands: { x: { path: './commands/a.js' } } };\n`,
+        ],
+        [
+          'a method of a helper in a single-command app',
+          `const api = { commands() { return []; } };\nexport default { name: 'x', run() { api.commands(); } };\n`,
+        ],
+        [
+          'a helper nested in the schema',
+          `export default { name: 'x', run() { const h = { get commands() { return 1; } }; } };\n`,
+        ],
+      ])(
+        'did not claim an accessor of commands in %s, which is no schema',
+        async (_what, source) => {
+          // review: an accessor is claimed only for what is exported, since a plain
+          // `commands` is claimed anywhere and a method of that name is a likelier helper
+          const { diagnostics, found } = await read(source);
+
+          expect(messages(diagnostics).filter((m) => m.includes('accessor or a method'))).toEqual(
+            []
+          );
+          expect(messages(diagnostics).filter((m) => m.includes('schemas in this module'))).toEqual(
+            []
+          );
+          expect(found).toBe(source.includes('commands: {'));
+        }
+      );
 
       it('did not claim a schema for an accessor of another name', async () => {
         const { diagnostics, found } = await read(

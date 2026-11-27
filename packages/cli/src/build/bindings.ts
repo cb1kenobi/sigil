@@ -439,8 +439,7 @@ export function visibleLiteral(parsed: ParsedModule, name: string): ObjectExpres
  * `visibleLiteral()` is what the const was declared as, and `shared.options = x`
  * puts a key on it that the literal never held. This is the occurrence scan
  * `lacksResolver()` asks, taken for every key at once rather than for one. It
- * lists the keys that are **written** -- assigned, updated, deleted into or
- * destructured into -- and not the ones that are read: `lacksResolver()` refuses
+ * lists the keys that are **written** -- assigned, updated or destructured into -- and not the ones that are read: `lacksResolver()` refuses
  * a read of its own key, which is the cheap side for a question about one key,
  * while a list that named every key somebody read would report a key the const
  * never held. A use the scan cannot follow -- a computed member (`shared[k] = x`), a call with the
@@ -516,10 +515,12 @@ function lacksKey(parsed: ParsedModule, name: string, key: string): boolean {
  */
 export function schemasWith(parsed: ParsedModule, key: string): ObjectExpression[] {
   const resolve = sealedResolver(parsed);
+  const exported = exportedParts(parsed);
   const found = outermostWhere(
     parsed.program,
     (object) =>
-      lastPlain(object, key, resolve) !== undefined || spellsAccessor(object, key, resolve)
+      lastPlain(object, key, resolve) !== undefined ||
+      (exported.has(object) && spellsAccessor(object, key))
   );
 
   return found.filter((object) => {
@@ -547,27 +548,67 @@ export function schemasWith(parsed: ParsedModule, key: string): ObjectExpression
 }
 
 /**
- * Whether an object spells `key` as an accessor or a method, and no plain
- * property of it is the one that runs (SIG-734, SIG-735).
+ * Whether an object spells `key` as a getter or a method (SIG-734, SIG-735).
  *
- * The runtime reads a getter, so such a literal **is** the schema, and the build
- * cannot read what it returns. Left unclaimed, a schema whose only `commands` is
- * a getter was `no "commands" found in this module` and one whose only `locales`
- * is one was not looked at at all, so `sigil check` said `no problems found`. A
- * claim is what lets the two readers say what is true of it. `lastPlain()` is the
- * other half of the same question and is asked first by the caller.
+ * The runtime reads a getter, so such a literal is a schema with the key, and the
+ * build cannot read what it returns. Left unclaimed, a schema whose only `commands`
+ * was a getter was `no "commands" found in this module` and one whose only
+ * `locales` was one was not looked at at all, so `sigil check` said `no problems
+ * found`. A **setter** alone is not claimed: the runtime reads `undefined` from it,
+ * so the app has no such key and saying it has one would be false. `lastPlain()` is
+ * the other half of the same question and is asked first by the caller.
+ *
+ * Asked only of `exportedParts()`, because a plain `commands` is claimed wherever a
+ * literal writes one and a method named `commands` is a far commoner thing to write
+ * in a helper (review).
  */
-function spellsAccessor(
-  object: ObjectExpression,
-  key: string,
-  resolve: (name: string) => ObjectExpression | undefined
-): boolean {
-  return flatten(object, resolve).some(
+function spellsAccessor(object: ObjectExpression, key: string): boolean {
+  return object.properties.some(
     (member) =>
       member.type !== 'SpreadElement' &&
       propertyKey(member) === key &&
-      (member.kind !== 'init' || member.method)
+      (member.kind === 'get' || member.method)
   );
+}
+
+/**
+ * The literals that are the module's exported schema, or are spread straight into
+ * it: what `export default` is, by a literal, a one-argument call over one, or a
+ * `const` of the module's own holding one, and the `const` literals its own members
+ * spread (SIG-734).
+ *
+ * The only objects an accessor or a method of `commands` or `locales` is claimed
+ * for. A helper `{ get commands() {} }` anywhere else in the module is not a
+ * schema, and calling it one would turn a working app into an error.
+ */
+function exportedParts(parsed: ParsedModule): Set<ObjectExpression> {
+  const parts = new Set<ObjectExpression>();
+  const exported = parsed.program.body.find((node) => node.type === 'ExportDefaultDeclaration');
+  const expression = exported?.declaration as Expression | undefined;
+  if (!expression) {
+    return parts;
+  }
+
+  const unwrapped = unwrapShallow(expression);
+  const schema =
+    unwrapped.type === 'Identifier'
+      ? bindingObject(parsed, unwrapped.name, true)
+      : literalOf(expression, true);
+  if (!schema) {
+    return parts;
+  }
+
+  parts.add(schema);
+  for (const member of schema.properties) {
+    const operand = member.type === 'SpreadElement' ? unwrapShallow(member.argument) : undefined;
+    const base =
+      operand?.type === 'Identifier' ? bindingObject(parsed, operand.name, false) : undefined;
+    if (base) {
+      parts.add(base);
+    }
+  }
+
+  return parts;
 }
 
 /** How many object spreads of `name` there are anywhere inside a node. */
@@ -722,14 +763,13 @@ function onlySpread(
     if (node.type === 'WithStatement') {
       used = true;
     } else if (written && ASSIGNING.has(node.type)) {
-      // everything inside the left side is written to, `[shared.a] = x` included, and
-      // the parent is visited before its members
-      const target =
-        node.type === 'UpdateExpression' ? node.argument : (node as { left: Node }).left;
-      walk(target, (inner) => {
-        targets.add(inner);
-        return true;
-      });
+      // the member that is the target, or a leaf of a destructuring one, and not
+      // what is read to reach it: `cache[shared.id] = x` writes `cache`. The parent
+      // is visited before its members
+      writeTargets(
+        node.type === 'UpdateExpression' ? node.argument : (node as { left: Node }).left,
+        targets
+      );
     } else if (node.type === 'ObjectExpression') {
       for (const property of node.properties) {
         if (property.type === 'SpreadElement') {
@@ -784,6 +824,48 @@ function onlySpread(
   });
 
   return !used;
+}
+
+/**
+ * The member expressions an assignment target writes: the target itself, and each
+ * leaf of an array or object pattern, a rest element or a default.
+ */
+function writeTargets(node: Node, into: Set<unknown>): void {
+  const target = node as unknown as Record<string, unknown> & { type: string };
+  switch (target.type) {
+    case 'MemberExpression':
+      into.add(node);
+      return;
+    case 'ArrayPattern':
+      for (const element of target.elements as (Node | null)[]) {
+        if (element) {
+          writeTargets(element, into);
+        }
+      }
+      return;
+    case 'ObjectPattern':
+      for (const property of target.properties as (Node & { value?: Node })[]) {
+        writeTargets(property.value ?? property, into);
+      }
+      return;
+    case 'RestElement':
+      writeTargets(target.argument as Node, into);
+      return;
+    case 'AssignmentPattern':
+      writeTargets(target.left as Node, into);
+      return;
+    case 'ParenthesizedExpression':
+    case 'TSAsExpression':
+    case 'TSNonNullExpression':
+    case 'TSSatisfiesExpression':
+    case 'TSTypeAssertion':
+      if (target.expression) {
+        writeTargets(target.expression as Node, into);
+      }
+      return;
+    default:
+      return;
+  }
 }
 
 /** The nodes that write to what is on their left, or in their argument. */

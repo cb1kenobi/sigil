@@ -339,7 +339,6 @@ describe('reading an app`s catalogs', () => {
 
     it.each([
       ['a getter', `get locales() { return {}; }`],
-      ['a setter', `set locales(value) {}`],
       ['a method', `locales() { return {}; }`],
     ])(
       'should warn that a schema whose only locales is %s cannot be checked, and not skip it in silence (SIG-735)',
@@ -359,6 +358,15 @@ describe('reading an app`s catalogs', () => {
         ]);
       }
     );
+
+    it('should read the schema`s locales and not a helper that has a getter of the name (review)', async () => {
+      const read = await withSchema(
+        `const i = { get locales() { return ['en']; } };\nconsole.log(i.locales);\nexport default { locales: { ${loader('fr')} } };\n`
+      );
+
+      expect(read.diagnostics).toEqual([]);
+      expect(read.catalogs.map((c) => c.locale)).toEqual(['fr']);
+    });
 
     it('should not warn about a spread of a const that visibly holds no locales (SIG-730)', async () => {
       const read = await withSchema(
