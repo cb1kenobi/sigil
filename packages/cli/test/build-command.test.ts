@@ -1361,6 +1361,15 @@ describe('sigil build', () => {
       expect(source('a').stdout).toBe('a ran\n');
     }, 60_000);
 
+    it('should say the catalogs of a schema whose only locales is a getter are not checked (SIG-735)', async () => {
+      const { err } = await build('getter-locales');
+
+      expect(err).toContain(
+        '"locales" is an accessor or a method rather than an object literal, so the catalogs cannot be read at build time and are not checked'
+      );
+      expect(process.exitCode).toBeFalsy();
+    }, 60_000);
+
     it('should not warn that a spread may replace commands when its const spells none, and the apps agree', async () => {
       const { built, err, source } = await build('lacks');
 
