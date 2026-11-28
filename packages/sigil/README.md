@@ -45,6 +45,10 @@ because the caller is a bin script.
 app that takes the whole terminal, written in JSX and again in the `ui` tag.
 [examples/](../../examples/) has complete ones.
 
+**[docs/agent-friendly.md](docs/agent-friendly.md)** makes a CLI safe for a
+coding agent to run: the `schema` command, annotations, prompts named by an
+option, a generated skill, and an MCP server.
+
 **[docs/parser.md](docs/parser.md)** is the full parser reference: syntax,
 semantics, precedence, and every place this parser deliberately differs from
 Commander and yargs. This README is the API tour.
@@ -58,6 +62,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 
 - [Getting started](docs/getting-started.md) — a new app, from `sigil new` to a build
 - [Building a full-screen app](docs/full-screen-apps.md) — the whole terminal, in JSX and in the `ui` tag
+- [Making a CLI agent-friendly](docs/agent-friendly.md) — input schemas, annotations, prompts that never wait, skills, MCP
 - [The root entry](#the-root-entry) — `main()`, `command()`, `options()`, errors
 - [Declaring options](#declaring-options)
 - [Declaring arguments](#declaring-arguments)
