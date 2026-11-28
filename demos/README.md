@@ -38,6 +38,7 @@ are the rows that prove it.
 | [`parser/11-dispatch.js`](parser/11-dispatch.js)               | Re-routing and executing one command from another                   |
 | [`parser/12-formats.js`](parser/12-formats.js)                 | `--json` and `--format`, out of one value with no two-answer branch |
 | [`parser/13-topics.js`](parser/13-topics.js)                   | `topicSeparator: ':'`, and the value it refuses to eat              |
+| [`parser/14-telemetry.js`](parser/14-telemetry.js)             | One event per run from `afterRun` and `beforeError`, nothing typed  |
 
 Two worth running with `--help` to see what the screen does:
 

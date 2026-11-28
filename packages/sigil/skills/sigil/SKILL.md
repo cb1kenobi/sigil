@@ -23,6 +23,8 @@ ship beside it, and every section below links to them:
 - [docs/full-screen-apps.md](../../docs/full-screen-apps.md): a full-screen app,
   in JSX and in the `ui` tag.
 - [docs/testing.md](../../docs/testing.md): the test helpers, with recipes.
+- [docs/telemetry.md](../../docs/telemetry.md): usage telemetry from the
+  `afterRun` and `beforeError` hooks.
 - [docs/agents.md](../../docs/agents.md): the short block an app's `AGENTS.md`
   carries. This skill agrees with it and goes further.
 
@@ -50,6 +52,7 @@ examples on GitHub (`cb1kenobi/sigil`).
 | Read and write config files      | `@ttylabs/sigil/config`, `@ttylabs/sigil/paths`       | [Config files](#config-files), [Config files](../../README.md#config-files)                                               |
 | Translate messages               | `@ttylabs/sigil/i18n`                                 | [Translating](../../README.md#translating)                                                                                |
 | Tell users about a new version   | `updateCheck` on the schema, `@ttylabs/sigil/updates` | [`sigil/updates`](../../README.md#sigilupdates)                                                                           |
+| Record usage telemetry           | `afterRun` and `beforeError` on the schema            | [Telemetry](../../docs/telemetry.md), [Hooks](../../README.md#hooks)                                                      |
 | Test it                          | `@ttylabs/sigil/testing`                              | [Testing](#testing), [docs/testing.md](../../docs/testing.md)                                                             |
 
 ## Use sigil instead of adding a package

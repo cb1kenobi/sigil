@@ -1,0 +1,30 @@
+{
+  "guide": "packages/sigil/docs/telemetry.md",
+  "columns": 80,
+  "runs": [
+    {
+      "command": "my-cli telemetry",
+      "output": "Telemetry is off. Set MY_CLI_TELEMETRY=1 to share anonymous usage data."
+    },
+    {
+      "command": "MY_CLI_TELEMETRY=1 my-cli telemetry",
+      "output": "Telemetry is on. Set MY_CLI_TELEMETRY=0 to turn it off."
+    },
+    {
+      "command": "DO_NOT_TRACK=1 MY_CLI_TELEMETRY=1 my-cli telemetry",
+      "output": "Telemetry is off, because DO_NOT_TRACK is set."
+    },
+    {
+      "command": "MY_CLI_TELEMETRY=debug my-cli helo Ada",
+      "output": "telemetry: {\"command\":\"my-cli\",\"ok\":false,\"error\":\"unexpected-argument\"}\nError: Unexpected argument \"helo\". Did you mean \"hello\"?"
+    },
+    {
+      "command": "MY_CLI_TELEMETRY=debug my-cli hello Ada Grace",
+      "output": "telemetry: {\"command\":\"my-cli hello\",\"ok\":false,\"error\":\"unexpected-argument\"}\nError: Unexpected argument \"Grace\""
+    },
+    {
+      "command": "DO_NOT_TRACK=1 MY_CLI_TELEMETRY=debug my-cli helo Ada",
+      "output": "Error: Unexpected argument \"helo\". Did you mean \"hello\"?"
+    }
+  ]
+}
