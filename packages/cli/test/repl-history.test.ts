@@ -39,8 +39,11 @@ const history = createHistory({ file, max: 10000 });
 for (let i = 0; i < Number(rounds); i++) {
   history.trim();
   // a trim happens now and then and not back to back: a lock taken again the
-  // instant it is let go is one nobody else can ever get
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2);
+  // instant it is let go is one nobody else can ever get. A rewrite is a flushed
+  // temporary file and a rename, tens of milliseconds on a Windows runner, so what
+  // is left between two of them is what the writers get to work in -- the first
+  // version slept two and its 150 rounds were the whole of the test's time there
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
 }
 `;
 
@@ -115,7 +118,7 @@ describe('a REPL history shared by processes', () => {
     // Its cap is far over what is there, so every rewrite holds every line it read --
     // which is what makes a line lost to one a line lost to the rewrite, and not to
     // the cap
-    await Promise.all([...names.map((name) => write(file, name, 150, 10_000)), trimmer(file, 300)]);
+    await Promise.all([...names.map((name) => write(file, name, 150, 10_000)), trimmer(file, 40)]);
 
     const held = entries(file);
     for (const name of names) {

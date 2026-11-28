@@ -17183,6 +17183,22 @@ is where a schema meets it.
   pinned by `repl-history-windows.test.ts`, which forces `win32` and the three answers
   over a mocked `node:fs`. `packages/cli/test/repl-history.test.ts` is the proof and
   runs on every platform, unweakened.
+- **The Windows trim test timed out because of its trimmer's pace, not a held lock.**
+  After the lock fix the "trim while the others append" test took 5.5 s and 5.9 s on two
+  Windows jobs and over ten on the third, which read as appends waiting out the five-second
+  lock wait. It was not measured on Windows; on the machine it is written on, a sleep of
+  35 ms inside the trim -- standing for the flushed temporary file and the rename -- made
+  the same test time out at ten seconds, and 150 rounds at a Windows runner's cost is five
+  seconds on its own with the writers starved to one append a round. So the trimmer now
+  does 40 rounds twenty milliseconds apart (a trim happens now and then, not back to back),
+  which is 4.0 s with the sleep at 60 ms and 1.4 s without, and the lock-less sabotage still
+  fails it four runs in four; nothing about the writers (four of 150) or the assertions
+  changed. What the product did change is what a waiter and a writer cost, because on a file
+  system where every call is scanned that is most of an append: a waiter looks at whether
+  the lock is stale twice a second rather than every millisecond, and an append that landed
+  at the end of exactly what had been read advances its offset and keeps its own line rather
+  than reading the file back (a read-back's stat, open, read and close fewer an entry, and the reason a line is not
+  read twice is `should not read its own line back as another writer's`).
 - **`writeAtomicSync()` is imported from `../config/atomic.js`, not the `config`
   entry.** The entry made the config module a chunk of its own under a 656-byte
   stub, which was a fourteenth module on `config.mjs`'s graph for a function that

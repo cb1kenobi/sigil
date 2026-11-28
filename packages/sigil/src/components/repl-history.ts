@@ -108,6 +108,9 @@ const STALE_LOCK = 10_000;
 /** How long a call that is refused because somebody has the file is retried, in ms. */
 const BUSY_WAIT = 2000;
 
+/** How often a waiter looks at whether the lock it waits for is stale, in ms. */
+const LOOK_EVERY = 500;
+
 /** How long an append is retried when the file is refused, in ms. */
 const APPEND_WAIT = 250;
 
@@ -223,6 +226,8 @@ function untilFree(fn: () => void, ms = BUSY_WAIT): void {
 function locked(file: string, wait: number, fn: () => void): boolean {
   const lock = `${file}.lock`;
   const until = Date.now() + wait;
+  /** When the lock was last looked at for age. A stat per poll is most of what a waiter costs. */
+  let looked = 0;
   for (;;) {
     let fd: number | undefined;
     try {
@@ -248,6 +253,14 @@ function locked(file: string, wait: number, fn: () => void): boolean {
       return true;
     }
     try {
+      // looked at twice a second, not every millisecond: a lock is ten seconds from
+      // stale at the earliest, and three waiters stat-ing a file the holder is about to
+      // delete are what slow the holder down on a file system where every call is a
+      // virus-scanned one
+      if (Date.now() - looked < LOOK_EVERY) {
+        throw new Error('not yet');
+      }
+      looked = Date.now();
       if (Date.now() - statSync(lock).mtimeMs > STALE_LOCK) {
         // taken over by touching rather than removing, so two processes that both
         // find it stale do not each delete the one the other just made
@@ -377,6 +390,8 @@ export function createHistory(opts: HistoryOptions = {}): History {
         try {
           mkdirSync(dirname(file), { mode: 0o700, recursive: true });
           let wrote = false;
+          /** Whether this line landed at the end of exactly what has been read. */
+          let direct = false;
           const write = (): void => {
             // a file whose last line was cut short -- hand-edited, or a full disk --
             // has bytes past what was read as whole lines, and appending to them
@@ -384,8 +399,10 @@ export function createHistory(opts: HistoryOptions = {}): History {
             // when what is past `offset` is whole lines another writer just
             // appended, it is a blank line, which a read skips
             let lead = '';
+            let size = 0;
             try {
-              lead = statSync(file).size > offset ? '\n' : '';
+              size = statSync(file).size;
+              lead = size > offset ? '\n' : '';
             } catch {
               // not there yet: nothing to end
             }
@@ -396,6 +413,12 @@ export function createHistory(opts: HistoryOptions = {}): History {
               APPEND_WAIT
             );
             wrote = true;
+            // nobody wrote between the `sync()` and the lock, so the file is what was
+            // read plus this line, and reading it back would learn nothing
+            if (lead === '' && size === offset && identity !== undefined) {
+              direct = true;
+              offset = size + Buffer.byteLength(`${JSON.stringify(line)}\n`);
+            }
           };
           // behind a trim, which is the one thing that rewrites; and after the wait
           // anyway, because an entry that may be lost is better than a prompt that
@@ -431,10 +454,15 @@ export function createHistory(opts: HistoryOptions = {}): History {
           if (!wrote) {
             write();
           }
-          // read back rather than pushed: whatever another writer appended between
-          // the `sync()` above and the write is in the file ahead of this line, and
-          // this is how the two come out in the order the file has them
-          history.sync();
+          if (direct) {
+            entries.push(line);
+            cap();
+          } else {
+            // read back rather than pushed: whatever another writer appended between
+            // the `sync()` above and the write is in the file ahead of this line, and
+            // this is how the two come out in the order the file has them
+            history.sync();
+          }
           return true;
         } catch (error) {
           report('write', error);

@@ -228,6 +228,19 @@ describe('createHistory() over a file', () => {
       expect(b.entries).toEqual(['a1', 'b1', 'a2', 'b2']);
     });
 
+    it("should not read its own line back as another writer's", () => {
+      const file = fileIn('sigil-history-own-');
+      const history = createHistory({ file });
+
+      history.add('one');
+      history.add('two');
+      history.add('three');
+      history.sync();
+
+      expect(history.entries).toEqual(['one', 'two', 'three']);
+      expect(createHistory({ file }).entries).toEqual(['one', 'two', 'three']);
+    });
+
     it("should collapse a repeat against the other writer's entry and not only its own", () => {
       const file = fileIn('sigil-history-dup-');
       const a = createHistory({ file });
