@@ -9468,6 +9468,31 @@ Both cost up to `timeout` on the one run per `checkInterval` where the check
 actually fires, and neither does anything outside a binary — a spawned worker
 already outlives the CLI.
 
+`compiledHost()` is how the check knows, exported for an app that starts a
+process of its own. Inside a binary `process.execPath` is the app itself, so
+spawning it runs the CLI again rather than a runtime:
+
+```js
+import { compiledHost } from '@ttylabs/sigil/updates';
+import { spawn } from 'node:child_process';
+
+if (await compiledHost()) {
+  // no runtime to start: do the work in this process
+} else {
+  const child = spawn(process.execPath, ['-e', script], { detached: true, stdio: 'ignore' });
+  // a runtime that will not start is an `error` event, and an unhandled one
+  // crashes the app after its command has already succeeded
+  child.on('error', () => {});
+  child.unref();
+}
+```
+
+It asks the build first, which bakes the answer into what `sigil package`
+produces, and then probes the runtime for a binary something else compiled:
+`node:sea`'s `isSea()` on Node and `Bun.main` on Bun. It never throws. The
+[telemetry guide](docs/telemetry.md#in-a-single-binary) uses it to decide how
+to send.
+
 This matters for `updateCheck: true`: **a binary whose commands finish in
 milliseconds needs `linger: true`**, or the fetch never completes and no notice
 ever appears. Measured on a packaged Bun binary, the default left the cache

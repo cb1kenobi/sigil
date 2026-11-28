@@ -84,6 +84,12 @@ export function bakedConfig(): BakedUpdateConfig | undefined {
  * "not compiled" wrongly is not a check that fails, it is an app that
  * re-executes itself.
  *
+ * Exported from `@ttylabs/sigil/updates` because the update check is not the
+ * only thing that spawns: an app that starts a process of its own -- a
+ * telemetry sender, a background job -- has the same question, and a second
+ * copy of these probes is how the two would come to disagree about which
+ * binary is which. It never throws.
+ *
  * @returns Whether there is no separate runtime to spawn.
  */
 export async function compiledHost(): Promise<boolean> {

@@ -27,6 +27,7 @@ export {
   versionFrom,
 } from './checker.js';
 export type { BakedUpdateConfig } from './host.js';
+export { compiledHost } from './host.js';
 export { isFreshStamp } from './stamp.js';
 
 export interface CheckOptions {

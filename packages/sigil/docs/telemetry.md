@@ -209,16 +209,32 @@ fetch(process.env.TELEMETRY_ENDPOINT, {
 `;
 
 /** Records one event, where the user said yes. */
-export function record(event: TelemetryEvent): void {
+export async function record(event: TelemetryEvent): Promise<void> {
   const mode = consent();
   if (mode === 'debug') {
     process.stderr.write(`telemetry: ${JSON.stringify(event)}\n`);
   } else if (mode === 'on') {
-    send(JSON.stringify(event));
+    await send(JSON.stringify(event));
   }
 }
 
-function send(body: string): void {
+async function send(body: string): Promise<void> {
+  // imported here rather than at the top: it is the update check's entry, and
+  // a run with telemetry off has no reason to load it
+  const { compiledHost } = await import('@ttylabs/sigil/updates');
+
+  // in a binary from `sigil package` there is no runtime to start, so send
+  // from this process and wait for it, briefly
+  if (await compiledHost()) {
+    await fetch(ENDPOINT, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body,
+      signal: AbortSignal.timeout(500),
+    }).catch(() => {});
+    return;
+  }
+
   // NODE_OPTIONS can name loaders and flags the sender does not have, and
   // without MY_CLI_TELEMETRY a child that turns out to be this app (see "In a
   // single binary") records nothing, rather than spawning again
@@ -243,6 +259,10 @@ function send(body: string): void {
   machine could read it in a process list.
 - **The sender swallows its own failures.** Nobody is watching it, and a
   network that is down is not something to report.
+- **`compiledHost()` decides between the two**, and the next section says why
+  a binary cannot spawn. It comes from `@ttylabs/sigil/updates`, which is where
+  the update check asks the same question, and is imported only once there is
+  something to send.
 - **A hook that throws cannot break the command.** sigil catches it and logs it,
   under `DEBUG=sigil:run` for `afterRun` and `DEBUG=sigil:error` for
   `beforeError`, or `DEBUG='sigil:*'` for both. A bug in `record()` costs you an
@@ -277,9 +297,9 @@ export default {
   commands: './commands',
 
   hooks: {
-    afterRun({ result, ms, state }) {
+    async afterRun({ result, ms, state }) {
       recorded.add(state);
-      record({
+      await record({
         command: commandOf(state),
         ok: result.ok,
         error: result.ok ? undefined : errorOf(result.error),
@@ -287,9 +307,9 @@ export default {
       });
     },
 
-    beforeError(err, state) {
+    async beforeError(err, state) {
       if (state === undefined || !recorded.has(state)) {
-        record({ command: commandOf(state), ok: false, error: errorOf(err) });
+        await record({ command: commandOf(state), ok: false, error: errorOf(err) });
       }
     },
   },
@@ -301,8 +321,8 @@ export default {
   with `performance.now()`. A run answered by `--help` or `--version` runs no
   command, so it fires nothing.
 - **`beforeError` is every run that failed before a command started**: a
-  mistyped command, a missing argument, a value its type rejects. It returns
-  nothing, so the error is left as it is and shown as usual.
+  mistyped command, a missing argument, a value its type rejects. It resolves
+  to nothing, so the error is left as it is and shown as usual.
 - **One failure is one event.** A command that throws fires `afterRun` and then
   `beforeError` for the same run, so `afterRun` remembers the parse state it was
   handed and `beforeError` skips a state it has seen. `state` is undefined for
@@ -332,21 +352,29 @@ A command that ran is recorded with its duration as well, as
 ## In a single binary
 
 `sigil package` builds an executable with a runtime inside it. There,
-`process.execPath` is your app itself rather than a runtime, so `send()` above
-would start your CLI again with `-e` as its arguments instead of running the
-sender. Don't spawn in a binary. Choose between these instead:
+`process.execPath` is your app itself rather than a runtime, so spawning it
+would start your CLI again, with `-e` as its arguments, instead of running the
+sender. `compiledHost()` is what tells `send()` it is in one: the build bakes
+the answer into what `sigil package` produces, and for a binary something else
+compiled it probes the runtime, `node:sea` on Node and `Bun.main` on Bun.
 
-- **Wait, briefly.** Await the request in the hook with a short timeout,
-  `AbortSignal.timeout(500)` or less, so the worst case is half a second on a
-  run the user opted into.
-- **Defer.** Write the event to a file and send the file's events at the start
-  of the next run, while that run's own command is working.
+So in a binary `send()` posts the event itself and waits for it, for about
+half a second, on a run the user opted into. The timeout cancels the request,
+but a DNS lookup that is slow to fail can keep the process alive a little
+longer, until the lookup gives up. That is the cost of having no runtime to
+hand the request to. If it is too much, defer instead:
+write the event to a file and send the file's events at the start of the next
+run, while that run's own command is working.
 
-To decide at run time, a Node binary answers `isSea()` from `node:sea`, and a
-Bun one has a `Bun.main` that starts with `/$bunfs/`, or with `B:\~BUN\` on
-Windows. Miss one and the app relaunches itself there instead of sending, which
-is why `send()` leaves `MY_CLI_TELEMETRY` out of the child's environment: a
-relaunched copy then records nothing.
+A binary built some way `compiledHost()` cannot recognise would still be
+spawned, and would relaunch the app instead of sending. That is why `send()`
+leaves `MY_CLI_TELEMETRY` out of the child's environment: the relaunched copy
+then records nothing, rather than spawning again.
+
+That backstop covers only consent read from the environment. If your app
+remembers the user's answer in a file and `consent()` reads it, a relaunched
+copy reads the same yes. Give the child a variable of its own as well, such as
+`MY_CLI_TELEMETRY_SENDER=1`, and have `consent()` answer no whenever it is set.
 
 ## Test it
 
@@ -438,6 +466,6 @@ leaves it out. [Testing](testing.md) covers `runCommand()` and the other helpers
 - The README says what is collected, where it goes, and how to turn it off.
 - An event holds declared names, codes and numbers, and nothing from argv, an
   error message, or the file system.
-- No hook waits on the network, and a binary built by `sigil package` does not
-  spawn itself.
+- No hook waits on the network, except in a binary built by `sigil package`,
+  which waits about half a second rather than spawning itself.
 - A test fails if a typed value reaches an event.

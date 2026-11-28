@@ -160,7 +160,11 @@ describe('the imports in the guides', () => {
     it(`should be exported, in ${guide.file}`, async () => {
       let checked = 0;
       for (const { body } of blocks(markdown)) {
-        for (const match of body.matchAll(/import\s+\{([^}]*)\}\s*from\s*'(@ttylabs\/[^']+)'/g)) {
+        // a static import, or one destructured out of a dynamic import, which
+        // is how a guide loads an entry only on the path that needs it
+        for (const match of body.matchAll(
+          /(?:import|const)\s+\{([^}]*)\}\s*(?:from|=\s*await\s+import\()\s*'(@ttylabs\/[^']+)'/g
+        )) {
           const module = (await import(pathToFileURL(require.resolve(match[2]!)).href)) as Record<
             string,
             unknown
