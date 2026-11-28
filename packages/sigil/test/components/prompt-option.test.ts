@@ -144,6 +144,31 @@ describe('a prompt answered by an option', () => {
       expect((err as Error).message).toBe('Cannot ask "Sure?" without a terminal; pass --yes');
     });
 
+    it("should take a flag a call's input passed, false as well as true", async () => {
+      // `main({ input })` is how an MCP tool call passes its arguments (SIG-721),
+      // so a flag it set was said by somebody even though nothing was typed
+      const ui = piped();
+      const yes = await parse({
+        argv: ['deploy'],
+        env: {},
+        input: { yes: true },
+        schema: { commands: { deploy: { options: { '--yes': {} }, run() {} } }, name: 'mycli' },
+      });
+      const no = await parse({
+        argv: ['deploy'],
+        env: {},
+        input: { yes: false },
+        schema: { commands: { deploy: { options: { '--yes': {} }, run() {} } }, name: 'mycli' },
+      });
+
+      expect(
+        await confirm({ message: 'Sure?', option: '--yes', state: yes, terminal: ui.terminal })
+      ).toBe(true);
+      expect(
+        await confirm({ message: 'Sure?', option: '--yes', state: no, terminal: ui.terminal })
+      ).toBe(false);
+    });
+
     it('should take a typed false through the negated twin', async () => {
       const ui = piped();
       const state = await stateOf(['--no-yes'], { '--no-yes': {}, '--yes': {} });

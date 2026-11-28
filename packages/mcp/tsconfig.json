@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    // the test app imports `@ttylabs/mcp` by self-reference, which node resolves
+    // to `dist/` and a type-check before a build would not find; the checker
+    // reads the source instead
+    "paths": { "@ttylabs/mcp": ["./src/index.ts"] }
+  },
+  "include": ["./src", "./test", "./vitest.config.ts"]
+}

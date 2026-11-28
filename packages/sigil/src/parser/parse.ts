@@ -19,7 +19,7 @@ import { camelCase } from '../util/camel-case.js';
 import { envValue } from '../util/env-value.js';
 import { escapeControls } from '../util/escape-controls.js';
 import { splitTopic, topicSeparator } from '../util/topic.js';
-import { assertChoices, outsideChoices, transformValue } from '../util/transform.js';
+import { assertChoices, checkValue, outsideChoices, transformValue } from '../util/transform.js';
 import { asUsageError, UsageError } from '../util/usage-error.js';
 import { initCommand } from './command/init-command.js';
 import { loadCommand } from './command/load-command.js';
@@ -197,6 +197,9 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
     }
 
     await processArgs(state);
+    // after argv's values and before the environment's and the defaults', which
+    // is where a typed value sits in that order: an input is one
+    applyInput(state, opts.input);
     await processOptions(state);
 
     // after every value exists and before any of them is judged, which is where
@@ -763,6 +766,60 @@ function applyFallback(
       defaults.set(state, (map = new Map()));
     }
     map.set(dest, state.argv[dest]);
+  }
+}
+
+/**
+ * Puts values given as data on their destinations, as though argv had written
+ * them (SIG-721).
+ *
+ * Each key is a destination, which is what `argv` holds a value under and what a
+ * JSON Schema from `inputSchemas()` names its properties. It is found among the
+ * running command's arguments and every option of the chain, nearest first, the
+ * order argv resolves in; where an option and its negated twin share one, the
+ * positive spelling decides the type. The value is judged by `checkValue()` --
+ * the typed form, as a config file's is -- inside `fromArgv()`, so one it cannot
+ * take is the `invalid-value` usage error a typed one would be, and it is
+ * recorded as that declaration's, so its `choices` judge it and a required
+ * option or argument is satisfied by it.
+ *
+ * @param state - The parse state.
+ * @param input - The values, keyed by destination.
+ * @throws A `UsageError` for a key nothing declares or a value its type rejects.
+ */
+function applyInput(state: ParseState, input: Record<string, unknown> | undefined): void {
+  if (!input) {
+    return;
+  }
+  state.input = input;
+
+  for (const [dest, value] of Object.entries(input)) {
+    if (value === undefined) {
+      continue;
+    }
+
+    const arg = state.contexts[0]![Internal].args.find((it) => it[Internal].dest === dest);
+    const sharing = state.contexts.flatMap((ctx) =>
+      [...ctx[Internal].options.values()].filter(
+        (opt) =>
+          opt[Internal].dest === dest && !opt[Internal].parserOwned && !opt[Internal].selectsFormat
+      )
+    );
+    const it: InternalOption | InternalArgument | undefined =
+      arg ?? sharing.find((opt) => !opt.negate) ?? sharing[0];
+
+    if (!it) {
+      throw new UsageError(__`Unknown option "${escapeControls(dest)}"`, 'unknown-option');
+    }
+
+    const { multiple, type } = it;
+    const listed = multiple && type !== 'count';
+    state.argv[dest] = fromArgv(() =>
+      listed
+        ? (Array.isArray(value) ? value : [value]).map((member) => checkValue(member, type))
+        : checkValue(value, type)
+    );
+    produced(state, dest, it);
   }
 }
 
