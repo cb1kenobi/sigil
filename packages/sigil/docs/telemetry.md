@@ -219,8 +219,10 @@ export function record(event: TelemetryEvent): void {
 }
 
 function send(body: string): void {
-  // NODE_OPTIONS can name loaders and flags the sender does not have
-  const { NODE_OPTIONS: _, ...env } = process.env;
+  // NODE_OPTIONS can name loaders and flags the sender does not have, and
+  // without MY_CLI_TELEMETRY a child that turns out to be this app (see "In a
+  // single binary") records nothing, rather than spawning again
+  const { MY_CLI_TELEMETRY: _consent, NODE_OPTIONS: _options, ...env } = process.env;
   const child = spawn(process.execPath, ['-e', SENDER], {
     detached: true,
     env: { ...env, TELEMETRY_ENDPOINT: ENDPOINT, TELEMETRY_EVENT: body },
@@ -241,9 +243,11 @@ function send(body: string): void {
   machine could read it in a process list.
 - **The sender swallows its own failures.** Nobody is watching it, and a
   network that is down is not something to report.
-- **A hook that throws cannot break the command.** sigil catches it and logs it
-  under `DEBUG=sigil`, so a bug in `record()` costs you an event, not the user
-  their output or their exit code. That is a backstop, not a reason to throw.
+- **A hook that throws cannot break the command.** sigil catches it and logs it,
+  under `DEBUG=sigil:run` for `afterRun` and `DEBUG=sigil:error` for
+  `beforeError`, or `DEBUG='sigil:*'` for both. A bug in `record()` costs you an
+  event, not the user their output or their exit code. That is a backstop, not
+  a reason to throw.
 
 Sending each event as it happens is the simplest way to do it. If your app runs
 often, write events to a file in its cache directory and send them in batches
@@ -338,8 +342,11 @@ sender. Don't spawn in a binary. Choose between these instead:
 - **Defer.** Write the event to a file and send the file's events at the start
   of the next run, while that run's own command is working.
 
-To decide at run time, a Node binary answers `isSea()` from `node:sea` and a
-Bun one has a `Bun.main` that starts with `/$bunfs/`.
+To decide at run time, a Node binary answers `isSea()` from `node:sea`, and a
+Bun one has a `Bun.main` that starts with `/$bunfs/`, or with `B:\~BUN\` on
+Windows. Miss one and the app relaunches itself there instead of sending, which
+is why `send()` leaves `MY_CLI_TELEMETRY` out of the child's environment: a
+relaunched copy then records nothing.
 
 ## Test it
 
