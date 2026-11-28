@@ -244,3 +244,75 @@ export function writeTo(
 export function writeOut(text: string): void {
   writeTo(process.stdout, text);
 }
+
+/**
+ * What a piece of long-running work says about itself (SIG-722).
+ *
+ * A progress bar reports where it is and of how much; a spinner has no measure,
+ * so it reports its message and a count of its updates as the progress. Nothing
+ * here draws: this is for a reader that is not a terminal -- an MCP server
+ * forwarding a tool call's progress to its client -- and it is told whatever the
+ * terminal is, quiet runs included, because a report is not output.
+ */
+export interface ProgressUpdate {
+  /** What the work is doing, where it says. */
+  readonly message?: string;
+  /** How far along, in units of `total`, or a count of updates where there is none. */
+  readonly progress: number;
+  /** What `progress` is counting towards, where the work knows. */
+  readonly total?: number;
+}
+
+/** A reader of {@link ProgressUpdate}s. */
+export type ProgressObserver = (update: ProgressUpdate) => void;
+
+/**
+ * The observers, kept on `globalThis` under a registered symbol so that every
+ * copy of this module in a process shares them: an ejected progress bar is a
+ * copy, and so is a second install of the package, and an observer one of them
+ * cannot reach would hear nothing from it.
+ */
+const OBSERVERS = Symbol.for('@ttylabs/sigil.progressObservers');
+
+/**
+ * The observer set, made on first use.
+ *
+ * @returns The set.
+ */
+function observers(): Set<ProgressObserver> {
+  const shared = globalThis as unknown as Record<symbol, Set<ProgressObserver> | undefined>;
+  return (shared[OBSERVERS] ??= new Set());
+}
+
+/**
+ * Hears every progress report in this process until the returned function is
+ * called.
+ *
+ * @param observer - Told each report.
+ * @returns What stops it hearing them.
+ */
+export function observeProgress(observer: ProgressObserver): () => void {
+  observers().add(observer);
+  return () => {
+    observers().delete(observer);
+  };
+}
+
+/**
+ * Tells every observer about a piece of work's progress.
+ *
+ * An observer that throws is skipped and the rest are still told: the report is
+ * a side channel of the work, and a reader failing must not fail the work it was
+ * reading about.
+ *
+ * @param update - The report.
+ */
+export function reportProgress(update: ProgressUpdate): void {
+  for (const observer of Array.from(observers())) {
+    try {
+      observer(update);
+    } catch {
+      // the observer's own failure, which is its to report
+    }
+  }
+}

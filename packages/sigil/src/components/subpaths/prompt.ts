@@ -1,5 +1,6 @@
 export {
   type AccessibleOptions,
+  askRemotely,
   type Choice,
   type ChoiceEntry,
   confirm,
@@ -17,6 +18,9 @@ export {
   PromptError,
   type PromptOptions,
   refusePrompt,
+  type RemoteAnswer,
+  type RemoteAsker,
+  type RemoteQuestion,
   select,
   type SelectOptions,
   separator,

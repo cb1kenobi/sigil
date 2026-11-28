@@ -20,6 +20,8 @@
  */
 
 import type { ParseState } from '@ttylabs/sigil';
+import type { RemoteAnswer, RemoteQuestion } from '@ttylabs/sigil/components/prompt';
+import type { ProgressUpdate } from '@ttylabs/sigil/output';
 import {
   commandSurface,
   type CommandInputSchema,
@@ -61,6 +63,73 @@ export interface McpOptions {
 interface Tool {
   readonly entry: CommandInputSchema;
   readonly name: string;
+}
+
+/**
+ * What the server sends a call's child: the call, and the answers to the
+ * questions the child asked (SIG-722).
+ */
+export type ToChild =
+  | {
+      readonly arguments: Record<string, unknown>;
+      /** The protocol revision elicitation speaks, or `false` where the client cannot elicit. */
+      readonly elicit: string | false;
+      readonly path: readonly string[];
+      /** Whether the client asked for progress, by sending a token. */
+      readonly progress: boolean;
+      readonly type: 'call';
+    }
+  | { readonly answer: RemoteAnswer; readonly id: number; readonly type: 'elicited' };
+
+/** What a call's child sends the server: progress, questions, and its answer. */
+export type FromChild =
+  | ({ readonly type: 'answer' } & Answer)
+  | { readonly id: number; readonly question: RemoteQuestion; readonly type: 'elicit' }
+  | ({ readonly type: 'progress' } & ProgressUpdate);
+
+/** What the server does with what a call's child says along the way. */
+interface Along {
+  /** Asks the client's user, for a prompt. */
+  readonly elicit: (question: RemoteQuestion) => Promise<RemoteAnswer>;
+  /** Tells the client how far along the call is. */
+  readonly progress: (update: ProgressUpdate) => void;
+}
+
+/**
+ * A prompt's question as an elicitation's `requestedSchema`: an object of one
+ * property, `value`, which is the restricted shape the specification allows --
+ * a string, a boolean, a string out of a list, or (from `2025-11-25`) a list of
+ * them. A choice is offered by its label; the prompt maps the label back.
+ *
+ * @param question - The question.
+ * @returns The schema.
+ */
+export function elicitationSchema(question: RemoteQuestion): Record<string, unknown> {
+  const labels = question.choices?.map((choice) => choice.label) ?? [];
+  const value =
+    question.kind === 'confirm'
+      ? {
+          type: 'boolean',
+          ...(typeof question.default === 'boolean' ? { default: question.default } : {}),
+        }
+      : question.kind === 'text'
+        ? {
+            type: 'string',
+            ...(typeof question.default === 'string' ? { default: question.default } : {}),
+          }
+        : question.kind === 'select'
+          ? { enum: labels, type: 'string' }
+          : {
+              items: { enum: labels, type: 'string' },
+              ...(question.min ? { minItems: question.min } : {}),
+              ...(question.max !== undefined ? { maxItems: question.max } : {}),
+              type: 'array',
+            };
+  return {
+    properties: { value: { title: question.message, ...value } },
+    required: ['value'],
+    type: 'object',
+  };
 }
 
 /** What a call's child sends back. */
@@ -225,13 +294,15 @@ function resultOf(
  * @param tool - The tool.
  * @param args - The call's arguments.
  * @param track - Told the child, so a cancellation can kill it.
+ * @param along - What to do with progress and questions, and whether to ask for them.
  * @returns The result.
  */
 function call(
   own: readonly string[],
   tool: Tool,
   args: Record<string, unknown>,
-  track: (child: ChildProcess) => void
+  track: (child: ChildProcess) => void,
+  along: Along & { readonly elicits: string | false; readonly reports: boolean }
 ): Promise<CallResult> {
   return new Promise((resolve) => {
     const [command, before] = self();
@@ -250,8 +321,19 @@ function call(
     };
     child.stdout!.setEncoding('utf8').on('data', (chunk: string) => (stdout += chunk));
     child.stderr!.setEncoding('utf8').on('data', (chunk: string) => (stderr += chunk));
-    child.on('message', (message) => {
-      answer = message as Answer;
+    child.on('message', (raw) => {
+      const message = raw as FromChild;
+      if (message.type === 'answer') {
+        answer = message;
+      } else if (message.type === 'progress') {
+        along.progress(message);
+      } else if (message.type === 'elicit') {
+        void along.elicit(message.question).then((reply) => {
+          if (child.connected) {
+            child.send({ answer: reply, id: message.id, type: 'elicited' } satisfies ToChild);
+          }
+        });
+      }
     });
     child.on('error', (err) => {
       settle({ content: [{ text: err.message, type: 'text' }], isError: true });
@@ -271,7 +353,13 @@ function call(
       }, EXIT_GRACE_MS);
     });
 
-    child.send({ arguments: args, path: tool.entry.path });
+    child.send({
+      arguments: args,
+      elicit: along.elicits,
+      path: tool.entry.path,
+      progress: along.reports,
+      type: 'call',
+    } satisfies ToChild);
   });
 }
 
@@ -295,10 +383,12 @@ function described(program: string, tool: Tool): Record<string, unknown> {
 
 /** A JSON-RPC message, as far as this server reads one. */
 interface Message {
+  readonly error?: unknown;
   readonly id?: number | string | null;
   readonly jsonrpc?: unknown;
   readonly method?: unknown;
   readonly params?: Record<string, unknown>;
+  readonly result?: unknown;
 }
 
 /**
@@ -320,6 +410,15 @@ export async function serve(state: ParseState, opts: McpOptions): Promise<void> 
         ? declared
         : '0.0.0');
 
+  // what `initialize` settled, which decides whether a prompt can be an
+  // elicitation and which schema shapes it may use (SIG-722)
+  let negotiated: string = PROTOCOL_VERSIONS[0];
+  let elicits = false;
+
+  // the server's own requests to the client, answered on the same stream
+  const asked = new Map<string, (response: Message) => void>();
+  let asking = 0;
+
   const running = new Map<number | string, ChildProcess>();
   const cancelled = new Set<number | string>();
   const pending = new Set<Promise<void>>();
@@ -330,6 +429,13 @@ export async function serve(state: ParseState, opts: McpOptions): Promise<void> 
   const reply = (id: number | string, result: unknown): void => send({ id, result });
   const fail = (id: number | string | null, code: number, message: string): void =>
     send({ error: { code, message }, id });
+  const askClient = (method: string, params: Record<string, unknown>): Promise<Message> => {
+    const id = `sigil-${++asking}`;
+    return new Promise((resolve) => {
+      asked.set(id, resolve);
+      send({ id, method, params });
+    });
+  };
 
   const handle = async (message: Message): Promise<void> => {
     const { id, method, params } = message;
@@ -344,9 +450,13 @@ export async function serve(state: ParseState, opts: McpOptions): Promise<void> 
 
     switch (method) {
       case 'initialize': {
-        const asked = params?.protocolVersion;
+        const wanted = params?.protocolVersion;
         const protocolVersion =
-          PROTOCOL_VERSIONS.find((it) => it === asked) ?? PROTOCOL_VERSIONS[0];
+          PROTOCOL_VERSIONS.find((it) => it === wanted) ?? PROTOCOL_VERSIONS[0];
+        negotiated = protocolVersion;
+        // elicitation is `2025-06-18`'s, and a client says it can by declaring it
+        const capabilities = params?.capabilities as Record<string, unknown> | undefined;
+        elicits = capabilities?.elicitation !== undefined && protocolVersion >= '2025-06-18';
         if (request) {
           reply(id, {
             capabilities: { tools: { listChanged: false } },
@@ -382,8 +492,50 @@ export async function serve(state: ParseState, opts: McpOptions): Promise<void> 
           return;
         }
 
-        const result = await call(own, tool, args as Record<string, unknown>, (child) =>
-          running.set(id, child)
+        // progress is sent only where the client asked for it with a token, and
+        // only when it grows, which the specification requires of it
+        const token = (params?._meta as Record<string, unknown> | undefined)?.progressToken as
+          | number
+          | string
+          | undefined;
+        let last = -Infinity;
+
+        const result = await call(
+          own,
+          tool,
+          args as Record<string, unknown>,
+          (child) => running.set(id, child),
+          {
+            elicit: async (question) => {
+              const response = await askClient('elicitation/create', {
+                message: question.message,
+                requestedSchema: elicitationSchema(question),
+              });
+              const outcome = response.result as
+                | { action?: unknown; content?: Record<string, unknown> }
+                | undefined;
+              return outcome?.action === 'accept'
+                ? { answered: true, value: outcome.content?.value }
+                : { answered: false };
+            },
+            elicits: elicits ? negotiated : false,
+            progress: (update) => {
+              if (token === undefined || !(update.progress > last)) {
+                return;
+              }
+              last = update.progress;
+              send({
+                method: 'notifications/progress',
+                params: {
+                  ...(update.message ? { message: update.message } : {}),
+                  progress: update.progress,
+                  progressToken: token,
+                  ...(update.total !== undefined ? { total: update.total } : {}),
+                },
+              });
+            },
+            reports: token !== undefined,
+          }
         );
         running.delete(id);
         // a cancelled request is not answered, which is what the specification
@@ -424,6 +576,13 @@ export async function serve(state: ParseState, opts: McpOptions): Promise<void> 
     }
     if (message === null || typeof message !== 'object' || Array.isArray(message)) {
       fail(null, -32600, 'Invalid Request');
+      continue;
+    }
+
+    // a response to a request of the server's own, which is an elicitation
+    if (message.method === undefined && typeof message.id === 'string' && asked.has(message.id)) {
+      asked.get(message.id)!(message);
+      asked.delete(message.id);
       continue;
     }
 

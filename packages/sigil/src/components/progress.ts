@@ -1,5 +1,6 @@
 import { box, type Element, text as textNode } from '../element/index.js';
 import { __ } from '../i18n/index.js';
+import { reportProgress } from '../output.js';
 import { createEffect } from '../renderer/index.js';
 import { State, untrack } from '../signals/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
@@ -621,6 +622,16 @@ export function createProgress(opts: ProgressOptions = {}): Progress {
    * reaches it. The fold is 0.1 microseconds, against a layout and a paint.
    */
   function draw(): void {
+    // told whatever the level, quiet included: a report is not output
+    // (SIG-722). Untracked, so a bar relabelled from an effect does not
+    // subscribe that effect to the bar's own state
+    untrack(() => {
+      reportProgress({
+        message: state.label.get() || undefined,
+        progress: state.current.get(),
+        total: state.total.get(),
+      });
+    });
     if (mountLevel({ ...opts, terminal }) === 'quiet') {
       return;
     }

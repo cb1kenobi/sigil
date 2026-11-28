@@ -227,6 +227,147 @@ export interface AccessibleOptions {
 }
 
 /**
+ * A question a prompt hands to whoever is answering for a person who is not at a
+ * terminal (SIG-722): the kind of prompt, what it asks, and what it offers.
+ */
+export interface RemoteQuestion {
+  /** What a choice list offers, each with the label a person reads. */
+  readonly choices?: readonly { readonly label: string; readonly value: unknown }[];
+  /** What Enter alone would have answered, where the prompt has a default. */
+  readonly default?: unknown;
+  /** Which prompt is asking. */
+  readonly kind: 'confirm' | 'multiselect' | 'select' | 'text';
+  /** The most a multiselect takes. */
+  readonly max?: number;
+  /** What is being asked. */
+  readonly message: string;
+  /** The fewest a multiselect takes. */
+  readonly min?: number;
+}
+
+/**
+ * What came back: an answer, or the person declining to give one. A choice is
+ * answered by its label, and the prompt maps it back to the choice's value.
+ */
+export type RemoteAnswer =
+  | { readonly answered: false }
+  | { readonly answered: true; readonly value: unknown };
+
+/**
+ * Answers a prompt for a person who is not at a terminal, or returns `undefined`
+ * to say it cannot ask this question -- the prompt then fails as it does with
+ * nobody to ask.
+ */
+export type RemoteAsker = (question: RemoteQuestion) => Promise<RemoteAnswer> | undefined;
+
+/**
+ * The asker, on `globalThis` under a registered symbol so that an ejected
+ * prompt, a copy, asks the same one.
+ */
+const ASKER = Symbol.for('@ttylabs/sigil.remoteAsker');
+
+/** Where the asker is kept. */
+const askers = globalThis as unknown as Record<symbol, RemoteAsker | undefined>;
+
+/**
+ * Has `text()`, `confirm()`, `select()` and `multiselect()` ask somebody else
+ * when there is no terminal to ask on, until the returned function is called
+ * (SIG-722).
+ *
+ * It is what an MCP server puts in a tool call's process so that a prompt
+ * becomes an elicitation -- the client asking its own user. A terminal still
+ * wins: the asker is consulted only where a prompt could not otherwise ask. A
+ * password is never asked this way, because a value that is a secret is one a
+ * remote asker must not be handed.
+ *
+ * @param asker - Asks, or says it cannot.
+ * @returns What takes it away again.
+ */
+export function askRemotely(asker: RemoteAsker): () => void {
+  askers[ASKER] = asker;
+  return () => {
+    if (askers[ASKER] === asker) {
+      askers[ASKER] = undefined;
+    }
+  };
+}
+
+/**
+ * Asks the remote asker, where there is one and no terminal to ask on.
+ *
+ * A declined question is a cancelled prompt, which is what Ctrl-C is. What comes
+ * back is held to what a typed answer is, by `read`.
+ *
+ * @param opts - The prompt's options.
+ * @param question - What to ask.
+ * @param read - Turns the answer into the prompt's, or throws.
+ * @returns The answer, or `undefined` where the prompt should go on as before.
+ */
+function remotely<T>(
+  opts: PromptOptions,
+  question: RemoteQuestion,
+  read: (value: unknown) => T | Promise<T>
+): Promise<T> | undefined {
+  const asker = askers[ASKER];
+  if (!asker || canReadKeys({ stdin: opts.stdin, terminal: opts.terminal })) {
+    return undefined;
+  }
+
+  const asked = asker(question);
+  return asked?.then((answer) => {
+    if (!answer.answered) {
+      throw new PromptError(__`Cancelled`, true);
+    }
+    return read(answer.value);
+  });
+}
+
+/**
+ * The choices a list offers a remote asker: every one a person could pick, by
+ * label and value.
+ *
+ * @param choices - The list.
+ * @returns The choices on offer.
+ */
+function remoteChoices<T>(choices: readonly ChoiceEntry<T>[]): { label: string; value: T }[] {
+  const offered: { label: string; value: T }[] = [];
+  for (const entry of choices) {
+    if (typeof entry === 'string') {
+      offered.push({ label: entry, value: entry as T });
+    } else if (!('separator' in entry) && !entry.disabled) {
+      offered.push({
+        label: entry.label,
+        value: (entry.value === undefined ? entry.label : entry.value) as T,
+      });
+    }
+  }
+  return offered;
+}
+
+/**
+ * The choice a remote answer names by its label.
+ *
+ * @param message - The prompt's question, for the refusal.
+ * @param offered - What was on offer.
+ * @param label - What came back.
+ * @returns The choice's value.
+ * @throws A `PromptError` for a label nothing on offer has.
+ */
+function remoteChoice<T>(
+  message: string,
+  offered: readonly { label: string; value: T }[],
+  label: unknown
+): T {
+  const found = offered.find((it) => it.label === label);
+  if (!found) {
+    throw new PromptError(
+      `"${message}" was answered with ${JSON.stringify(label)}, which is not one of its choices`
+    );
+  }
+  return found.value;
+}
+
+/**
  * Where a prompt's answer can come from instead of a person (SIG-719).
  *
  * A prompt asks a person, and a run with nobody to ask -- an agent, a CI job, a
@@ -369,13 +510,16 @@ function answerUsage(source: AnswerSource, offered: readonly unknown[] | undefin
  * @param read - Turns the given value into the prompt's answer, or throws.
  * @param ask - The prompt itself, for when nothing answered it.
  * @param offered - The values a choice list offers, for the message.
+ * @param remote - Asks somebody in a person's place, where nothing answered it and
+ *   there is no terminal; `undefined` where nobody can be asked this question.
  * @returns The answer.
  */
 function answerOr<T>(
   opts: PromptOptions & AnsweredByOptions,
   read: (value: unknown, usage: string) => T | Promise<T>,
   ask: () => Promise<T>,
-  offered?: readonly unknown[]
+  offered?: readonly unknown[],
+  remote?: () => Promise<T> | undefined
 ): Promise<T> {
   const option = opts.option;
   if (option === undefined) {
@@ -396,6 +540,15 @@ function answerOr<T>(
     // error, exit 2, because the answer is input the run did not carry: the code
     // is the one a missing required option or argument already has, which is what
     // a prompt with nobody to answer it makes of the option it names
+    // nothing answered it and there is no terminal, so somebody else asked to be
+    // asked in a person's place (SIG-722) is asked before the run is refused: an
+    // MCP client that can elicit is the person here. One that cannot is the
+    // refusal below, which says what to pass
+    const elsewhere = remote?.();
+    if (elsewhere) {
+      return elsewhere;
+    }
+
     if (!canReadKeys({ stdin: opts.stdin, terminal: opts.terminal })) {
       return Promise.reject(
         new UsageError(
@@ -1533,6 +1686,22 @@ function summaryOf(written: string): string {
  * @returns What was typed.
  */
 export function text(opts: TextOptions): Promise<string> {
+  // a masked field is a secret, and a secret is never handed to a remote asker
+  const remote = (): Promise<string> | undefined =>
+    opts.mask === undefined
+      ? remotely(
+          opts,
+          { default: opts.default, kind: 'text', message: opts.message },
+          async (value) => {
+            const answer = typeof value === 'string' ? value : '';
+            const problem = await opts.validate?.(answer);
+            if (problem) {
+              throw new PromptError(`"${opts.message}": ${problem}`);
+            }
+            return answer === '' && opts.default !== undefined ? opts.default : answer;
+          }
+        )
+      : undefined;
   if (opts.option !== undefined) {
     // the given value is held to what a typed one is: its own `validate`, whose
     // message is the reason, and refused with the option named
@@ -1552,8 +1721,14 @@ export function text(opts: TextOptions): Promise<string> {
         }
         return answer;
       },
-      () => text({ ...opts, option: undefined })
+      () => text({ ...opts, option: undefined }),
+      undefined,
+      remote
     );
+  }
+  const elsewhere = remote();
+  if (elsewhere) {
+    return elsewhere;
   }
 
   const terminal = opts.terminal ?? defaultTerminal;
@@ -2760,6 +2935,12 @@ export function multiline(opts: MultilineOptions): Promise<string> {
  * @returns The answer.
  */
 export function confirm(opts: ConfirmOptions): Promise<boolean> {
+  const remote = (): Promise<boolean> | undefined =>
+    remotely(
+      opts,
+      { default: opts.value ?? opts.default ?? true, kind: 'confirm', message: opts.message },
+      (value) => value === true
+    );
   if (opts.option !== undefined) {
     return answerOr(
       opts,
@@ -2769,8 +2950,14 @@ export function confirm(opts: ConfirmOptions): Promise<boolean> {
         }
         return value;
       },
-      () => confirm({ ...opts, option: undefined })
+      () => confirm({ ...opts, option: undefined }),
+      undefined,
+      remote
     );
+  }
+  const elsewhere = remote();
+  if (elsewhere) {
+    return elsewhere;
   }
 
   // a starting answer is what Enter alone means, which is what `default` already
@@ -3155,6 +3342,11 @@ function offering<T>(
  * @returns The chosen value.
  */
 export function select<T = string>(opts: SelectOptions<T>): Promise<T> {
+  const remoteOffer = remoteChoices(opts.choices);
+  const remote = (): Promise<T> | undefined =>
+    remotely(opts, { choices: remoteOffer, kind: 'select', message: opts.message }, (value) =>
+      remoteChoice(opts.message, remoteOffer, value)
+    );
   if (opts.option !== undefined) {
     const values = offeredValues(opts.choices);
     // compared the way `value` is, as a `Map` compares keys, and only against what
@@ -3168,8 +3360,13 @@ export function select<T = string>(opts: SelectOptions<T>): Promise<T> {
         return value as T;
       },
       () => select({ ...opts, option: undefined }),
-      values
+      values,
+      remote
     );
+  }
+  const elsewhere = remote();
+  if (elsewhere) {
+    return elsewhere;
   }
 
   const offer = offering(opts, opts.value);
@@ -3260,6 +3457,28 @@ export function select<T = string>(opts: SelectOptions<T>): Promise<T> {
  * @returns The chosen values, in the order they are listed.
  */
 export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[]> {
+  const remoteOffer = remoteChoices(opts.choices);
+  const fewest = opts.min ?? (opts.required ? 1 : 0);
+  const remote = (): Promise<T[]> | undefined =>
+    remotely(
+      opts,
+      {
+        choices: remoteOffer,
+        kind: 'multiselect',
+        max: opts.max,
+        message: opts.message,
+        min: fewest,
+      },
+      (value) => {
+        const picked = (Array.isArray(value) ? value : []).map((label) =>
+          remoteChoice(opts.message, remoteOffer, label)
+        );
+        if (picked.length < fewest || (opts.max !== undefined && picked.length > opts.max)) {
+          throw new PromptError(`"${opts.message}" was answered with ${picked.length} choices`);
+        }
+        return picked;
+      }
+    );
   if (opts.option !== undefined) {
     const values = offeredValues(opts.choices);
     // a single value is a list of one, which is how a repeatable option with one
@@ -3277,8 +3496,13 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
         return list as T[];
       },
       () => multiselect({ ...opts, option: undefined }),
-      values
+      values,
+      remote
     );
+  }
+  const elsewhere = remote();
+  if (elsewhere) {
+    return elsewhere;
   }
 
   const offer = offering(opts);

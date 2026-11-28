@@ -1,6 +1,7 @@
 import { box, type Element, text as textNode } from '../element/index.js';
+import { reportProgress } from '../output.js';
 import { createEffect, onCleanup } from '../renderer/index.js';
-import { State } from '../signals/index.js';
+import { State, untrack } from '../signals/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { stringWidth } from '../width/index.js';
 import { refuseControl } from './control-character.js';
@@ -357,10 +358,25 @@ export function createSpinner(opts: SpinnerOptions = {}): Spinner {
    * @param outcome - How it ended.
    * @param final - The text to leave. The current text, if omitted.
    */
+  /**
+   * Tells a progress observer what the spinner says (SIG-722). A spinner has no
+   * measure, so its progress is a count of what it has said, which only grows.
+   */
+  let reports = 0;
+  function report(): void {
+    // untracked, because a spinner driven from an effect must not subscribe that
+    // effect to its own label: the report reads, and a read in an effect is a
+    // subscription
+    untrack(() => {
+      reportProgress({ message: state.label.get() || undefined, progress: ++reports });
+    });
+  }
+
   function settle(outcome: SpinnerOutcome, final?: string): void {
     if (final !== undefined) {
       state.label.set(final);
     }
+    report();
     spinning = false;
     running.set(false);
     state.frame.set(undefined);
@@ -399,6 +415,7 @@ export function createSpinner(opts: SpinnerOptions = {}): Spinner {
         running.set(true);
         mount().frame();
       }
+      report();
 
       return spinner;
     },
@@ -425,6 +442,7 @@ export function createSpinner(opts: SpinnerOptions = {}): Spinner {
     set text(next: string) {
       state.label.set(next);
       if (spinning) {
+        report();
         mounted?.frame();
       }
     },

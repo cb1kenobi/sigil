@@ -9,13 +9,29 @@
  * with the wrong input and nothing said.
  */
 
-import type { Answer } from './server.js';
+import type { Answer, FromChild, ToChild } from './server.js';
 import { main, type ParseState, type RunResult } from '@ttylabs/sigil';
+import type { RemoteAnswer, RemoteQuestion } from '@ttylabs/sigil/components/prompt';
+import { observeProgress } from '@ttylabs/sigil/output';
 
-/** What the server sends a call's child. */
-interface Call {
-  readonly arguments: Record<string, unknown>;
-  readonly path: readonly string[];
+/** The call itself, out of what the server sends. */
+type Call = Extract<ToChild, { type: 'call' }>;
+
+/**
+ * Whether a question can be put to the client as an elicitation (SIG-722): a
+ * list of several is `2025-11-25`'s, and a choice is offered by its label, so two
+ * choices that share one cannot be told apart.
+ *
+ * @param question - The question.
+ * @param version - The revision the server and the client settled on.
+ * @returns Whether to ask it.
+ */
+function canElicit(question: RemoteQuestion, version: string): boolean {
+  if (question.kind === 'multiselect' && version < '2025-11-25') {
+    return false;
+  }
+  const labels = question.choices?.map((choice) => choice.label) ?? [];
+  return new Set(labels).size === labels.length;
 }
 
 /**
@@ -55,9 +71,43 @@ export async function answerCall(state: ParseState): Promise<void> {
     );
   }
 
+  // the call first, and after it the answers to whatever the command asked
+  const waiting = new Map<number, (answer: RemoteAnswer) => void>();
   const call = await new Promise<Call>((resolve) => {
-    process.once('message', (message) => resolve(message as Call));
+    process.on('message', (raw) => {
+      const message = raw as ToChild;
+      if (message.type === 'call') {
+        resolve(message);
+      } else if (message.type === 'elicited') {
+        waiting.get(message.id)?.(message.answer);
+        waiting.delete(message.id);
+      }
+    });
   });
+
+  // progress and prompts, where the client can hear and answer them. The prompt
+  // module is loaded only then, because most calls never ask anything
+  const stops: (() => void)[] = [];
+  if (call.progress) {
+    stops.push(
+      observeProgress((update) => send({ type: 'progress', ...update } satisfies FromChild))
+    );
+  }
+  if (call.elicit !== false) {
+    const version = call.elicit;
+    const { askRemotely } = await import('@ttylabs/sigil/components/prompt');
+    let asked = 0;
+    stops.push(
+      askRemotely((question) => {
+        if (!canElicit(question, version)) {
+          return undefined;
+        }
+        const id = ++asked;
+        send({ id, question, type: 'elicit' } satisfies FromChild);
+        return new Promise((resolve) => waiting.set(id, resolve));
+      })
+    );
+  }
 
   let result: RunResult | undefined;
   const hooks = state.schema.hooks;
@@ -85,14 +135,20 @@ export async function answerCall(state: ParseState): Promise<void> {
     answer = { error: described(err), ok: false };
   }
 
+  for (const stop of stops) {
+    stop();
+  }
+
   await new Promise<void>((resolve) => {
     try {
-      send(answer, () => resolve());
+      send({ type: 'answer', ...answer } satisfies FromChild, () => resolve());
     } catch (err) {
       // a value IPC cannot carry -- a `BigInt`, a cycle -- is the command's
       // answer failing to arrive, which is a failure to report rather than a
       // call that never ends
-      send({ error: described(err), ok: false } satisfies Answer, () => resolve());
+      send({ error: described(err), ok: false, type: 'answer' } satisfies FromChild, () =>
+        resolve()
+      );
     }
   });
 

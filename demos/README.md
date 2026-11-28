@@ -326,9 +326,9 @@ waits for it rather than reporting a silence that is not one.
 
 ## MCP
 
-|                                        |                                                                                  |
-| -------------------------------------- | -------------------------------------------------------------------------------- |
-| [`mcp/01-server.js`](mcp/01-server.js) | An app's commands as MCP tools, by adding one command, and a client calling them |
+|                                        |                                                                                                                        |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| [`mcp/01-server.js`](mcp/01-server.js) | An app's commands as MCP tools, by adding one command, and a client calling them, a progress bar and a prompt included |
 
 ```sh
 node demos/mcp/01-server.js                     # it starts itself as a server and calls it
@@ -345,7 +345,7 @@ tool's annotations, which is what a client reads before asking whether to run it
 
 Run with no arguments, the file is its own client. It starts itself with `mcp`,
 speaks JSON-RPC over the pipe and prints each exchange: the handshake, the tool
-list, and five calls. What a command returns is the call's `structuredContent`;
+list, and the calls below. What a command returns is the call's `structuredContent`;
 what a command prints is its answer when it returns nothing, and never reaches
 the protocol stream, because each call runs in a child process of its own; and a
 usage error comes back as `isError` with its `code`, so an agent can tell a call
@@ -356,6 +356,15 @@ than as a rebuilt command line, so `-5` arrives as a number. From the command
 line the same app cannot take it at all -- `sum -- -5 12` is
 `Extra arguments are not allowed`, because what follows `--` is extra arguments
 rather than positionals -- which is the reason the server does not rebuild argv.
+
+`deploy` is the command a terminal would draw: a `select()` for the region and a
+progress bar. A tool call has no terminal, so the bar is sent as
+`notifications/progress` -- to a client that asked for it with a `progressToken`
+-- and the prompt is asked of the client's user as `elicitation/create`, with the
+choices as the schema's `enum`. Three calls show the three answers a prompt that
+names `--region` can get: elicited where nothing answered it, skipped where the
+call passed `region`, and, to a client that cannot elicit, the usage error that
+says what to pass, exactly as a run without a terminal gets.
 
 ## Components
 
