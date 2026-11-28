@@ -1476,12 +1476,12 @@ exist for a prompt that runs commands through the parser, and they are on the ro
 entry. The [README](../README.md#splitting-a-typed-line) shows how they are used;
 this is the grammar.
 
-| Where          | What is read                                                                                                                                                                           |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| outside quotes | space, tab, newline and carriage return end a word; `\` makes the next character part of it, whatever it is; `\` before a newline says nothing                                         |
-| `'...'`        | everything is literal, including `\`, up to the next `'`                                                                                                                               |
-| `"..."`        | everything is literal except `\"`, `\\`, `\$` and ``\` `` which lose the backslash, and `\` before a newline, which says nothing; a backslash before anything else stays               |
-| `$'...'`       | `\a \b \e \E \f \n \r \t \v \\ \' \" \?`, `\xNN` and `\NNN` as a byte, `\uNNNN` and `\UNNNNNNNN` as a code point; a run of bytes is read as UTF-8; an escape not listed stays as typed |
+| Where          | What is read                                                                                                                                                                                                                         |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| outside quotes | space, tab, newline and carriage return end a word (`sh` does not end one at a carriage return; a pasted CRLF line should not carry one); `\` makes the next character part of it, whatever it is; `\` before a newline says nothing |
+| `'...'`        | everything is literal, including `\`, up to the next `'`                                                                                                                                                                             |
+| `"..."`        | everything is literal except `\"`, `\\`, `\$` and ``\` `` which lose the backslash, and `\` before a newline, which says nothing; a backslash before anything else stays                                                             |
+| `$'...'`       | `\a \b \e \E \f \n \r \t \v \\ \' \" \?`, `\xNN` and `\NNN` as a byte, `\uNNNN` and `\UNNNNNNNN` as a code point; a run of bytes is read as UTF-8; an escape not listed, such as `\cX`, stays as typed                               |
 
 Adjacent parts make one word, so `a"b c"'d'` is `ab cd`, and `''` is a word whose
 value is the empty string. A quote that is not closed leaves the line **open**:
@@ -1493,7 +1493,8 @@ backtick substitution and `!!` are all ordinary characters of a word, and so are
 `#`, `|`, `;`, `&`, `<` and `>`, which are not comments or operators here. The
 prompt is not a shell, and expanding any of them would make a line mean one
 thing there and another in a terminal. It follows that `quoteWord()` quotes a
-word holding any of them, so what it inserts means the same in both places.
+word holding any of them -- and one starting with `=`, which zsh expands -- so
+what it inserts means the same in a shell.
 `$'...'` is read because `quoteWord()` writes it, and it is a form of quoting
 that bash, zsh, ksh and POSIX.1-2024 all share rather than an expansion. `$"..."`
 is not read as bash's translated string: it is a `$` and a double-quoted part.

@@ -14,7 +14,9 @@
  *
  * - **Outside quotes** a space, tab, newline or carriage return ends a word, and
  *   a backslash makes the next character part of the word, whatever it is. A
- *   backslash before a newline is a line continuation and says nothing.
+ *   backslash before a newline is a line continuation and says nothing. A
+ *   carriage return ends a word too, which `sh` does not do: a line pasted with
+ *   CRLF endings should not carry one into its last word.
  * - **Single quotes** hold everything literally up to the next single quote.
  * - **Double quotes** hold everything literally except that a backslash before
  *   `"`, `\`, `$` or a backtick takes the backslash away, and a backslash before
@@ -24,8 +26,9 @@
  *   one way to spell a control character without printing it -- and it is a
  *   quote, not an expansion: `\n`, `\t`, `\e` and the rest of the single
  *   character escapes, `\xNN` and `\NNN` as a byte, `\uNNNN` and `\UNNNNNNNN` as
- *   a code point, and a run of bytes is read as the UTF-8 it is. An escape this
- *   does not know stays as typed, which is what bash does.
+ *   a code point, and a run of bytes is read as the UTF-8 it is, across adjacent
+ *   `$'...'` parts too. An escape this does not know -- `\cX`, and zsh's `\C-` and
+ *   `\M-` -- stays as typed, where each shell has its own answer for it.
  *
  * What is **not** done is every expansion: `$HOME`, `${x}`, `~`, `*` and `?`, a
  * command substitution, `#` as a comment and `| ; & < >` as operators are all
@@ -112,6 +115,8 @@ interface Scanned {
   open: Unfinished | undefined;
   /** Whether the quote the word opened with is the one still open. */
   inFirst: boolean;
+  /** Where the opening quote is, which a line continuation before it puts after the word's start. */
+  quoteAt: number;
 }
 
 const HEX = /^[0-9A-Fa-f]+/;
@@ -196,6 +201,7 @@ function scanWord(line: string, start: number): Scanned {
   let quote: WordQuote | undefined;
   let open: Unfinished | undefined;
   let inFirst = false;
+  let quoteAt = start;
   let real = false;
   // bytes read from `$'\xNN'` escapes, waiting to be read as UTF-8
   let bytes: number[] = [];
@@ -205,6 +211,12 @@ function scanWord(line: string, start: number): Scanned {
       value += decoder.decode(Uint8Array.from(bytes));
       bytes = [];
     }
+  };
+  // bytes wait across a closing quote, so `$'\xC3'$'\xA9'` is the one character
+  // a shell reads it as, and are decoded when anything else is added
+  const add = (text: string) => {
+    flush();
+    value += text;
   };
 
   while (i < line.length) {
@@ -224,7 +236,7 @@ function scanWord(line: string, start: number): Scanned {
           i += 2;
         } else {
           const whole = String.fromCodePoint(line.codePointAt(i + 1)!);
-          value += whole;
+          add(whole);
           i += 1 + whole.length;
           real = true;
         }
@@ -242,6 +254,7 @@ function scanWord(line: string, start: number): Scanned {
       if (mark !== undefined) {
         if (!real) {
           quote = mark;
+          quoteAt = i;
           inFirst = true;
         }
         open = mark;
@@ -250,7 +263,7 @@ function scanWord(line: string, start: number): Scanned {
         continue;
       }
 
-      value += char;
+      add(char);
       real = true;
       i++;
       continue;
@@ -262,7 +275,7 @@ function scanWord(line: string, start: number): Scanned {
         open = undefined;
         inFirst = false;
       } else {
-        value += char;
+        add(char);
       }
       i++;
     } else if (open === '"') {
@@ -273,35 +286,32 @@ function scanWord(line: string, start: number): Scanned {
       } else if (char === '\\') {
         const next = line.charAt(i + 1);
         if (next === '"' || next === '\\' || next === '$' || next === '`') {
-          value += next;
+          add(next);
           i += 2;
         } else if (next === '\n') {
           i += 2;
         } else {
-          value += '\\';
+          add('\\');
           i++;
         }
       } else {
-        value += char;
+        add(char);
         i++;
       }
     } else if (char === "'") {
-      flush();
       open = undefined;
       inFirst = false;
       i++;
     } else if (char === '\\') {
       const escape = readEscape(line, i);
       if (escape.byte === undefined) {
-        flush();
-        value += escape.text ?? '';
+        add(escape.text ?? '');
       } else {
         bytes.push(escape.byte);
       }
       i = escape.next;
     } else {
-      flush();
-      value += char;
+      add(char);
       i++;
     }
   }
@@ -312,6 +322,7 @@ function scanWord(line: string, start: number): Scanned {
     real,
     open,
     inFirst: inFirst && open !== undefined,
+    quoteAt,
   };
 }
 
@@ -386,7 +397,7 @@ export function wordAt(line: string, cursor: number): WordAt {
     before: typed.word.value,
     start: word.start,
     end: word.end,
-    from: quote === undefined ? word.start : word.start + quote.length,
+    from: quote === undefined ? word.start : typed.quoteAt + quote.length,
     quote,
   };
 }
@@ -418,7 +429,8 @@ function runsOf(value: string): { text: string; unsafe: boolean }[] {
  *
  * With no `context` it is a whole word, and a value that cannot be misread is
  * left bare: a letter, a digit or one of `_@%+=:,./-` is all that is safe, so
- * `deploy` and `--tag=v1.2` are written as they are and `my file`, `~/x`, `a|b`
+ * `deploy` and `--tag=v1.2` are written as they are (a leading `=` is the one
+ * exception: zsh expands `=ls` to a path, and the line should read the same there) and `my file`, `~/x`, `a|b`
  * and the empty string are quoted. That class is the one the generated bash
  * script tests a candidate against before it quotes it, and the rest is what
  * `bashQuote()` does: single quotes, with `'` written `'\''`.
@@ -446,7 +458,12 @@ function runsOf(value: string): { text: string; unsafe: boolean }[] {
  */
 export function quoteWord(value: string, context?: WordQuote): string {
   if (context === undefined) {
-    if (value !== '' && escapeControls(value) === value && SAFE_WORD.test(value)) {
+    if (
+      value !== '' &&
+      escapeControls(value) === value &&
+      SAFE_WORD.test(value) &&
+      value[0] !== '='
+    ) {
       return value;
     }
     if (value === '') {

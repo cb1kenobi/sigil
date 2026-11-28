@@ -23,7 +23,8 @@ import { escapeControls } from '../util/escape-controls.js';
  * class the shell defines is this. `quoteWord()` reads the same string, with
  * letters and digits taken as the Unicode ones where bash's `[:alnum:]` is
  * whatever the locale says -- so a word is bare in both exactly when neither
- * could mistake it for anything else. `-` is last so it is a hyphen in a class.
+ * could mistake it for anything else (`quoteWord()` also quotes a leading `=`, which zsh
+ * and not bash expands). `-` is last so it is a hyphen in a class.
  */
 export const SAFE_PUNCTUATION = '_@%+=:,./-';
 

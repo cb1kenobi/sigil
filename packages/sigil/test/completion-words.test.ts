@@ -191,6 +191,15 @@ describe('splitWords', () => {
       expect(argv("$'\\q \\x \\xZ \\uZZ'")).toEqual(['\\q \\x \\xZ \\uZZ']);
     });
 
+    it("should join the bytes of adjacent $'...' parts into one character", () => {
+      expect(argv("$'\\xC3'$'\\xA9' $'\\xC3'x")).toEqual(['\u00E9', '\uFFFDx']);
+    });
+
+    it('should end a word at a carriage return, which sh does not, and keep a NUL it is told of', () => {
+      expect(argv('a\rb')).toEqual(['a', 'b']);
+      expect(argv("$'a\\x00b'")).toEqual(['a\u0000b']);
+    });
+
     it('should read at most two hex digits of \\x and four of \\u', () => {
       expect(argv("$'\\x411' $'\\u00411'")).toEqual(['A1', 'A1']);
     });
@@ -394,6 +403,15 @@ describe('wordAt', () => {
     expect(wordAt("open $'a'", 7)).toMatchObject({ before: '', from: 7, quote: "$'" });
   });
 
+  it('should start a replacement after a quote that a line continuation precedes', () => {
+    // the continuation is part of the word and the quote is after it, so the
+    // replacement starts at the quote's own index and not at the word's start
+    const line = 'x \\\n"ab';
+    expect(wordAt(line, line.length)).toMatchObject({ start: 2, from: 5, quote: '"' });
+    const at = wordAt(line, line.length);
+    expect(argv(`${line.slice(0, at.from)}${quoteWord('ab c', at.quote)}"`)).toEqual(['x', 'ab c']);
+  });
+
   it('should refuse a cursor that is not an index into the line', () => {
     expect(() => wordAt('ab', -1)).toThrow(RangeError);
     expect(() => wordAt('ab', 3)).toThrow(/from 0 to 2, got 3/);
@@ -508,6 +526,11 @@ describe('quoteWord', () => {
       expect(quoteWord('\u{1F468}\u200D\u{1F469}')).toBe(
         "'\u{1F468}'$'\\xE2\\x80\\x8D''\u{1F469}'"
       );
+    });
+
+    it('should quote a leading = and not an = inside, because zsh expands the first', () => {
+      expect(quoteWord('=ls')).toBe("'=ls'");
+      expect(quoteWord('--a=b')).toBe('--a=b');
     });
 
     it('should write the whole safe class bare and nothing beside it', () => {

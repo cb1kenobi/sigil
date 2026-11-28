@@ -1894,14 +1894,37 @@ would" in `docs/parser.md`; what follows is why it is that grammar.
   `\NNN` as **bytes** and decodes a run of them as UTF-8, because that is what a
   shell in a UTF-8 locale does and what `quoteWord()` writes -- one spelling that
   names the same string in bash 3.2, which has no `\u`, and in zsh; `\u` and `\U`
-  are read too, since they are common to type. An escape it does not know stays
-  as typed, as bash does, and `$"..."` is a `$` and a double-quoted part rather
+  are read too, since they are common to type. An escape it does not know --
+  `\cX`, zsh's `\C-` and `\M-` -- stays as typed, where each shell has its own
+  answer, bytes wait across adjacent `$'...'` parts as they do in a shell, a NUL
+  from `\x00` is kept in the value where bash truncates at it (so `quoteWord()`
+  of a string holding one round trips), and `$"..."` is a `$` and a double-quoted part rather
   than a translated string.
 - **The `TextDecoder` keeps a byte order mark.** `new TextDecoder()` drops a
   leading U+FEFF, which is itself a format character that `quoteWord()` writes as
   `\xEF\xBB\xBF`: a random string starting with one came back one character
   short, found by the round-trip property and by nothing written by hand.
   `ignoreBOM: true` is what makes the escape and the read agree.
+- **A carriage return ends a word, which `sh` does not do.** A line pasted with
+  CRLF endings would otherwise carry a `\r` into the last word; a `\r` a value
+  really holds is written `$'\x0D'` and read back. Review round 1 asked for it
+  to be written down.
+- **A leading `=` is quoted.** The bash script's class has `=` in it, and bash
+  expands nothing there, but zsh reads `=ls` as the path of `ls`: `quoteWord()`
+  is the one writer meant to be read by a shell as well as by `splitWords()`,
+  so a word that starts with one is single-quoted. The bash script is unchanged.
+- **`before` is what was typed to the cursor, read on its own.** Not a prefix of
+  `value` when the cursor splits a construct: between `$` and `'` it is `$`, after
+  a `\` inside double quotes it ends in one, and inside a byte run it is the
+  U+FFFD those bytes decode to alone. A completer matching on `before` finds
+  nothing at those cursors, and nothing at a cursor inside a surrogate pair
+  either, which is an index a caller does not produce. Review round 1 found the
+  cases; reading the rest of the line to make `before` a prefix would make it
+  what the line says rather than what was typed, and was not done.
+- **A line continuation before an opening quote does not move `from`.**
+  `wordAt()` takes it from the quote's own index, not from the word's start, so
+  `x \<newline>"ab` replaces after the quote and not inside the continuation
+  (found by review round 1; pinned in `completion-words.test.ts`).
 - **One definition of a safe character, and a measurement of where it differs.**
   `quote.ts` holds `SAFE_PUNCTUATION`, which the bash script's `__x_put` tests a
   candidate against (`[![:alnum:]_@%+=:,./-]`, generated from the constant, so the
