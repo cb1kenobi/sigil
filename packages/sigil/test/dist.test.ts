@@ -496,7 +496,15 @@ describe('what importing the package costs', () => {
     // `locales` would give about 1.5 KB of it back, and is not done: nothing
     // measures a 1.5 KB module, and it would cost an internal/public split of
     // one barrel. That is the shape to reach for if this ever gets tight.
-    expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(20 * 1024);
+    //
+    // 21,385 B over twelve modules as of SIG-711, from 17,911 over twelve: the
+    // 3,474 B is `splitWords()`, `wordAt()` and `quoteWord()`, which the decision
+    // put on the root entry rather than behind a subpath of their own. That
+    // crossed the 20 KiB this was, and the 17,911 it was measured against had
+    // already left under 2.6 KiB of it, so the ceiling moved to 26 KiB -- about
+    // 1.2x of the new figure, and still a long way under what a rendering path
+    // costs, which is what it is here to catch.
+    expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(26 * 1024);
   });
 
   it('should not drag grapheme segmentation in to suggest a command', () => {

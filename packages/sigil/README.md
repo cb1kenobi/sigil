@@ -67,6 +67,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 - [Output formats](#output-formats) — `--json`, `--format`, and a serialized error
 - [Help](#help)
 - [Shell completion](#shell-completion) — `completion` installs it, `completion bash` prints it
+- [Splitting a typed line](#splitting-a-typed-line) — `splitWords()`, `wordAt()`, `quoteWord()`
 - [Describing the app to an agent](#describing-the-app-to-an-agent) — `schema` prints each command's input as JSON Schema
 - [Translating](#translating) — `__`, `__n`, catalogs, `SIGIL_LOCALE`
 - [Typed argv](#typed-argv)
@@ -88,6 +89,9 @@ import {
   errorExitCode, // the exit code an error implies
   errorMessage, // what a thrown value says, as one line
   UsageError, // what the parser throws for a mistake in how the program was run
+  splitWords, // a typed line as the words a shell would split it into
+  wordAt, // the word under a cursor, and where a completion for it goes
+  quoteWord, // a value as text that splitWords() reads back
 } from '@ttylabs/sigil';
 ```
 
@@ -1571,6 +1575,63 @@ passing it works.
 
 A value your app would have to compute, which is the static script's own trade
 above.
+
+---
+
+## Splitting a typed line
+
+A REPL that runs commands through the parser has to turn `deploy --tag "release 1"`
+into the argv a shell would have handed `main()`, and completing the word under
+the cursor needs the same splitter run the other way. All three functions are on
+the root entry, beside `main()`.
+
+```js
+import { quoteWord, splitWords, wordAt } from '@ttylabs/sigil';
+
+const { words, open } = splitWords('deploy --tag "release 1" it\\ s');
+words.map((w) => w.value); // ['deploy', '--tag', 'release 1', 'it s']
+words[2]; // { value: 'release 1', start: 13, end: 24, quote: '"' }
+open; // undefined: nothing is left open
+
+splitWords('deploy "rel').open; // '"': the line ends inside a double quote
+```
+
+`splitWords(line)` returns `{ words, open }`. Each word carries `value`, which is
+what a program would be handed, the `start` and `end` it was read from in the
+line, and `quote`, the quote it opened with (`'`, `"` or `$'`), or `undefined`
+for a bare word. `open` is the quote the line ends inside, or `\` for a backslash
+with nothing after it, and the last word holds what was typed of it. What to do
+with an unfinished line is the caller's decision: an error, or a continuation
+line. A plain argv is `words.map((w) => w.value)`.
+
+`wordAt(line, cursor)` is the word being completed:
+
+```js
+const line = 'open "my fi';
+const at = wordAt(line, line.length);
+// { value: 'my fi', before: 'my fi', start: 5, end: 11, from: 6, quote: '"' }
+
+const candidate = 'my file';
+line.slice(0, at.from) + quoteWord(candidate, at.quote) + '"'; // open "my file"
+```
+
+`before` is the text up to the cursor, read the way a shell reads it, and is what
+a candidate is matched against. A replacement runs from `from` to the cursor; text
+after the cursor stays. When the cursor is inside the quote the word opened with,
+`from` is just after it and `quote` names it, so the user's own quoting is kept.
+
+`quoteWord(value, context)` is the inverse. With no `context` it returns a whole
+word: `deploy` and `--tag=v1.2` come back as they are, and anything holding a
+character outside letters, digits and `_@%+=:,./-` is single-quoted, the way
+`bashQuote()` quotes. A control character, a format character such as a bidi
+override or a zero-width joiner, and anything else a terminal would act on or a
+reader could not see is written as `$'\xNN'` bytes and never raw. With a
+`context` (what `wordAt()` reports as `quote`) it returns the text to put after
+that quote, which it leaves **open**; add the closing quote when the completion
+is final. `splitWords()` of the result gives back the value for any string.
+
+The grammar is POSIX `sh` word splitting, the same on every platform, and
+**nothing is expanded**. See [the parser reference](docs/parser.md#a-typed-line-split-like-a-shell-would).
 
 ---
 

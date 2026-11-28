@@ -356,22 +356,10 @@ export function registerable(program: string | undefined): program is string {
   );
 }
 
-/**
- * A string as one shell word, single-quoted.
- *
- * POSIX single-quoting, which is one rule rather than bash's and zsh's: a path
- * this interpolates into a startup file comes out of `homedir()` and may hold a
- * space -- `~/Library/Application Support` is the obvious one -- or a quote, and
- * an unquoted line is a shell injection into a file that runs on every login.
- * `bashQuote()` is this function, so the two cannot come to disagree about what
- * a quoted word is.
- *
- * @param text - What to quote.
- * @returns It, as one word.
- */
-export function shQuote(text: string): string {
-  return `'${text.replaceAll("'", "'\\''")}'`;
-}
+// `shQuote()` is in `./quote.ts`, beside the rest of what a shell word is made of,
+// because `quoteWord()` needs it and cannot import this module without the
+// installer's whole graph; it is re-exported so every caller here reads as before
+export { shQuote } from './quote.js';
 
 /**
  * The prefix every generated name carries, in either shell.

@@ -67,6 +67,7 @@ import {
   type InstallPlan,
   type InstallTarget,
 } from './installer.js';
+import { ansiCBody } from './quote.js';
 import { SHELL_NAMES, type ShellName } from './shells.js';
 
 /** What the command read off argv. */
@@ -110,22 +111,7 @@ function shDisplay(path: string): string {
     return shQuote(path);
   }
 
-  let word = '';
-  for (const c of path) {
-    if (escapeControls(c) !== c) {
-      // the character's UTF-8 **bytes**, each as `\xNN`: inside `$'...'` that
-      // escape is one byte in both shells, so it is the one spelling that names
-      // the same file in bash 3.2 (which has no `\u`) and in zsh under any locale
-      for (const byte of Buffer.from(c)) {
-        word += `\\x${byte.toString(16).toUpperCase().padStart(2, '0')}`;
-      }
-    } else if (c === '\\' || c === "'") {
-      word += `\\${c}`;
-    } else {
-      word += c;
-    }
-  }
-  return `$'${word}'`;
+  return `$'${ansiCBody(path)}'`;
 }
 
 /**
