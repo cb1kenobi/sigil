@@ -47,5 +47,37 @@ full.
 - **Hidden commands are not tools; `exclude` leaves out others.** A per-command
   `mcp: false` was the alternative and is not taken: it would be a property the
   core declares for one package's sake.
-- **Not done here:** progress notifications and elicitation, which are SIG-722
-  and reuse the IPC channel this opens.
+- **Progress and questions travel the same IPC channel, both ways (SIG-722).**
+  The child sends `progress`, `elicit` and finally `answer`; the server sends the
+  `call` and `elicited` replies. Both are hooks in core rather than in this
+  package: `observeProgress()` on `@ttylabs/sigil/output`, which the progress bar
+  and the spinner report into, and `askRemotely()` on the prompt subpath, which the
+  four prompts consult only with no terminal. Each is a process-wide slot on
+  `globalThis` under `Symbol.for`, so an ejected prompt -- a copy -- and a second
+  install of the package still reach it. The child installs them only for what the
+  client can take: progress where it sent a token, questions where it declared
+  elicitation, and the prompt module is loaded only then.
+- **A report reads signals untracked.** A spinner or a bar driven from an effect
+  must not subscribe that effect to its own state, and `display.test.ts` caught
+  the first version doing exactly that.
+- **Progress is sent only growing**, by the server, because the specification
+  requires it and a bar's draws can repeat a value. A spinner's progress is a
+  count of its updates, since it has no measure.
+- **Elicitation is the specification's restricted schema**: one property,
+  `value` -- a string, a boolean, a string out of the labels, or from
+  `2025-11-25` a list of them. A choice is asked by label and mapped back by the
+  prompt; duplicate labels cannot be asked. A password never is, because the
+  specification forbids requesting sensitive information this way.
+- **A prompt that names an option is answered by the call's arguments first
+  (SIG-719).** The order is one function's, `answerOr()` in `prompt.ts`: a value
+  for the option -- in argv, its variable, a `default`, or the call's `input`,
+  which counts for a flag too, so `{ "yes": false }` is an answer -- then, with no
+  terminal, a remote asker that can ask this question, then the usage error that
+  names the argument to pass. So an elicitation asks only what the arguments left
+  out, and a client that cannot elicit is told which argument would have answered
+  it rather than that there is no terminal. Found merging #730 under this: the two
+  sides taken as written refuse before the asker is asked, so no prompt that named
+  an option would ever have been elicited; `answerOr()` takes the asker as its
+  last argument for that.
+- **Not done:** log messages. The ticket called them optional, and a command's
+  stderr is still captured and shown when it fails without an answer.

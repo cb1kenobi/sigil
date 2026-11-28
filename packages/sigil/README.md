@@ -3808,6 +3808,15 @@ less, or a `min` above the `max`, rejects the prompt rather than asking it.
 > a prompt needs, such as fetching what it would offer, ask
 > [`canReadKeys()`](#sigilinput) first: it is the check every prompt makes.
 
+`askRemotely(asker)` gives `text()`, `confirm()`, `select()` and `multiselect()`
+somebody to ask when there is no terminal: the asker is handed the question --
+its kind, message, choices by label, default, and a multiselect's bounds -- and
+answers, declines, or returns `undefined` to say it cannot ask that, in which case
+the prompt fails as above. A terminal still wins, a declined question is a
+cancelled prompt, and the answer is held to the prompt's own rules (`validate`,
+the choices on offer, `min` and `max`). A `password()` is never asked remotely. It
+is how [`@ttylabs/mcp`](../mcp) turns a prompt into an MCP elicitation.
+
 #### Prompts as one flow
 
 ```js
@@ -8954,6 +8963,14 @@ over any sink that says how many bytes it took.
 
 `main()` writes `--help`, `--version` and a command's serialized output through
 `writeOut()`; a command that prints its own document is the one to change.
+
+`observeProgress(observer)` hears every progress report in the process until the
+function it returns is called. A progress bar reports `{ progress, total,
+message }` on every change, and a spinner `{ progress, message }` with a count of
+its updates as the progress. A report is not output, so a quiet run still makes
+one, and an observer that throws is skipped without failing the work. It is what
+[`@ttylabs/mcp`](../mcp) forwards to a client as MCP progress; `reportProgress()`
+is the other half, for work of your own.
 
 ### `sigil/which`
 

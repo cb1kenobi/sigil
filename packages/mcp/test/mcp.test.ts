@@ -18,6 +18,8 @@ const app = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'app');
 interface Response {
   readonly error?: { readonly code: number; readonly message: string };
   readonly id: number | string | null;
+  readonly method?: string;
+  readonly params?: Record<string, unknown>;
   readonly result?: Record<string, unknown>;
 }
 
@@ -26,6 +28,10 @@ class Client {
   readonly #server: ChildProcessWithoutNullStreams;
   readonly #waiting = new Map<number | string | null, (response: Response) => void>();
   readonly lines: string[] = [];
+  /** Notifications the server sent, in order. */
+  readonly notifications: Response[] = [];
+  /** Answers a request the server sends, which is an elicitation. */
+  onRequest?: (request: Response) => Record<string, unknown>;
   #next = 1;
 
   constructor() {
@@ -35,6 +41,14 @@ class Client {
       // every line on stdout has to be protocol: this throws on anything else,
       // which is the claim that a command's own output never reaches it
       const response = JSON.parse(line) as Response;
+      if (response.method !== undefined && response.id !== undefined) {
+        this.write({ id: response.id, jsonrpc: '2.0', result: this.onRequest?.(response) ?? {} });
+        return;
+      }
+      if (response.method !== undefined) {
+        this.notifications.push(response);
+        return;
+      }
       this.#waiting.get(response.id)?.(response);
       this.#waiting.delete(response.id);
     });
@@ -87,12 +101,12 @@ afterEach(() => {
   }
 });
 
-/** A server, initialized. */
-async function connect(): Promise<Client> {
+/** A server, initialized, with the client capabilities given. */
+async function connect(capabilities: Record<string, unknown> = {}): Promise<Client> {
   const client = new Client();
   clients.push(client);
   await client.request('initialize', {
-    capabilities: {},
+    capabilities,
     clientInfo: { name: 'test', version: '0' },
     protocolVersion: PROTOCOL_VERSIONS[0],
   });
@@ -142,13 +156,17 @@ describe('a sigil app over MCP', () => {
     // not the server itself, not a hidden command, not one `exclude` names, and
     // not `db`, which only lists what is under it
     expect(tools.map((tool) => tool.name).sort()).toEqual([
+      'build',
       'db_migrate',
+      'deploy',
       'echo',
       'fail',
       'linger',
       'orphan',
+      'pick',
       'print',
       'status',
+      'tags',
       'wait',
     ]);
 
@@ -258,6 +276,123 @@ describe('a sigil app over MCP', () => {
   it('should exit when the client closes stdin', async () => {
     const client = await connect();
     expect(await client.close()).toBe(0);
+  });
+});
+
+describe('along a call (SIG-722)', () => {
+  it("should send a progress bar's progress where the client asked for it with a token", async () => {
+    const client = await connect();
+    const response = await client.request('tools/call', {
+      _meta: { progressToken: 'p1' },
+      arguments: {},
+      name: 'build',
+    });
+
+    expect(response.result?.content).toEqual([{ text: '"built"', type: 'text' }]);
+    const progress = client.notifications
+      .filter((it) => it.method === 'notifications/progress')
+      .map((it) => it.params!);
+    expect(progress.length).toBeGreaterThan(0);
+    expect(progress.every((it) => it.progressToken === 'p1' && it.total === 3)).toBe(true);
+    // only ever growing, which the specification requires, and finishing at the total
+    const values = progress.map((it) => it.progress as number);
+    expect(values).toEqual([...values].sort((a, b) => a - b));
+    expect(new Set(values).size).toBe(values.length);
+    expect(values.at(-1)).toBe(3);
+  });
+
+  it('should send no progress where the client sent no token', async () => {
+    const client = await connect();
+    await callTool(client, 'build');
+    expect(client.notifications.filter((it) => it.method === 'notifications/progress')).toEqual([]);
+  });
+
+  it("should put a prompt to the client's user as an elicitation, and take the answer", async () => {
+    const client = await connect({ elicitation: {} });
+    const asked: Response[] = [];
+    client.onRequest = (request) => {
+      asked.push(request);
+      return { action: 'accept', content: { value: 'eu' } };
+    };
+
+    const result = await callTool(client, 'pick');
+    expect(result.structuredContent).toEqual({ region: 'eu' });
+    expect(asked).toHaveLength(1);
+    expect(asked[0]!.method).toBe('elicitation/create');
+    expect(asked[0]!.params).toEqual({
+      message: 'Which region?',
+      requestedSchema: {
+        properties: { value: { enum: ['us', 'eu'], title: 'Which region?', type: 'string' } },
+        required: ['value'],
+        type: 'object',
+      },
+    });
+  });
+
+  it('should cancel the prompt when the user declines', async () => {
+    const client = await connect({ elicitation: {} });
+    client.onRequest = () => ({ action: 'decline' });
+
+    const result = await callTool(client, 'pick');
+    expect(result.isError).toBe(true);
+    expect(result.content[0]!.text).toBe('Cancelled');
+  });
+
+  it('should hold the answer to what a person could pick', async () => {
+    const client = await connect({ elicitation: {} });
+    client.onRequest = () => ({ action: 'accept', content: { value: 'mars' } });
+
+    const result = await callTool(client, 'pick');
+    expect(result.isError).toBe(true);
+    expect(result.content[0]!.text).toContain('is not one of its choices');
+  });
+
+  it('should ask a multi-select as a list of the choices', async () => {
+    const client = await connect({ elicitation: {} });
+    client.onRequest = () => ({ action: 'accept', content: { value: ['a', 'c'] } });
+
+    expect((await callTool(client, 'tags')).structuredContent).toEqual({ tags: ['a', 'c'] });
+  });
+
+  it("should answer a prompt from the call's arguments where it names the option", async () => {
+    const client = await connect();
+    const result = await callTool(client, 'deploy', { region: 'eu', yes: true });
+
+    expect(result.structuredContent).toEqual({ region: 'eu', sure: true });
+  });
+
+  it('should elicit only what the arguments did not answer, a false flag being an answer', async () => {
+    const client = await connect({ elicitation: {} });
+    const asked: Response[] = [];
+    client.onRequest = (request) => {
+      asked.push(request);
+      return { action: 'accept', content: { value: 'us' } };
+    };
+
+    const result = await callTool(client, 'deploy', { yes: false });
+    expect(result.structuredContent).toEqual({ region: 'us', sure: false });
+    expect(asked.map((request) => (request.params as { message: string }).message)).toEqual([
+      'Which region?',
+    ]);
+  });
+
+  it('should say which argument to pass where the client cannot elicit', async () => {
+    const client = await connect();
+    const result = await callTool(client, 'deploy');
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]!.text).toContain(
+      'Cannot ask "Which region?" without a terminal; pass --region <us|eu>'
+    );
+  });
+
+  it('should fail a prompt as it would without a terminal where the client cannot elicit', async () => {
+    // and not hang waiting for an answer nobody will give
+    const client = await connect();
+    const result = await callTool(client, 'pick');
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]!.text).toContain('because the input is not a terminal');
   });
 });
 

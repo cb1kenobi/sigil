@@ -74,11 +74,33 @@ A single executable built by `sigil package` starts itself the same way, with
 no script argument; a Bun-compiled binary is recognized by its virtual
 `/$bunfs/` entry.
 
+## Progress and questions
+
+A call can report progress and ask questions while it runs, over the same IPC
+channel the call arrived on:
+
+- **Progress.** A progress bar or spinner the command runs becomes
+  `notifications/progress` for the call, when the client sent a
+  `_meta.progressToken` with it. A bar reports where it is out of its total; a
+  spinner, which has no measure, reports its message and a count of its updates.
+  Progress is only ever sent growing, which the specification requires.
+- **Questions.** A `text()`, `confirm()`, `select()` or `multiselect()` prompt the
+  command reaches becomes an `elicitation/create` request to the client, when the
+  client declared the `elicitation` capability. The client's user answers it, and
+  the answer is held to the prompt's rules as a typed one is. A decline is a
+  cancelled prompt. A multi-select needs protocol `2025-11-25`, and a choice list
+  is offered by its labels, so two choices sharing a label cannot be asked. A
+  `password()` is never asked: the specification says a server must not request
+  sensitive information this way.
+- **A client that cannot elicit** gets the prompt's own failure, as with no
+  terminal, rather than a call that hangs.
+
 ## The protocol
 
 Newline-delimited JSON-RPC 2.0 on stdin and stdout, written by hand rather than
 over the official SDK, which would be this package's only dependency. It answers
 `initialize` (negotiating `2025-11-25`, `2025-06-18`, `2025-03-26` or
-`2024-11-05`), `ping`, `tools/list` and `tools/call`, and honors
-`notifications/cancelled`. `serverInfo` is the schema's `name` and `version`,
+`2024-11-05`), `ping`, `tools/list` and `tools/call`, honors
+`notifications/cancelled`, and sends `notifications/progress` and
+`elicitation/create`. `serverInfo` is the schema's `name` and `version`,
 and `instructions` its `desc`.
