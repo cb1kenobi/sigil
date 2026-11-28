@@ -1143,6 +1143,13 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'components/prompt-error': [1, 178],
   'components/qrcode': [312, 159_675],
   'components/radio-set': [532, 272_287],
+  // SIG-712, measured when it was added: the REPL's module over the prompt stack it
+  // shares a key table and a window with, the key-help footer and the console
+  // capture -- 302,670 B over 56 modules, which is the autocomplete prompt's 287,168
+  // and the line editor's own
+  'components/repl': [592, 302_670],
+  // and its history, which is `node:fs`, `paths` and the atomic write: 8,655 B over 6
+  'components/repl-history': [17, 8_655],
   'components/rule': [303, 154_822],
   // SIG-280 made a row be built under an owner of its own, which is the renderer's --
   // 174,349 B over 28 modules, from 136,485, which was under the ceiling it had then

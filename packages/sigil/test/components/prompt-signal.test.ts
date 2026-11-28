@@ -50,6 +50,9 @@ const EXEMPT = {
   decrypt:
     'an animation rather than a question: an abort erases it and resolves, which ' +
     'decrypt.test.ts pins, where a prompt rejects with the reason',
+  repl:
+    'a session of lines rather than a question, which ends quietly on a Ctrl-D where a ' +
+    'prompt rejects: what an abort does to it is pinned in repl.test.ts',
   runLinePrompt:
     'the line engine, which takes no `accessible` and is always lines, so it fits ' +
     'neither run as a row; it is every line-form row below, asked through its prompt',

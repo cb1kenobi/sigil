@@ -235,6 +235,11 @@ export const FRAMEWORK_CSS = `
  *   .sigil-modal-body  .sigil-modal-actions  .sigil-modal-action
  *   .sigil-text-field  .sigil-text-field-before  .sigil-text-field-caret
  *   .sigil-text-field-after  .sigil-text-field-placeholder
+ *   .sigil-repl  .sigil-repl-held  .sigil-repl-held-line  .sigil-repl-line
+ *   .sigil-repl-prompt  .sigil-repl-field  .sigil-repl-before  .sigil-repl-caret
+ *   .sigil-repl-after  .sigil-repl-popup  .sigil-repl-item  .sigil-repl-pointer
+ *   .sigil-repl-label  .sigil-repl-match  .sigil-repl-hint  .sigil-repl-notice
+ *   .sigil-repl-footer  .sigil-repl-footer-text  .sigil-repl-keys
  *   .sigil-button  .sigil-button-bracket  .sigil-button-label
  *   .sigil-checkbox  .sigil-checkbox-pointer  .sigil-checkbox-mark
  *   .sigil-checkbox-label

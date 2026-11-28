@@ -84,6 +84,41 @@ export type AutocompleteSource<T> = (
   signal: AbortSignal
 ) => Promise<readonly (Choice<T> | string)[]> | readonly (Choice<T> | string)[];
 
+/**
+ * What a source answers when the term is a place in a line rather than the line.
+ *
+ * `AutocompleteSource` is asked for the choices a whole field leads to, and a REPL
+ * completes one word of a longer line -- so the answer also says which part of the
+ * line the choice replaces. `from` and `to` are offsets into the line the source
+ * was given, `from <= to`, and a chosen item's text goes where `line.slice(from, to)`
+ * was. The items are the same `Choice` or string the prompt takes: the label is
+ * what is listed, the value (the label, if it has none) is what is inserted, and
+ * the hint is the dimmed word after it.
+ */
+export interface AutocompleteRange<T = string> {
+  /** Where the replaced part of the line starts. */
+  from: number;
+  /** What is on offer, best first. */
+  items: readonly (Choice<T> | string)[];
+  /** Where the replaced part of the line ends. */
+  to: number;
+}
+
+/**
+ * Asks for the choices a place in a line leads to (`Repl`'s completion provider).
+ *
+ * The same contract as `AutocompleteSource` -- `signal` is aborted when the line
+ * changes, so a lookup that can be cancelled stops costing anything and a result
+ * that arrives after it is thrown away whether or not it honoured the signal --
+ * with the line and the caret in place of the term, and a range in place of a
+ * bare list. An answer of nothing is no completions.
+ */
+export type AutocompleteRangeSource<T = string> = (
+  line: string,
+  cursor: number,
+  signal: AbortSignal
+) => Promise<AutocompleteRange<T> | undefined> | AutocompleteRange<T> | undefined;
+
 export interface AutocompleteOptions<T> extends PromptOptions, AccessibleOptions {
   /**
    * What to offer, filtered by what is typed. Give this or `source`, not both.

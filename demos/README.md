@@ -437,6 +437,7 @@ says what to pass, exactly as a run without a terminal gets.
 | [`components/65-highlight.js`](components/65-highlight.js)                               | One highlighter for markdown, a diff and a text area, and a theme that recolours it |
 | [`components/66-diff-view.js`](components/66-diff-view.js)                               | A diff that scrolls, with a cursor on its hunks and a hunk written back to stage    |
 | [`components/67-treemap.js`](components/67-treemap.js)                                   | A treemap of a bundle: divided, gathered, picked, hovered and zoomed by the app     |
+| [`components/68-repl.js`](components/68-repl.js)                                         | A REPL over a word list: history, a completion popup, a suggestion and a footer     |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -844,6 +845,20 @@ no color the map is shapes. On a terminal, a level as the argument -- `1`, `2` o
 `0` -- draws at that one. Piped, a scripted keyboard and pointer drive the same app
 on a test terminal and print the screen after each step, then what each kind's color
 comes to at each level.
+
+`68-repl.js` is one `repl()` over `wordCompleter()`: type `de` and the popup lists
+`deploy` and `destroy` under the start of the word with the rest of `deploy` dim
+after the caret, which Right takes; Tab takes the highlighted item, Down moves in
+the popup and Escape puts it away. Up and Down walk the lines already run, Ctrl-R
+searches them, and they are kept in a file a second REPL reads and appends to. The
+footer is a function of the line. Ctrl-C clears the line and a second one on an
+empty line leaves, as does Ctrl-D, as `node` does. What `console.log()` prints while
+the line is up lands above it -- `status` logs from a timer to show it -- and the
+submitted line stays in the scrollback with the terminal free for the command, which
+may ask a prompt or take the screen. Piped there is nobody to type, so a scripted
+keyboard plays all of that through `createTestTerminal()` and prints the screen after
+each step. Lines piped _in_ are the other no-terminal case and are not this demo's:
+`echo status | node my-repl.js` reads them with no editing, popup or prompt.
 
 ### Try them without a terminal
 

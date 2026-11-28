@@ -17017,3 +17017,147 @@ and `state`, and `answerOr()` in `prompt.ts` is the whole of it.
   277,314 B for `components/prompt`, as of this change.
 - **Not done:** `number()`, `date()`, `path()`, `groupMultiselect()` and the rest.
   Each has its own answer type, and the five here are the ones the ticket named.
+
+### A REPL: a line that comes back, with history, completion and a footer (SIG-712)
+
+`createRepl()` in `repl.ts` is the whole of it, `Repl()` is its element and
+`repl()` is the facade that mounts it over an inline canvas, once per line. The
+history is `repl-history.ts`. Neither knows the parser: `commandRepl()` (SIG-713)
+is where a schema meets it.
+
+- **One implementation, placed two ways.** The element handles its own keys and
+  paste through `host.onKey` and `host.onPaste`, like `TextField`, and the facade
+  focuses it under a router over an inline canvas. A full-screen app places `Repl()`
+  in a column and owns what happens on submit; `repl.test.ts` drives the same
+  editor in both. The popup is **in flow, under the line**, not an overlay from
+  `menu.ts` or `tooltip.ts`: an inline canvas follows its content, so a row under
+  the line is how a region at the bottom of the scrollback grows, and an overlay
+  has no room to go to there. It is anchored the way those place theirs -- at a
+  column, pulled back from the right edge where it would not fit -- by
+  `margin-left`, with its pointer in the two columns before the label so the
+  labels start under the word.
+- **A line is a component of its own, and the region is given up on submit.** The
+  submitted line is left in the scrollback as typed, `onSubmit` runs with the
+  terminal free, and the next line is a new mount. This is the answer to "a
+  command that takes the terminal": the `runApp()` or prompt a command calls finds
+  nothing to suspend, and `terminal/live.ts`'s eviction rule (a second claim erases
+  the first and the first never comes back) is left to cover only a claim made by a
+  timer while the line is up, where erasing the line is the right answer. A region
+  kept for the whole session would have had to be suspended and put back by every
+  command, which is a second protocol. Measured against the prompt test, which asks
+  `text()` from `onSubmit` and gets the REPL back after it.
+- **The console is captured while the line is up, and only then.** `captureConsole()`
+  into a ring whose `onPush` writes each line above the region through the backend
+  -- `warn` and `error` to stderr -- and it is put back **before** `onSubmit`, so a
+  command's own `console.log()` is the real one. A bare `process.stdout.write()` is
+  not the console and is not caught, which is `runApp()`'s rule said in
+  `renderer/app.ts`; a caller that wants a line above the prompt uses `console`.
+  Only one capture can be live, so under `runApp()` or a debug overlay the REPL
+  leaves the console alone and a line logged then goes where it would have. A test
+  hazard worth the sentence: **code in the same process that calls `console.log()`
+  while a REPL is up writes onto the REPL's screen**, and a demo printing that
+  screen through the console feeds itself -- the demo uses `process.stdout`.
+- **Multiline is a callback, not a parser.** `isContinued(text)` is asked on Enter
+  with the lines so far joined by `\n`; `true` holds the line above and opens
+  another under a `... ` prompt, and the whole text is one history entry and one
+  `onSubmit`. There is no bracket or quote matching, because what a finished
+  line is belongs to the language. A callback that throws submits: a user trapped
+  in a continuation by a parser that fell over has no way out. Up on a held line
+  does nothing, so a half-written block is not thrown away by a stray key; Ctrl-C
+  clears it.
+- **Completion is `autocomplete`'s source contract with a range.**
+  `AutocompleteRangeSource` is `(line, cursor, signal) => { from, to, items }`, in
+  `autocomplete.ts` beside `AutocompleteSource` and over the same `Choice` items,
+  so there is one contract and not a REPL's own. **A stale answer is never
+  applied, and that is the signal and not a comparison of lines**: the previous
+  ask is aborted before the next is made and an answer is taken only if its own
+  signal is live, which is `autocomplete()`'s rule for the reason it records --
+  "superseded" and "happens to be for the same text" are different. A provider that
+  returns at once is applied at once; one that returns a promise has the popup
+  closed until it lands, because a popup left up while a new answer is out can be
+  accepted against a range that no longer means anything. An item whose text is
+  what the range already holds is dropped, so accepting a word does not offer it
+  again. A range outside the line is a `TypeError` to `onError`, and one that
+  reaches into the lines held above is ignored. The popup opens on every edit and
+  not on a cursor move, which closes it.
+- **Keys.** Up and Down walk the history unless a popup is open and has a row
+  highlighted -- Down enters it, Up out of its first row leaves it -- so a user who
+  has typed a prefix is not made to press Escape to reach the history. Enter takes a
+  highlighted row and otherwise submits the line as typed; Tab takes the highlighted
+  row or the first, and with no popup asks the provider and takes a lone answer at
+  once; Escape puts the popup and the suggestion away until the next edit and is not
+  the REPL's when there is nothing to put away. Right and End take the dim
+  suggestion only where the caret is at the end of the line and there is one, and
+  otherwise move. The suggestion is the first item when the typed part of the range
+  is a prefix of it, drawn dim after the caret with the caret on its first letter --
+  the placeholder's trick. It is on unless `suggest: false`.
+- **Ctrl-R is `less`'s smart case and does not run what it finds.** The newest
+  entry holding the query, a second Ctrl-R for the next older, Backspace to widen;
+  the match is shown as the line under a `(search: query)` prompt with the caret on
+  the match. Enter puts it in the line to be read and **does not submit**: a search
+  that ran what it found would run it unread. Escape, Ctrl-G and Ctrl-C put back what
+  was typed, and any other key ends the search and is then read as the ordinary key
+  it is, which is how an arrow edits what was found.
+- **Ctrl-C and Ctrl-D are `node`'s.** Ctrl-C clears the line and arms nothing; on an
+  empty line it says `(To exit, press Ctrl+C again or Ctrl+D)` and a second one, with
+  nothing pressed between, leaves. Ctrl-D leaves on an empty line and deletes under
+  the caret otherwise. Without `onExit` -- a `Repl()` in a layout -- none of the
+  leaving is the component's and the keys go on to the app's own quit.
+- **History is an append-only file of JSON strings, and the append is the whole of
+  not losing a line.** `repl-history.ts`. One entry is one line, written with
+  `JSON.stringify` so an entry holding a line break cannot be read as two, and one
+  write: `O_APPEND` puts it at the end whatever the other writers did, so two REPLs
+  interleave whole lines and neither overwrites. Nothing reads the file, changes it
+  and writes it back per entry. The one thing that rewrites is the trim, which runs
+  on load when the file holds more than a quarter over `max` (so a session at the cap
+  is not a rewrite), re-reads the file **inside** a lock file created exclusively,
+  and goes through `writeAtomicSync()` so a reader sees the old file or the new one;
+  an append takes the same lock for the moment it needs and **waits for it for up to
+  five seconds**, and a trim on load that cannot get it does not happen. A lock older
+  than ten seconds is a dead process's and is taken over. The wait was 250 ms and was
+  wrong, which is how `packages/cli/test/repl-history.test.ts` earned its place: a
+  fifth process calling `history.trim()` in a loop made the appenders give up and write
+  into the file that was about to be replaced, and four writers lost two to five lines
+  of 150 each on every run -- a lock is only a lock if the one waiting for it does not
+  stop. Five seconds is the point at which a prompt hanging on a lock nobody will
+  release is worse than a line that may be lost, and it is reported to `onError` when it
+  is reached. `trim()` is public for the same test and for a session that wants it, and
+  waits as an append does, where a load does not. The mode is `0o600`, because a line is
+  sometimes a secret. A reader keeps the offset and the inode it read to and takes
+  only what was appended since -- a different inode or a shorter file is a trim by
+  somebody else and is read whole again -- which is how a second REPL hears of a line
+  at its next prompt and when the history is walked or searched. **A failure is
+  reported once to `onError` and the history carries on in memory**, and what the
+  session holds is kept when the file cannot be read: a prompt that forgets what was
+  typed because the disk was busy is worse than one that cannot save it. Proved
+  across real processes in `packages/cli/test/repl-history.test.ts`: four writers
+  appending 600 lines, and four appending while one trims, lose none.
+- **`writeAtomicSync()` is imported from `../config/atomic.js`, not the `config`
+  entry.** The entry made the config module a chunk of its own under a 656-byte
+  stub, which was a fourteenth module on `config.mjs`'s graph for a function that
+  is already one of its thirteen -- `dist.test.ts` caught it. `generate-registry.mjs`
+  maps that file to `config` in `BARRELLED`, the way it maps the `util` leaves, so
+  an ejected `repl.ts` imports the published function.
+- **The history path is the app's.** `replHistoryFile(name)` is `state(name,
+  'history')`, the XDG state directory `paths.ts` resolves; nothing picks one for the
+  app, because a REPL does not know the app's name. Lines are kept only where
+  somebody types.
+- **Where nobody is typing it reads lines.** Input that is not a terminal, output
+  that is not, or `accessible` -- `echo 'deploy prod' | mycli repl` -- reads stdin
+  through `node:readline` with no editing, popup or footer and no prompt written to a
+  stdin that is not a terminal, runs each line through `onSubmit`, skips blank ones
+  and ends when the input does. It differs from the prompts' accessible mode on one
+  point on purpose: a prompt refuses a stdin that is not a terminal, because a line
+  form over a pipe would read whatever the pipe carries as an answer, and a REPL over
+  a pipe is the feature. Lines are not lost while a command is awaited -- the
+  readline iterator queues them -- and no history is kept, since nobody is there to
+  walk it. `isContinued` joins lines here too.
+- **A command that throws does not end the session.** `repl()` writes its message to
+  stderr and goes on, unless `onError` says otherwise: a typo in a command is not
+  the end of a session. `exit()` on the context ends it once the command returns,
+  and `signal` rejects with its reason, as every prompt does.
+- **Not done, and why.** A history search that is incremental in the scrollback, a
+  popup that opens above the line when there is no room below, multiline editing
+  inside one line (the held lines are above and cannot be edited), and a `disabled`
+  condition: none was asked for, and each is a decision to make with a caller in
+  hand.

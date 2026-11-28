@@ -297,6 +297,14 @@
       "types": "./dist/components/radio-set.d.mts",
       "default": "./dist/components/radio-set.mjs"
     },
+    "./components/repl": {
+      "types": "./dist/components/repl.d.mts",
+      "default": "./dist/components/repl.mjs"
+    },
+    "./components/repl-history": {
+      "types": "./dist/components/repl-history.d.mts",
+      "default": "./dist/components/repl-history.mjs"
+    },
     "./components/rule": {
       "types": "./dist/components/rule.d.mts",
       "default": "./dist/components/rule.mjs"
