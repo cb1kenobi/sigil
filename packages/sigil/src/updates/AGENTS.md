@@ -552,6 +552,19 @@ runtime, through a spelling only Node accepts. The measurements are in
   never reaches it -- so there is nothing here worth trading correctness
   for.
 
+  `compiledHost()` is exported from `@ttylabs/sigil/updates`, because the
+  update check is not the only code that spawns. An app that starts a process
+  of its own -- the telemetry guide's sender is the one that asked -- needs the
+  same answer, and the alternative was a guide telling apps to write the
+  `node:sea` and `Bun.main` probes themselves: a second copy of this decision
+  in every app that read it, stale the day a probe here changes. It stays in
+  this entry rather than a subpath of its own, which a single function would
+  have to argue for, and the entry's weight is the honest cost of that: about
+  **0.9ms** to import on top of the root's 5ms, measured on the change that
+  exported it, because the worker is baked into it as a string. So the guide
+  imports it lazily, inside the function that sends, and a run with telemetry
+  off never loads it.
+
   npm stays the default for an app that is **not** compiled and there is
   deliberately no default for one that is. npm is the right answer for
   something somebody installed and a guess for a binary somebody downloaded,
