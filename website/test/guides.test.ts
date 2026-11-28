@@ -60,8 +60,8 @@ describe('the guides', () => {
     }
   });
 
-  it('should have the parser reference as one page of its 17 sections', () => {
-    assert.equal(guide('parser')?.sections.length, 17);
+  it('should have the parser reference as one page of its 18 sections', () => {
+    assert.equal(guide('parser')?.sections.length, 18);
   });
 
   it('should have a description that is the first sentence and not a cut-off one', () => {
