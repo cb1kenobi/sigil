@@ -1208,12 +1208,32 @@ export function createRepl(props: ReplProps): ReplController {
     }
   }
 
+  /**
+   * Whether a key is one the line would take if it were free.
+   *
+   * What is queued while it is busy, and so what it stops: a key that is the app's --
+   * a quit key, a function key, a scroll box's PageUp -- goes on to it as it does
+   * when the line is idle, rather than being swallowed now and dropped on replay.
+   */
+  function takes(k: Key): boolean {
+    if (!props.onExit && k.ctrl && (k.name === 'd' || k.name === 'c')) {
+      return false;
+    }
+    return (
+      keys.match(k) !== undefined ||
+      editLine(k, { cursor, value: value.get() }) !== undefined ||
+      typedText(k) !== undefined
+    );
+  }
+
   host.onKey = (event: KeyEvent): void => {
     if (settled || busy) {
-      if (queued.length < QUEUE_LIMIT) {
-        queued = [...queued, { key: event.key, pasted: event.paste }];
+      if (takes(event.key)) {
+        if (queued.length < QUEUE_LIMIT) {
+          queued = [...queued, { key: event.key, pasted: event.paste }];
+        }
+        event.stop();
       }
-      event.stop();
       return;
     }
     if (key(event.key, event.paste)) {
@@ -1486,6 +1506,9 @@ export async function repl(opts: ReplOptions): Promise<void> {
       return;
     }
     ahead = read.ahead;
+    // an abort that landed between the line ending and the router being given back
+    // is the session given up, and a line it ended is not one to run
+    signal?.throwIfAborted();
     if (read.line.trim() === '') {
       continue;
     }
@@ -1565,6 +1588,12 @@ async function readLine(
         return;
       }
       done = true;
+      try {
+        // so that what a completer is still being asked is aborted on this exit too
+        controller?.settle();
+      } catch {
+        // the line is going either way
+      }
       try {
         giveBack(true);
       } finally {

@@ -215,6 +215,42 @@ describe('repl() on a terminal', () => {
     expect(screen(term)).toEqual(['> quit']);
   });
 
+  it('should abort a completion that is still out when the session is given up', async () => {
+    let signal: AbortSignal | undefined;
+    const control = new AbortController();
+    const { term, done } = await start({
+      completer: (_line, _cursor, asked) => {
+        signal = asked;
+        return new Promise<never>(() => {});
+      },
+      signal: control.signal,
+    });
+    await term.press('d');
+    expect(signal?.aborted).toBe(false);
+
+    control.abort(new Error('stop'));
+
+    await expect(done).rejects.toThrow('stop');
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it('should not run a line that ended as the session was given up', async () => {
+    const control = new AbortController();
+    const { term, ran, done } = await start({
+      isContinued: () => {
+        // lands after the line is over and before the router is given back
+        queueMicrotask(() => queueMicrotask(() => control.abort(new Error('stop'))));
+        return false;
+      },
+      signal: control.signal,
+    });
+
+    await term.press(...'go', KEYS.enter);
+
+    await expect(done).rejects.toThrow('stop');
+    expect(ran).toEqual([]);
+  });
+
   it('should reject with the signal reason when it aborts, and give the terminal back', async () => {
     const term = createTestTerminal({ columns: 40, rows: 8 });
     const control = new AbortController();
@@ -1353,6 +1389,30 @@ describe('Repl() in a layout', () => {
     // `sta` as the terminal's own style, then the dim and inverse caret on `t`, and
     // the dim rest of the word after it
     expect(drawn).toContain(`${ESC}[39msta${ESC}[2;7mt${ESC}[27mus`);
+    input.stop();
+  });
+
+  it("should let a key that is the app's go on to it while a command runs", async () => {
+    const gate = deferred<void>();
+    const { element, input, picture, term } = layout({
+      onSubmit: async () => {
+        await gate.promise;
+      },
+    });
+    const reached: string[] = [];
+    // what bubbles past the line to the tree around it, which is where an app's own
+    // keys are; a binding on the router would see every key first and prove nothing
+    (element.parent as Element).onKey = (event) => void reached.push(event.key.name);
+    await term.press('a', KEYS.enter);
+    await term.press(CTRL_D, KEYS.pageUp, 'b');
+    gate.resolve();
+    await settle();
+    await settle();
+
+    // Ctrl-D and PageUp were not the line's, so they reached what is around it while
+    // the command ran, and `b` was, so it was held and typed in afterwards
+    expect(reached).toEqual(expect.arrayContaining(['d', 'pageup']));
+    expect(picture().filter(Boolean)).toEqual(['> b']);
     input.stop();
   });
 

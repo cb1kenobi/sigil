@@ -17102,7 +17102,7 @@ is where a schema meets it.
   terminal delivers type-ahead -- or a paste with no bracketing -- as one read, and
   the router dispatches every key of it before the first one's work has finished:
   `one\rtwo\r` is eight keys with the first Enter's `isContinued()` or `onSubmit()`
-  still out. The line queues what arrives while it is busy or settled
+  still out. The line queues what arrives while it is busy or settled -- the keys it would take, since a quit key or a PageUp that is the app's goes on to the app while a command runs, as it does when the line is idle --
   (`QUEUE_LIMIT`, 10,000) and `drain()` replays it once it is free, so a command that
   runs for a second does not eat what the user typed behind it. The facade carries it
   over: `settle()` happens at once, the router is stopped in a **microtask** rather than
