@@ -1,6 +1,6 @@
 import { createHistory } from '../../src/components/repl-history.js';
 import { tempDir } from '../temp.js';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -16,7 +16,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
  * answers, so a regression is found on the machine it is written on.
  */
 
-const failures = vi.hoisted(() => ({ append: 0, lock: 0, unlink: 0 }));
+const failures = vi.hoisted(() => ({
+  append: 0,
+  appendCode: 'EBUSY',
+  lock: 0,
+  lockForever: false,
+  unlink: 0,
+}));
 
 vi.mock('node:fs', async (original) => {
   const actual = await original<typeof import('node:fs')>();
@@ -26,12 +32,12 @@ vi.mock('node:fs', async (original) => {
     appendFileSync: ((...args: Parameters<typeof actual.appendFileSync>) => {
       if (failures.append > 0) {
         failures.append -= 1;
-        throw busy('EBUSY');
+        throw busy(failures.appendCode);
       }
       return actual.appendFileSync(...args);
     }) as typeof actual.appendFileSync,
     openSync: ((...args: Parameters<typeof actual.openSync>) => {
-      if (String(args[0]).endsWith('.lock') && failures.lock > 0) {
+      if (String(args[0]).endsWith('.lock') && (failures.lockForever || failures.lock > 0)) {
         failures.lock -= 1;
         throw busy('EPERM');
       }
@@ -57,6 +63,8 @@ function asWindows(): void {
 afterEach(() => {
   Object.defineProperty(process, 'platform', { value: real });
   failures.append = 0;
+  failures.appendCode = 'EBUSY';
+  failures.lockForever = false;
   failures.lock = 0;
   failures.unlink = 0;
 });
@@ -99,6 +107,45 @@ describe('a history on Windows', () => {
 
     expect(Date.now() - started).toBeLessThan(2000);
     expect(readFileSync(file, 'utf8')).toBe('"one"\n"two"\n');
+  });
+
+  it('should give up on a lock that is refused for good, and not spin on it', () => {
+    asWindows();
+    const dir = tempDir('sigil-history-forever-');
+    const file = join(dir, 'history');
+    writeFileSync(
+      file,
+      `${Array.from({ length: 40 }, (_, i) => JSON.stringify(`n${i}`)).join('\n')}\n`
+    );
+    failures.lockForever = true;
+
+    // an over-cap file is trimmed on load, which asks for the lock without waiting:
+    // refused for good, it is not trimmed and the load comes back
+    const started = Date.now();
+    const history = createHistory({ file, max: 10 });
+
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(history.entries).toHaveLength(10);
+    expect(readFileSync(file, 'utf8').split('\n').filter(Boolean)).toHaveLength(40);
+  });
+
+  it('should report a write that fails once, and not as a lock that could not be had', () => {
+    asWindows();
+    const file = join(tempDir('sigil-history-enospc-'), 'history');
+    const errors: unknown[] = [];
+    const history = createHistory({ file, onError: (error) => errors.push(error) });
+    failures.append = 1;
+    failures.appendCode = 'ENOSPC';
+
+    history.add('one');
+    history.add('two');
+
+    // the failure is the write's: one report, the line kept in memory, and the next
+    // entry written -- where a lock failure would have made it wait for less
+    expect(errors).toHaveLength(1);
+    expect((errors[0] as NodeJS.ErrnoException).code).toBe('ENOSPC');
+    expect(history.entries).toEqual(['one', 'two']);
+    expect(readFileSync(file, 'utf8')).toBe('"two"\n');
   });
 
   it('should still answer such a refusal as a fault anywhere but Windows', () => {

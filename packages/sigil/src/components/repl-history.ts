@@ -105,6 +105,15 @@ const MAX = 1000;
 /** How long a lock may stand before it is taken to be a dead process's, in ms. */
 const STALE_LOCK = 10_000;
 
+/** How long a call that is refused because somebody has the file is retried, in ms. */
+const BUSY_WAIT = 2000;
+
+/** How long an append is retried when the file is refused, in ms. */
+const APPEND_WAIT = 250;
+
+/** How long an append waits for the lock once it has failed to get it, and after any success it is `LOCK_WAIT` again. */
+const LOCK_RETRY = 250;
+
 /**
  * How long a write waits for the lock, in ms.
  *
@@ -181,15 +190,21 @@ function contended(error: unknown): boolean {
 /**
  * Runs `fn`, again after a moment while the system says somebody is in the way.
  *
+ * By the clock and not by a count: `Atomics.wait()` for a millisecond is a Windows
+ * timer tick -- fifteen -- on some machines, so a count of tries is a different number
+ * of seconds from one runner to the next.
+ *
  * @param fn - A single file system call, safe to repeat.
+ * @param ms - How long to keep trying.
  */
-function untilFree(fn: () => void): void {
-  for (let attempt = 0; ; attempt++) {
+function untilFree(fn: () => void, ms = BUSY_WAIT): void {
+  const until = Date.now() + ms;
+  for (;;) {
     try {
       fn();
       return;
     } catch (error) {
-      if (attempt >= 100 || !contended(error)) {
+      if (Date.now() >= until || !contended(error)) {
         throw error;
       }
       sleep(1);
@@ -225,7 +240,7 @@ function locked(file: string, wait: number, fn: () => void): boolean {
         try {
           // retried: on Windows a file another process is opening at that instant
           // cannot be deleted, and a lock left standing is everybody else's ten seconds
-          untilFree(() => unlinkSync(lock));
+          untilFree(() => unlinkSync(lock), BUSY_WAIT);
         } catch {
           // a lock somebody else already took over is theirs to remove
         }
@@ -241,8 +256,9 @@ function locked(file: string, wait: number, fn: () => void): boolean {
         continue;
       }
     } catch {
-      // gone between the failed create and the stat: the next try gets it
-      continue;
+      // gone between the failed create and the stat, or one this user cannot touch.
+      // Not a `continue`: a create that is refused for good and a stat that cannot
+      // see the lock would then spin with no deadline and no sleep
     }
     if (Date.now() >= until) {
       return false;
@@ -287,6 +303,9 @@ export function createHistory(opts: HistoryOptions = {}): History {
     if (file === undefined) {
       return;
     }
+    // no file was being read when this started -- not made yet, deleted since, or
+    // unreadable -- so what the session holds is not in it and is kept in front of it
+    const unread = identity === undefined;
     let text: string;
     try {
       const at = statSync(file);
@@ -305,7 +324,13 @@ export function createHistory(opts: HistoryOptions = {}): History {
     // only whole lines are consumed, so a writer caught half way is read next time
     const whole = text.lastIndexOf('\n') + 1;
     offset = Buffer.byteLength(text.slice(0, whole));
-    entries = parse(text.slice(0, whole));
+    const found = parse(text.slice(0, whole));
+    entries = unread ? [...entries] : [];
+    for (const line of found) {
+      if (entries.at(-1) !== line) {
+        entries.push(line);
+      }
+    }
     const lines = text.slice(0, whole).split('\n').length - 1;
     if (lines > max + Math.ceil(max / 4)) {
       trim(0);
@@ -364,8 +389,11 @@ export function createHistory(opts: HistoryOptions = {}): History {
             } catch {
               // not there yet: nothing to end
             }
-            untilFree(() =>
-              appendFileSync(file, `${lead}${JSON.stringify(line)}\n`, { mode: 0o600 })
+            // a short wait: what it rides out is a scanner holding the file for a
+            // moment, and a refusal that is for good costs this much on every entry
+            untilFree(
+              () => appendFileSync(file, `${lead}${JSON.stringify(line)}\n`, { mode: 0o600 }),
+              APPEND_WAIT
             );
             wrote = true;
           };
@@ -373,15 +401,32 @@ export function createHistory(opts: HistoryOptions = {}): History {
           // anyway, because an entry that may be lost is better than a prompt that
           // hangs on a lock nobody is going to release. A lock that cannot be made at
           // all -- not held, but refused -- is the same answer: the line is written
+          let failed: { error: unknown } | undefined;
+          const inside = (): void => {
+            // what the write threw is the write's, and not the lock's: the lock was had
+            try {
+              write();
+            } catch (error) {
+              failed = { error };
+            }
+          };
           try {
-            if (!locked(file, lockWait, write)) {
+            if (locked(file, lockWait, inside)) {
+              lockWait = LOCK_WAIT;
+            } else {
               report('lock', new Error(`Could not lock ${file}.lock to append to the history`));
-              // the next entry does not wait again for what did not come in five seconds
-              lockWait = 0;
+              // the next entry waits for less, a quarter of a second, and not for another
+              // five seconds on what did not come in the first -- and a lock that is had
+              // again puts the full wait back, so one dead process's lock does not leave
+              // the rest of a session appending beside a trim
+              lockWait = LOCK_RETRY;
             }
           } catch (error) {
             report('lock', error);
-            lockWait = 0;
+            lockWait = LOCK_RETRY;
+          }
+          if (failed !== undefined) {
+            throw (failed as { error: unknown }).error;
           }
           if (!wrote) {
             write();
@@ -420,6 +465,11 @@ export function createHistory(opts: HistoryOptions = {}): History {
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
           report('read', error);
+        } else {
+          // deleted from under this: what is appended next is a new file, read whole,
+          // with what the session holds kept in front of it
+          identity = undefined;
+          offset = 0;
         }
         return;
       }

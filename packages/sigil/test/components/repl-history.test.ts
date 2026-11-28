@@ -1,6 +1,6 @@
 import { createHistory, replHistoryFile } from '../../src/components/repl-history.js';
 import { tempDir } from '../temp.js';
-import { existsSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -101,6 +101,19 @@ describe('createHistory() over a file', () => {
     // the cut line ends where it was cut, and the new one is its own
     expect(readFileSync(file, 'utf8')).toBe('"one"\n"two"\n"three"\n');
     expect(createHistory({ file }).entries).toEqual(['one', 'two', 'three']);
+  });
+
+  it('should keep what a session holds when the file is deleted from under it', () => {
+    const file = fileIn('sigil-history-deleted-');
+    const history = createHistory({ file });
+    history.add('one');
+    history.add('two');
+    rmSync(file);
+
+    history.add('three');
+
+    expect(history.entries).toEqual(['one', 'two', 'three']);
+    expect(createHistory({ file }).entries).toEqual(['three']);
   });
 
   it('should create the directory it lives in', () => {

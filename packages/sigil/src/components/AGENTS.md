@@ -17117,8 +17117,8 @@ is where a schema meets it.
   over `historyFile`; it was overwritten by the facade's own, so a caller's shared
   history type-checked and did nothing. A file whose last line was cut short gets a
   line break before the next append, or the new entry would be the end of that one; and
-  a file deleted from under a session is started again from what is appended next,
-  which is the one case where what a session holds is not kept.
+  a file deleted from under a session, or one the first append is what creates, is read
+  whole with what the session holds kept in front of it.
 - **Ctrl-C and Ctrl-D are `node`'s.** Ctrl-C clears the line and arms nothing; on an
   empty line it says `(To exit, press Ctrl+C again or Ctrl+D)` and a second one, with
   nothing pressed between, leaves. Ctrl-D leaves on an empty line and deletes under
@@ -17164,9 +17164,19 @@ is where a schema meets it.
   for ten seconds. So `contended()` reads `EEXIST` everywhere and `EPERM`, `EBUSY` and
   `EACCES` on Windows as "somebody is in the way" -- the set `renameWithRetry()`
   records for its target -- and the create, the unlink and the append each wait it out
-  (`untilFree()`, a hundred tries a millisecond apart). A lock that cannot be made at
-  all is reported and the line is written without it, and the next entry stops waiting
-  for what did not come in five seconds. Not reproduced on the machine it is written on,
+  (the create inside `locked()`'s own loop, bounded by the wait; `untilFree()` for the
+  unlink and the append, by the clock -- two seconds and a quarter -- because a
+  millisecond sleep is a fifteen-millisecond tick on some Windows machines and a count
+  of tries is a different number of seconds on each). A lock that cannot be made at all
+  is reported and the line is written without it; the next entry waits a quarter of a
+  second rather than five, and **a lock that is had again puts the full wait back**, so
+  one dead process's lock does not leave the rest of a session appending beside a
+  trim. The second review of this found three faults in the first version of that, and
+  each is a test: a create refused for good took the stale-lock check's `continue` and
+  spun with no deadline and no sleep (it hung `createHistory()` on an over-cap file); a
+  failing _write_ inside the lock was reported as a lock failure and was written twice;
+  and the shorter wait never came back. EPERM and EACCES stay faults off Windows and
+  surface there, where a trim in an unwritable directory fails too. Not reproduced on the machine it is written on,
   which has no delete-pending: reasoned from those semantics and from the shape of the
   loss (lines gone from the **middle** of a writer's run, which is an append that was
   skipped, not one that was overwritten, which would lose neighbours in pairs), and
