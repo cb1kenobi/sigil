@@ -145,6 +145,8 @@ describe('a sigil app over MCP', () => {
       'db_migrate',
       'echo',
       'fail',
+      'linger',
+      'orphan',
       'print',
       'status',
       'wait',
@@ -226,6 +228,31 @@ describe('a sigil app over MCP', () => {
     // still serving, and the cancelled call never answered
     expect((await client.request('ping')).result).toEqual({});
     expect(answered).toBe(false);
+  });
+
+  it('should answer a command that returns with a handle still open, and end its process', async () => {
+    const client = await connect();
+    const pidfile = join(tempDir('sigil-mcp-'), 'pid');
+
+    const result = await callTool(client, 'linger', { pidfile });
+    expect(result.structuredContent).toEqual({ lingered: true });
+    const pid = Number(readFileSync(pidfile, 'utf8'));
+    await until(() => !alive(pid));
+  });
+
+  it('should answer a command whose own child still holds its stdout', async () => {
+    const client = await connect();
+    const pidfile = join(tempDir('sigil-mcp-'), 'pid');
+
+    try {
+      const result = await callTool(client, 'orphan', { pidfile });
+      expect(result.structuredContent).toEqual({ started: true });
+    } finally {
+      const [, grandchild] = readFileSync(pidfile, 'utf8').split(' ').map(Number);
+      if (grandchild && alive(grandchild)) {
+        process.kill(grandchild);
+      }
+    }
   });
 
   it('should exit when the client closes stdin', async () => {

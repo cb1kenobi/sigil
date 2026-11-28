@@ -21,6 +21,16 @@ full.
   working directory, `process.exit()` -- leaks between calls. The child is the
   app's own entry started again (`self()` in `server.ts`), so it is the same code
   from source and built; a single executable is started without a script.
+- **The child exits once its answer is sent, and the server does not wait for
+  ever on its pipes.** The first version disconnected and let the event loop
+  drain, and the server answered on the child's `close` -- so a command that
+  returned with a pool, a timer or a socket still open never answered and leaked
+  the process (found in review). The child flushes stdout and stderr, then
+  `process.exit()`s. A process the command started can still hold the pipes open
+  past that, so the server answers `EXIT_GRACE_MS` after the child exits if
+  `close` has not come by then, with what the child wrote, which it flushed
+  before exiting. What that process does afterwards is not the call's: a command
+  that means to leave something running detaches it.
 - **The arguments travel as data, and core grew `input` for it.** Rebuilt as argv
   they lose what argv cannot say: `--` sends what follows to extra arguments, so
   a positional starting with a dash is read as an option, and with unknown options

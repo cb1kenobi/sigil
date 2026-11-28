@@ -3,6 +3,7 @@
 // self-reference and `@ttylabs/sigil` from its `node_modules`.
 import { mcpCommand } from '@ttylabs/mcp';
 import type { Schema } from '@ttylabs/sigil';
+import { spawn } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 
 const schema: Schema = {
@@ -26,6 +27,30 @@ const schema: Schema = {
     },
     skipped: { run() {} },
     status: { desc: 'Report', idempotent: true, readOnly: true, run: () => ({ healthy: true }) },
+    linger: {
+      // returns while a timer still holds the process open, as a pool or a
+      // keep-alive socket would
+      options: { '--pidfile <file>': {} },
+      run({ argv }) {
+        writeFileSync(String(argv.pidfile), String(process.pid));
+        setInterval(() => {}, 1000);
+        return { lingered: true };
+      },
+    },
+    orphan: {
+      // starts a process that outlives the call holding the call's stdout, and
+      // says where both are
+      options: { '--pidfile <file>': {} },
+      run({ argv }) {
+        const grandchild = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], {
+          stdio: ['ignore', 'inherit', 'inherit'],
+        });
+        grandchild.unref();
+        writeFileSync(String(argv.pidfile), `${process.pid} ${grandchild.pid}`);
+        console.log('started');
+        return { started: true };
+      },
+    },
     wait: {
       options: { '--pidfile <file>': {} },
       run({ argv }) {

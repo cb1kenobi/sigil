@@ -95,5 +95,15 @@ export async function answerCall(state: ParseState): Promise<void> {
       send({ error: described(err), ok: false } satisfies Answer, () => resolve());
     }
   });
-  process.disconnect?.();
+
+  // and then end, rather than waiting for the event loop to drain: a command
+  // that returns with a pool, a timer or a socket still open would otherwise
+  // hold this process, and the call, open for ever. What it printed is flushed
+  // first, since the server answers a command that returned nothing with that
+  await Promise.all(
+    [process.stdout, process.stderr].map(
+      (stream) => new Promise<void>((resolve) => stream.write('', () => resolve()))
+    )
+  );
+  process.exit();
 }

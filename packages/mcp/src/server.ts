@@ -40,6 +40,12 @@ export const PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '202
 /** The flag a call's child is started with. */
 export const CALL_FLAG = '--mcp-call';
 
+/**
+ * How long a call waits after its child exits for the child's pipes to close,
+ * which they do with it unless a process it started holds them open.
+ */
+const EXIT_GRACE_MS = 250;
+
 /** What `mcpCommand()` may be told. */
 export interface McpOptions {
   /**
@@ -237,16 +243,32 @@ function call(
     let stdout = '';
     let stderr = '';
     let answer: Answer | undefined;
+    let grace: NodeJS.Timeout | undefined;
+    const settle = (result: CallResult): void => {
+      clearTimeout(grace);
+      resolve(result);
+    };
     child.stdout!.setEncoding('utf8').on('data', (chunk: string) => (stdout += chunk));
     child.stderr!.setEncoding('utf8').on('data', (chunk: string) => (stderr += chunk));
     child.on('message', (message) => {
       answer = message as Answer;
     });
     child.on('error', (err) => {
-      resolve({ content: [{ text: err.message, type: 'text' }], isError: true });
+      settle({ content: [{ text: err.message, type: 'text' }], isError: true });
     });
     child.on('close', (code, signal) => {
-      resolve(resultOf(answer, stdout, stderr, signal ?? `exit code ${code}`));
+      settle(resultOf(answer, stdout, stderr, signal ?? `exit code ${code}`));
+    });
+    child.on('exit', (code, signal) => {
+      // the pipes close with the child unless a process it started holds them,
+      // and then `close` never comes. What the child wrote before it exited is
+      // read well inside the grace; what that other process writes is not the
+      // call's
+      grace = setTimeout(() => {
+        child.stdout!.destroy();
+        child.stderr!.destroy();
+        settle(resultOf(answer, stdout, stderr, signal ?? `exit code ${code}`));
+      }, EXIT_GRACE_MS);
     });
 
     child.send({ arguments: args, path: tool.entry.path });
