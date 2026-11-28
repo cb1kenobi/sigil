@@ -1,0 +1,146 @@
+{
+  "api": {
+    "interface": "ReplOptions",
+    "options": [
+      {
+        "description": "Runs a line. The next prompt is drawn when it returns, or resolves.",
+        "name": "onSubmit",
+        "optional": false,
+        "type": "(line: string, context: ReplContext) => unknown"
+      },
+      {
+        "description": "Asks with plain lines in and lines out rather than a region that redraws, for a screen reader: the question is written once, what is typed is echoed where it is typed, and nothing already written is ever moved or erased.",
+        "name": "accessible",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "What is on offer for the word at the caret.",
+        "name": "completer",
+        "optional": true,
+        "type": "AutocompleteRangeSource"
+      },
+      {
+        "description": "Where the line goes on from when it is cut at the end of a row. Defaults to `'... '`, which is `node`'s.",
+        "default": "`'... '`",
+        "name": "continuation",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "A line under the prompt, worked out from what is typed.",
+        "name": "footer",
+        "optional": true,
+        "type": "(line: string, cursor: number) => ReplFooter"
+      },
+      {
+        "description": "Whether to list the keys under the line, as the prompts' footer does. Defaults to `false`.",
+        "default": "`false`",
+        "name": "help",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Where earlier lines are kept. A `History` is shared with whoever else holds it; without one the REPL keeps its own in memory.",
+        "name": "history",
+        "optional": true,
+        "type": "History"
+      },
+      {
+        "description": "The file lines are kept in, shared with every REPL that names it. See `replHistoryFile()` for where an app's belongs. Without one, history lasts as long as this call.",
+        "name": "historyFile",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "How many lines of history are kept. Defaults to 1,000.",
+        "default": "1,000",
+        "name": "historySize",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "Whether a line is not finished, so Enter starts another instead of submitting.",
+        "name": "isContinued",
+        "optional": true,
+        "type": "(line: string) => boolean | Promise<boolean>"
+      },
+      {
+        "description": "How many completions the popup lists at once. Defaults to 8.",
+        "default": "8",
+        "name": "maxItems",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "Called with the line after every edit that changed it.",
+        "name": "onChange",
+        "optional": true,
+        "type": "(line: string) => void"
+      },
+      {
+        "description": "Called with what `completer` or an async `onSubmit` threw. Defaults to `console.error`, which an inline REPL writes above its region.",
+        "default": "`console.error`",
+        "name": "onError",
+        "optional": true,
+        "type": "(error: unknown) => void"
+      },
+      {
+        "description": "What is drawn before the line. Defaults to `'> '`.",
+        "default": "`'> '`",
+        "name": "prompt",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Ends the REPL, rejecting with the signal's reason, when it aborts.",
+        "name": "signal",
+        "optional": true,
+        "type": "AbortSignal"
+      },
+      {
+        "description": "Where keys come from. Defaults to the terminal's input.",
+        "default": "the terminal's input",
+        "name": "stdin",
+        "optional": true,
+        "type": "InputStream"
+      },
+      {
+        "description": "Whether the best completion is shown dim after the caret, for Right or End to accept. Defaults to `true`.",
+        "default": "`true`",
+        "name": "suggest",
+        "optional": true,
+        "type": "boolean"
+      }
+    ],
+    "shared": [
+      "ansi",
+      "backend",
+      "colorLevel",
+      "colorScheme",
+      "frameMs",
+      "quiet",
+      "reducedMotion",
+      "sheets",
+      "terminal",
+      "theme"
+    ],
+    "signature": "function repl(opts: ReplOptions): Promise<void>"
+  },
+  "registryDescription": "A REPL: a prompt line that comes back, with history, a completion popup anchored at the word, a dim suggestion and a footer",
+  "source": "packages/sigil/src/components/repl.ts",
+  "views": {
+    "accessible": {
+      "columns": 80,
+      "output": "ops> ran: status\nops>"
+    },
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[36mops> \u001b[0mdeploy prod\u001b[7m \u001b[0m\n\u001b[2mdeploy <env> [--dry-run]\u001b[0m"
+    },
+    "rendered": {
+      "columns": 80,
+      "output": "\u001b[36mops> \u001b[0mdeploy prod\u001b[7m \u001b[0m\n\u001b[2mdeploy <env> [--dry-run]\u001b[0m"
+    }
+  }
+}

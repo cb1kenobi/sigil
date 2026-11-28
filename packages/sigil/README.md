@@ -4025,6 +4025,102 @@ await autocomplete({ message: 'Package', source: debounced(search, 150) });
 
 It rejects with `PromptError` where there is no terminal, like the others.
 
+#### A REPL
+
+```js
+import { repl, wordCompleter } from '@ttylabs/sigil/components/repl';
+import { replHistoryFile } from '@ttylabs/sigil/components/repl-history';
+
+await repl({
+  prompt: 'ops> ',
+  completer: wordCompleter(['deploy', 'destroy', 'status', 'rollback']),
+  historyFile: replHistoryFile('mycli'),
+  // a function of the line, read in an effect: a signal it reads is watched too
+  footer: (line) => (line.startsWith('deploy') ? 'deploy <env> [--dry-run]' : undefined),
+  onSubmit: async (line, { exit }) => {
+    if (line === 'quit') exit();
+    else await run(line);
+  },
+});
+```
+
+A prompt line that comes back: `node`'s `repl` as a component, with a popup of
+completions under the word being completed, a dim suggestion after the caret and a
+footer under it. It knows nothing about the parser -- it is a line editor, and
+`onSubmit(line)` is where the app runs the line. When `onSubmit` returns, or resolves,
+the prompt is drawn again.
+
+**It is inline first.** `repl()` draws in a live region at the bottom of the
+scrollback, and each submitted line is **left in the scrollback as typed** with the
+region given up before `onSubmit` runs -- so a command that calls `runApp()`, asks a
+prompt or spawns an editor finds the terminal free, and what it prints stays above
+the next prompt as it does in `node`. **What `console` logs while the line is up** --
+a timer, a background task -- is written above it and the line is drawn again. A bare
+`process.stdout.write()` is not the console and is not caught, which is `runApp()`'s
+rule. A command that throws has its message written to stderr and the session goes
+on; `onError` replaces that. `exit()` on the second argument ends the session once the
+command returns, and `signal` rejects with its reason, as it does for a prompt.
+
+**The same component is `Repl()`**, an element for a layout: a full-screen app puts it
+in a column under its own output, focuses it, and owns what happens on `onSubmit`.
+`value` may be a `State<string>` the app also writes, and `onExit` is how Ctrl-D and a
+second Ctrl-C reach the app. Without it neither is the REPL's, so the app's own quit
+still works.
+
+| Key        | Does                                                                      |
+| ---------- | ------------------------------------------------------------------------- |
+| Enter      | Runs the line, or takes the highlighted completion; see `isContinued`     |
+| Tab        | Takes the highlighted completion, or the first; with no popup, asks       |
+| Down, Up   | Move in the popup once it has a highlight, and walk the history otherwise |
+| Right, End | Take the dim suggestion when the caret is at the end of the line          |
+| Escape     | Puts the popup and the suggestion away until the next edit                |
+| Ctrl-R     | Searches the history; Enter puts the match in the line without running it |
+| Ctrl-C     | Clears the line; on an empty one says how to leave, and a second leaves   |
+| Ctrl-D     | Leaves on an empty line, and deletes under the caret otherwise            |
+
+The rest are the text field's keys. `help: true` lists them under the line, from the
+same table that dispatches them.
+
+**Completion** is `autocomplete()`'s source contract with a range:
+`(line, cursor, signal) => { from, to, items }`, where `items` are the strings or
+choices `autocomplete()` takes and `line.slice(from, to)` is what the chosen one
+replaces. It is asked after every edit, and `signal` is **aborted the moment the line
+changes**, so an answer that arrives late is thrown away whether or not the provider
+honoured it. A provider that answers at once is applied at once; one that returns a
+promise has the popup closed until it lands. `wordCompleter(words)` is one over a
+fixed list, ranked with `rankBy()`; anything with a parser behind it is written
+against the same signature.
+
+```js
+completer: async (line, cursor, signal) => {
+  const from = line.lastIndexOf(' ', cursor - 1) + 1;
+  const res = await fetch(`/complete?q=${encodeURIComponent(line.slice(from, cursor))}`, { signal });
+  return { from, to: cursor, items: await res.json() };
+},
+```
+
+**Multiline is a callback.** `isContinued(text)` is asked on Enter with the lines so
+far joined by `\n`; `true` opens another line under a `... ` prompt, and the whole is
+one `onSubmit` and one history entry. There is no bracket or quote matching: what a
+finished line is belongs to the language.
+
+**History** is in memory, and `historyFile` keeps it in a file -- `replHistoryFile(name)`
+is where an app's belongs, under the XDG state directory. The file is append-only, one
+JSON string a line, written in one `O_APPEND` write, so **two REPLs of one app at once
+do not lose each other's lines**; it is cut back to `historySize` (1,000) lines on load
+under a lock when it has grown a quarter past that, and a second REPL reads what the
+first appended at its next prompt. A line that is blank or the same as the one before it
+is not recorded. A file that cannot be used is reported once to `onError` and the history
+carries on in memory. `createHistory()` is the same thing on its own, to share between
+REPLs in one process.
+
+**Where nobody is typing** -- input that is not a terminal, output that is not, or
+`accessible: true` -- it reads lines from stdin with no editing, popup or footer, so
+`echo 'deploy prod' | mycli repl` runs `deploy prod` and ends. No prompt is written to
+a stdin that is not a terminal, and no history is kept. This is the one place it differs
+from the prompts, which refuse a stdin that is not a terminal: a prompt would read the
+pipe as its answers, and a REPL over a pipe is the point.
+
 #### A list
 
 ```js

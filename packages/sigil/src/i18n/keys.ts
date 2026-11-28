@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 303 keys, which is what a catalog has to carry to translate sigil's own
+ * 312 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -26,11 +26,13 @@ export const SIGIL_KEYS: readonly string[] = [
   '"{0}" is not a number from 1 to {1}',
   '(+{0} more line)',
   '(Enter alone to finish)',
+  '(To exit, press Ctrl+C again or Ctrl+D)',
   '(at most {0} character)',
   '(choices: {0})',
   '(default: {0})',
   '(empty)',
   '(format: {0})',
+  '(search: {0}) ',
   '(skip)',
   '({0} to submit)',
   '<command>',
@@ -202,14 +204,17 @@ export const SIGIL_KEYS: readonly string[] = [
   'Yes',
   '[command]',
   '[options]',
+  'accept suggestion',
   'all',
   'alt-{0}',
   'argument <{0}>',
   'back',
   'backspace',
   'bottom',
+  'clear',
   'close',
   'collapse',
+  'complete',
   'confirm',
   'ctrl-{0}',
   'default: {0}',
@@ -219,6 +224,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'end',
   'enter',
   'esc',
+  'exit',
   'exited with {0}',
   'expand',
   'first',
@@ -230,6 +236,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'grab',
   'half page down',
   'half page up',
+  'history',
   'home',
   'invert',
   'it is on another device, and there is no user id to name a trash there',
@@ -274,9 +281,11 @@ export const SIGIL_KEYS: readonly string[] = [
   'previous match',
   'previous tab',
   'quit',
+  'run',
   'scroll',
   'scroll sideways',
   'search',
+  'search history',
   'select',
   'select all',
   'setting "{0}"',

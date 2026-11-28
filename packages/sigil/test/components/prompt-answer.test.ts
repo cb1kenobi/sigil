@@ -51,6 +51,7 @@ const EXEMPT = {
   editor: 'spawns an editor before it settles, so its picture is in editor.test.ts',
   filePicker: 'answers with an absolute path, so its picture is in file-picker.test.ts',
   pickDate: "the same as date()'s, in calendar.test.ts",
+  repl: "a session of lines rather than a question: the line it leaves is repl.test.ts's",
   runLinePrompt: 'the line engine, which draws nothing and so settles nothing',
   runPrompt: 'the engine, which draws whatever view it is handed',
   toggle:

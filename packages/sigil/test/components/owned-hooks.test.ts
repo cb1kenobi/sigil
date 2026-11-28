@@ -9,6 +9,7 @@ import { Menubar } from '../../src/components/menubar.js';
 import { openModal } from '../../src/components/modal.js';
 import { createPager } from '../../src/components/pager.js';
 import { RadioSet } from '../../src/components/radio-set.js';
+import { Repl } from '../../src/components/repl.js';
 import { ScrollBox } from '../../src/components/scroll-box.js';
 import { Slider } from '../../src/components/slider.js';
 import { Switch } from '../../src/components/switch.js';
@@ -91,6 +92,11 @@ const CASES: Case[] = [
   {
     make: (props) => ({ element: TextField({ props: props as never }) }),
     name: 'TextField',
+    owns: ['onKey', 'onPaste', 'onFocusChange', 'onResize'],
+  },
+  {
+    make: (props) => ({ element: Repl({ onSubmit: () => {}, props: props as never }) }),
+    name: 'Repl',
     owns: ['onKey', 'onPaste', 'onFocusChange', 'onResize'],
   },
   {

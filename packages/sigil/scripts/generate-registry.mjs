@@ -314,6 +314,10 @@ const ENTRIES = [
     name: 'image',
   },
   {
+    desc: 'A REPL: a prompt line that comes back, with history, a completion popup anchored at the word, a dim suggestion and a footer',
+    name: 'repl',
+  },
+  {
     desc: 'A treemap: a tree of sized items as squarified rectangles in half blocks, coloured by a callback, with the current item outlined',
     name: 'treemap',
   },
@@ -387,6 +391,12 @@ function entryMap() {
  */
 const BARRELLED = new Map([
   ['src/types.ts', 'index'],
+  // the REPL's history rewrites its file with it when it trims. `writeAtomicSync()`
+  // is published from `@ttylabs/sigil/config`, and the history imports the module
+  // itself: importing the entry made the config module a chunk of its own under a
+  // 656-byte stub, which is a fourteenth module on the config entry's graph for a
+  // function that is already one of its thirteen (SIG-712)
+  ['src/config/atomic.ts', 'config'],
   // what a prompt answered by an option reads to tell a flag set through its
   // variable from one nobody said (SIG-719)
   ['src/util/env-value.ts', 'coerce'],

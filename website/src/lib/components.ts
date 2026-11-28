@@ -187,6 +187,21 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     example: { steps: [{ text: 'eu' }], accessibleSteps: [{ text: 'eu' }, 'enter'] },
   },
   {
+    slug: 'repl',
+    name: 'repl()',
+    family: 'prompts',
+    exports: ['repl', 'Repl', 'createRepl', 'wordCompleter'],
+    registry: 'repl',
+    lede: 'Each submitted line stays in the scrollback and the terminal is free for the command; `Repl` is the same editor as an element for a full-screen layout.',
+    example: {
+      steps: [{ text: 'de' }, 'tab', { text: ' prod' }],
+      accessibleSteps: [{ text: 'status' }, 'enter'],
+      // a session that has no one answer: each probe is a fresh run that is left up,
+      // and a REPL left up is one more reader of the console and of stdin
+      probe: false,
+    },
+  },
+  {
     slug: 'autocomplete-multiselect',
     name: 'autocompleteMultiselect()',
     family: 'prompts',
@@ -911,6 +926,10 @@ export const HELPERS: Readonly<Record<string, readonly string[]>> = {
     'tokensOf',
     'topLayer',
     'writeLine',
+  ],
+  "A REPL's history, to share between sessions or keep in a file of your own": [
+    'createHistory',
+    'replHistoryFile',
   ],
   'The parts a form control of your own is built from': [
     'controlCondition',
