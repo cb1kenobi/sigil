@@ -337,6 +337,46 @@ describe('reading an app`s catalogs', () => {
       ]);
     });
 
+    it.each([
+      ['a getter', `get locales() { return {}; }`],
+      ['a method', `locales() { return {}; }`],
+    ])(
+      'should warn that a schema whose only locales is %s cannot be checked, and not skip it in silence (SIG-735)',
+      async (_what, member) => {
+        // the schema was not claimed, so `declared` was false and `sigil check` said
+        // `no problems found` about catalogs the app loads
+        const read = await withSchema(`export default { ${member} };\n`);
+
+        expect(read.declared).toBe(true);
+        expect(read.catalogs).toEqual([]);
+        expect(read.diagnostics).toEqual([
+          expect.objectContaining({
+            message:
+              '"locales" is an accessor or a method rather than an object literal, so the catalogs cannot be read at build time and are not checked',
+            severity: 'warning',
+          }),
+        ]);
+      }
+    );
+
+    it('should read the schema`s locales and not a helper that has a getter of the name (review)', async () => {
+      const read = await withSchema(
+        `const i = { get locales() { return ['en']; } };\nconsole.log(i.locales);\nexport default { locales: { ${loader('fr')} } };\n`
+      );
+
+      expect(read.diagnostics).toEqual([]);
+      expect(read.catalogs.map((c) => c.locale)).toEqual(['fr']);
+    });
+
+    it('should read the locales the schema spells after a base that has a getter of the name (review)', async () => {
+      const read = await withSchema(
+        `const base = { name: 'x', get locales() { return {}; } };\nconsole.log(base.name);\nexport default { ...base, locales: { ${loader('fr')} } };\n`
+      );
+
+      expect(read.diagnostics).toEqual([]);
+      expect(read.catalogs.map((c) => c.locale)).toEqual(['fr']);
+    });
+
     it('should not warn about a spread of a const that visibly holds no locales (SIG-730)', async () => {
       const read = await withSchema(
         `const mixin = { name: 'x', tags: [] };\nmixin.tags.push('y');\nexport default { locales: { ${loader('fr')} }, ...mixin };\n`

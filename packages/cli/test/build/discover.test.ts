@@ -1268,6 +1268,107 @@ export default {
       }
     );
 
+    describe('a key written to a spread const after its declaration (SIG-736)', () => {
+      const placeholder = (before: string, spread = '...shared') =>
+        `${before}\nexport default { baseDir: import.meta.dirname, commands: { x: { ${spread}, path: './commands/a.js' } } };\n`;
+      const read = (source: string) =>
+        withSchema(source, (dir) => readAppCommands(discoverApp(dir)).diagnostics);
+      const unbaked = (diagnostics: readonly { message: string }[]) =>
+        diagnostics
+          .map((d) => /declares "(\w+)" in the schema/.exec(d.message)?.[1])
+          .filter((key) => key !== undefined);
+
+      it.each([
+        ['a property assignment', `shared.options = { '--force': {} };`],
+        ['a string-keyed one', `shared['options'] = { '--force': {} };`],
+        ['a logical assignment', `shared.options ??= {};`],
+        ['a destructuring target', `[shared.options] = [{}];`],
+        ['an object pattern with a default', `({ a: shared.options = {} } = {});`],
+        ['an update', `shared.options++;`],
+        ['one inside a function', `function late() { shared.options = {}; }`],
+      ])(
+        'should report a key the const is given by %s as the spread carrying it',
+        async (_what, write) => {
+          // the literal holds `hidden` and nothing else, so `options` was reported by
+          // nothing while the runtime's placeholder has it
+          const diagnostics = await read(placeholder(`const shared = { hidden: true };\n${write}`));
+
+          expect(unbaked(diagnostics)).toEqual(['options']);
+          expect(diagnostics.find((d) => d.message.includes('"options"'))).toMatchObject({
+            severity: 'warning',
+          });
+        }
+      );
+
+      it('should not report a key that is only read, which the const never held', async () => {
+        // a read cannot add a key, and `sealedObject()` gives up on the const for it all
+        // the same
+        const diagnostics = await read(
+          placeholder(`const shared = { hidden: true };\nconsole.log(shared.options);`)
+        );
+
+        expect(unbaked(diagnostics)).toEqual([]);
+      });
+
+      it.each([
+        ['a computed key of a write', `cache[shared.id] = 1;`],
+        ['a default of a pattern', `[x = shared.dflt] = [];`],
+        ['the object a member write goes through', `shared.nested.leaf = 1;`],
+      ])('should not report what is only read to reach a write: %s', async (_what, write) => {
+        const diagnostics = await read(
+          placeholder(`const shared = { hidden: true };\nconst cache = {};\nlet x;\n${write}`)
+        );
+
+        // `nested` is read to reach the leaf and writes nothing to the const
+        expect(unbaked(diagnostics)).toEqual([]);
+      });
+
+      it('should report the key once when the literal holds it too', async () => {
+        const diagnostics = await read(
+          placeholder(`const shared = { options: {} };\nshared.options = { '--force': {} };`)
+        );
+
+        expect(unbaked(diagnostics)).toEqual(['options']);
+      });
+
+      it('should report each key written, and not a baked one', async () => {
+        const diagnostics = await read(
+          placeholder(
+            `const shared = { hidden: true };\nshared.options = {};\nshared.run = () => {};\nshared.desc = 'x';`
+          )
+        );
+
+        // `desc` is baked and is the other readers' to report, not this one's
+        expect(unbaked(diagnostics).sort()).toEqual(['options', 'run']);
+      });
+
+      it('should report commands written to the const, which the build never reads from a write', async () => {
+        const diagnostics = await read(
+          placeholder(
+            `const shared = { hidden: true };\nshared.commands = { sub: './commands/a.js' };`
+          )
+        );
+
+        expect(unbaked(diagnostics)).toEqual(['commands']);
+      });
+
+      it('should say nothing more for a computed write, which may be any key, than for any spread it cannot read', async () => {
+        // `shared[k] = x` is no list of keys: the answer is the one a spread of an
+        // unreadable name has always had, and the literal's own keys are still reported
+        const diagnostics = await read(
+          placeholder(`const shared = { run() {} };\nconst k = 'options';\nshared[k] = {};`)
+        );
+
+        expect(unbaked(diagnostics)).toEqual(['run']);
+      });
+
+      it('should report nothing for a const nothing is written to that holds only baked keys', async () => {
+        const diagnostics = await read(placeholder(`const shared = { hidden: true };`));
+
+        expect(unbaked(diagnostics)).toEqual([]);
+      });
+    });
+
     it('should warn about every property of a placeholder it does not bake', () => {
       const app = discoverApp(join(apps, 'unbaked'));
       const { diagnostics } = readAppCommands(app);
@@ -1996,6 +2097,130 @@ export default { baseDir: import.meta.dirname, commands: { stale: './commands/a.
         expect(commands?.kind === 'inline' ? commands.commands.map((c) => c.name) : []).toEqual([
           'a',
         ]);
+      });
+
+      it.each([
+        ['a getter', `get commands() { return { z: './commands/a.js' }; }`],
+        ['a method', `commands() { return { z: './commands/a.js' }; }`],
+      ])(
+        'said a schema whose only commands is %s cannot be read, and not that there are none (SIG-734)',
+        async (_what, member) => {
+          // the schema has commands, the build cannot run the code that gives them, and
+          // the built app has none: an error, as a computed `commands` is
+          const { commands, diagnostics, found } = await read(
+            `export default { baseDir: import.meta.dirname, ${member} };\n`
+          );
+
+          expect(messages(diagnostics)).toEqual([
+            '"commands" is an accessor or a method rather than an object literal, so it cannot be read at build time and a built app will not have these commands; it applies when the app runs from source and not after a build, so write it as an object literal of commands, or pass --commands to name a command directory',
+          ]);
+          expect(diagnostics[0]).toMatchObject({ column: 48, line: 1, severity: 'error' });
+          // `found` is what keeps `sigil check` from adding `no "commands" found`
+          expect(found).toBe(true);
+          expect(commands).toBeUndefined();
+        }
+      );
+
+      it('read the schema that holds the getter through a shared base, as the schema it is', async () => {
+        const { diagnostics, found } = await read(
+          `const base = { get commands() { return {}; } };\nexport default { ...base, baseDir: import.meta.dirname, run() {} };\n`
+        );
+
+        expect(messages(diagnostics)).toEqual([
+          expect.stringContaining('is an accessor or a method'),
+        ]);
+        expect(found).toBe(true);
+      });
+
+      it.each([
+        [
+          'a named export of schema',
+          `export const schema = { baseDir: import.meta.dirname, get commands() { return {}; } };\n`,
+        ],
+        [
+          'an export of a const as default',
+          `const schema = { get commands() { return {}; } };\nexport { schema as default };\n`,
+        ],
+        [
+          'the object main() is given',
+          `import { main } from '@ttylabs/sigil';\nawait main({ get commands() { return {}; } });\n`,
+        ],
+        [
+          'a const main() is given',
+          `import { main } from '@ttylabs/sigil';\nconst schema = { get commands() { return {}; } };\nawait main(schema);\n`,
+        ],
+        [
+          'a schema key of the object main() is given',
+          `import { main } from '@ttylabs/sigil';\nawait main({ schema: { get commands() { return {}; } } });\n`,
+        ],
+      ])(
+        'claimed the getter of commands in %s, which is where the app reads its schema',
+        async (_what, source) => {
+          // review round 2: only `export default` was seen, so these were `no "commands" found`
+          const { diagnostics, found } = await read(source);
+
+          expect(messages(diagnostics)).toEqual([expect.stringContaining('accessor or a method')]);
+          expect(found).toBe(true);
+        }
+      );
+
+      it('did not claim a base with a getter once the schema spells commands plainly after it', async () => {
+        // review round 2: the app works, since the plain `commands` wins at runtime, and
+        // the base was a second schema: `found 2 schemas` and nothing read
+        const { commands, diagnostics } = await read(
+          `const base = { name: 'x', get commands() { return {}; } };\nconsole.log(base.name);\nexport default { ...base, baseDir: import.meta.dirname, commands: { x: './commands/a.js' } };\n`
+        );
+
+        expect(messages(diagnostics).filter((m) => m.includes('2 schemas'))).toEqual([]);
+        expect(commands?.kind).toBe('inline');
+      });
+
+      it('did not claim a setter alone, which the runtime reads as no commands at all', async () => {
+        const { diagnostics, found } = await read(
+          `export default { baseDir: import.meta.dirname, set commands(value) {}, run() {} };\n`
+        );
+
+        expect(diagnostics).toEqual([]);
+        expect(found).toBe(false);
+      });
+
+      it.each([
+        [
+          'a helper that is read by a member',
+          `const registry = { get commands() { return []; } };\nconsole.log(registry.commands);\nexport default { baseDir: import.meta.dirname, commands: { x: { path: './commands/a.js' } } };\n`,
+        ],
+        [
+          'a method of a helper in a single-command app',
+          `const api = { commands() { return []; } };\nexport default { name: 'x', run() { api.commands(); } };\n`,
+        ],
+        [
+          'a helper nested in the schema',
+          `export default { name: 'x', run() { const h = { get commands() { return 1; } }; } };\n`,
+        ],
+      ])(
+        'did not claim an accessor of commands in %s, which is no schema',
+        async (_what, source) => {
+          // review: an accessor is claimed only for what is exported, since a plain
+          // `commands` is claimed anywhere and a method of that name is a likelier helper
+          const { diagnostics, found } = await read(source);
+
+          expect(messages(diagnostics).filter((m) => m.includes('accessor or a method'))).toEqual(
+            []
+          );
+          expect(messages(diagnostics).filter((m) => m.includes('schemas in this module'))).toEqual(
+            []
+          );
+          expect(found).toBe(source.includes('commands: {'));
+        }
+      );
+
+      it('did not claim a schema for an accessor of another name', async () => {
+        const { diagnostics, found } = await read(
+          `export default { baseDir: import.meta.dirname, get desc() { return 'x'; } };\n`
+        );
+
+        expect(diagnostics).toEqual([]);
+        expect(found).toBe(false);
       });
 
       it('did not warn about an accessor that comes before the plain commands, which wins', async () => {

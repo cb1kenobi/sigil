@@ -401,11 +401,11 @@ export function readAppCatalogs(app: DiscoveredApp): AppCatalogs {
   // through the spreads the build can resolve, as `readAppCommands()` reads
   // `commands`: a sealed base's `locales` are the schema's (SIG-728)
   const resolver = sealedResolver(parsed);
-  const own = lastPlain(schemas[0]!, 'locales', resolver)!;
-  const declared = objectLiteral(own.value);
+  const own = lastPlain(schemas[0]!, 'locales', resolver);
+  const declared = own && objectLiteral(own.value);
 
   const spelling = spellingIn(parsed, schemas[0]!, 'locales');
-  if (spelling.replaced || spelling.shadowedBy) {
+  if (own && (spelling.replaced || spelling.shadowedBy)) {
     // the catalogs the app loads are the last `locales` spelled, which a spread
     // after this one may be, and an accessor of the key is (SIG-728, SIG-730)
     const { column, line } = position(parsed.source, own.start);
@@ -424,8 +424,12 @@ export function readAppCatalogs(app: DiscoveredApp): AppCatalogs {
       column,
       file,
       line,
-      message:
-        '"locales" is computed rather than an object literal, so the catalogs cannot be read at build time and are not checked',
+      // a schema claimed for spelling `locales` as a getter, a setter or a method is
+      // the same situation as a computed one: the app has catalogs, and they are not
+      // read here (SIG-735)
+      message: own
+        ? '"locales" is computed rather than an object literal, so the catalogs cannot be read at build time and are not checked'
+        : '"locales" is an accessor or a method rather than an object literal, so the catalogs cannot be read at build time and are not checked',
       severity: 'warning',
     });
 

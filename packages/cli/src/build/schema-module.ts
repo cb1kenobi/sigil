@@ -58,12 +58,12 @@ import {
   type ImportBindings,
 } from './bindings.ts';
 import { EXTENSIONS, resolveSpecifier, RUNTIME } from './discover.ts';
-import { plainProperty, propertyKey, unwrapShallow } from './literals.ts';
+import { bindingObject, literalOf, plainProperty, propertyKey, unwrapShallow } from './literals.ts';
 import { parseModule, type ParsedModule } from './parse-module.ts';
 import { walk } from './walk.ts';
 import { readFileSync } from 'node:fs';
 import { dirname, extname } from 'node:path';
-import type { Expression, Statement } from 'oxc-parser';
+import type { Expression, ObjectExpression, Statement } from 'oxc-parser';
 
 /** Where a name one module exports turned out to be written. */
 type Hop =
@@ -348,6 +348,82 @@ function mainSchemas(parsed: ParsedModule): (string | undefined)[] {
   });
 
   return names;
+}
+
+/**
+ * The object literals a module hands the app as its schema, written in the module.
+ *
+ * The same places the generated entry and `findSchema()` read: `export default`,
+ * `export { x as default }`, the `schema` export, and the argument of a `main()`
+ * call -- the object itself or its `schema` key -- each a literal, a one-argument
+ * call over one, or a `const` of the module holding one. It says where a schema
+ * **is** and not whether it is the only one, which is what lets a reader claim an
+ * accessor of `commands` there and nowhere else, since a helper literal with a
+ * method of that name is not a schema (SIG-734).
+ *
+ * @param parsed - The module.
+ * @returns The literals, in source order.
+ */
+export function exportedLiterals(parsed: ParsedModule): ObjectExpression[] {
+  const roots: Expression[] = [];
+  const literals: ObjectExpression[] = [];
+  const add = (node: Expression | undefined): void => {
+    if (!node) {
+      return;
+    }
+
+    const value = unwrapShallow(node);
+    const literal =
+      value.type === 'Identifier' ? bindingObject(parsed, value.name, true) : literalOf(node, true);
+    if (literal && !literals.includes(literal)) {
+      literals.push(literal);
+    }
+  };
+
+  for (const statement of parsed.program.body) {
+    if (statement.type === 'ExportDefaultDeclaration') {
+      roots.push(statement.declaration as Expression);
+    } else if (statement.type === 'ExportNamedDeclaration') {
+      for (const declarator of statement.declaration?.type === 'VariableDeclaration'
+        ? statement.declaration.declarations
+        : []) {
+        if (declarator.id.type === 'Identifier' && declarator.id.name === 'schema') {
+          roots.push(declarator.init as Expression);
+        }
+      }
+
+      for (const specifier of statement.source ? [] : statement.specifiers) {
+        const exported = specifier.exported as { name?: string; value?: string };
+        if (['default', 'schema'].includes(exported.name ?? exported.value ?? '')) {
+          roots.push(specifier.local as unknown as Expression);
+        }
+      }
+    }
+  }
+
+  // an app that starts itself: what `main()` is given
+  const mains = importBindings(parsed, RUNTIME, 'main');
+  if (mains.direct.size || mains.namespaces.size) {
+    walk(parsed.program, (node) => {
+      if (node.type === 'CallExpression' && calleeName(node.callee, mains) !== undefined) {
+        const first = node.arguments[0];
+        const argument =
+          first && first.type !== 'SpreadElement' ? unwrapShallow(first as Expression) : undefined;
+        if (argument?.type === 'ObjectExpression') {
+          roots.push(argument);
+          roots.push(plainProperty(argument, 'schema')?.value as Expression);
+        } else if (argument) {
+          roots.push(argument);
+        }
+      }
+      return true;
+    });
+  }
+
+  for (const root of roots) {
+    add(root);
+  }
+  return literals;
 }
 
 /** Where an app's schema is written, and how that was learned. */

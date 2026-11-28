@@ -35,6 +35,7 @@ import {
   type Lacks,
 } from './literals.ts';
 import { type ParsedModule } from './parse-module.ts';
+import { exportedLiterals } from './schema-module.ts';
 import { walk } from './walk.ts';
 import type {
   CallExpression,
@@ -432,6 +433,39 @@ export function visibleLiteral(parsed: ParsedModule, name: string): ObjectExpres
     : undefined;
 }
 
+/**
+ * The keys something writes to a same-module `const` by a member, anywhere in the
+ * module (SIG-736).
+ *
+ * `visibleLiteral()` is what the const was declared as, and `shared.options = x`
+ * puts a key on it that the literal never held. This is the occurrence scan
+ * `lacksResolver()` asks, taken for every key at once rather than for one. It
+ * lists the keys that are **written** -- assigned, updated or destructured into -- and not the ones that are read: `lacksResolver()` refuses
+ * a read of its own key, which is the cheap side for a question about one key,
+ * while a list that named every key somebody read would report a key the const
+ * never held. A use the scan cannot follow -- a computed member (`shared[k] = x`), a call with the
+ * const as an argument, a closure, a called member -- may write any key at all,
+ * so no list of them exists and the answer is `undefined`: a caller asking for
+ * the keys has to say what it does about a spread that may carry anything, and
+ * `warnUnbaked()` says nothing for it, as for any spread it cannot read.
+ *
+ * @param parsed - The module.
+ * @param name - The binding.
+ * @returns The keys, or `undefined` where a use cannot be followed or the name is
+ *   not a plain same-module `const` of an object literal.
+ */
+export function writtenKeys(parsed: ParsedModule, name: string): ReadonlySet<string> | undefined {
+  const declared = declaredObject(parsed, name);
+  if (!declared) {
+    return undefined;
+  }
+
+  // `''` is the key whose accesses are refused, which no one writing a key to a
+  // const means: every other static key is allowed, and the written ones collected
+  const keys = new Set<string>();
+  return onlySpread(parsed, name, declared.declarator, '', keys) ? keys : undefined;
+}
+
 function lacksKey(parsed: ParsedModule, name: string, key: string): boolean {
   const declared = declaredObject(parsed, name);
   if (!declared) {
@@ -482,9 +516,12 @@ function lacksKey(parsed: ParsedModule, name: string, key: string): boolean {
  */
 export function schemasWith(parsed: ParsedModule, key: string): ObjectExpression[] {
   const resolve = sealedResolver(parsed);
+  const exported = exportedParts(parsed, key, resolve);
   const found = outermostWhere(
     parsed.program,
-    (object) => lastPlain(object, key, resolve) !== undefined
+    (object) =>
+      lastPlain(object, key, resolve) !== undefined ||
+      (exported.has(object) && spellsAccessor(object, key))
   );
 
   return found.filter((object) => {
@@ -509,6 +546,67 @@ export function schemasWith(parsed: ParsedModule, key: string): ObjectExpression
     );
     return inside === 0 || inside !== spreadsOf(parsed.program, name);
   });
+}
+
+/**
+ * Whether an object spells `key` as a getter or a method (SIG-734, SIG-735).
+ *
+ * The runtime reads a getter, so such a literal is a schema with the key, and the
+ * build cannot read what it returns. Left unclaimed, a schema whose only `commands`
+ * was a getter was `no "commands" found in this module` and one whose only
+ * `locales` was one was not looked at at all, so `sigil check` said `no problems
+ * found`. A **setter** alone is not claimed: the runtime reads `undefined` from it,
+ * so the app has no such key and saying it has one would be false. `lastPlain()` is
+ * the other half of the same question and is asked first by the caller.
+ *
+ * Asked only of `exportedParts()`, because a plain `commands` is claimed wherever a
+ * literal writes one and a method named `commands` is a far commoner thing to write
+ * in a helper (review).
+ */
+function spellsAccessor(object: ObjectExpression, key: string): boolean {
+  return object.properties.some(
+    (member) =>
+      member.type !== 'SpreadElement' &&
+      propertyKey(member) === key &&
+      (member.kind === 'get' || member.method)
+  );
+}
+
+/**
+ * The literals that are the module's exported schema, or are spread straight into
+ * it: what `exportedLiterals()` finds, and the `const` literals its own members
+ * spread where it spells no plain `key` itself (SIG-734).
+ *
+ * The only objects an accessor or a method of `commands` or `locales` is claimed
+ * for. A helper `{ get commands() {} }` anywhere else in the module is not a
+ * schema, and calling it one would turn a working app into an error.
+ */
+function exportedParts(
+  parsed: ParsedModule,
+  key: string,
+  resolve: (name: string) => ObjectExpression | undefined
+): Set<ObjectExpression> {
+  const parts = new Set<ObjectExpression>();
+  for (const schema of exportedLiterals(parsed)) {
+    parts.add(schema);
+
+    // a base is a part of the schema only where the schema does not spell the key
+    // plainly itself, which is the spelling that runs when it comes after
+    if (lastPlain(schema, key, resolve) !== undefined) {
+      continue;
+    }
+
+    for (const member of schema.properties) {
+      const operand = member.type === 'SpreadElement' ? unwrapShallow(member.argument) : undefined;
+      const base =
+        operand?.type === 'Identifier' ? bindingObject(parsed, operand.name, false) : undefined;
+      if (base) {
+        parts.add(base);
+      }
+    }
+  }
+
+  return parts;
 }
 
 /** How many object spreads of `name` there are anywhere inside a node. */
@@ -636,13 +734,19 @@ function sealedObjectOf(parsed: ParsedModule, name: string): ObjectExpression | 
  *   question is about one key: a member access of any other static key is then
  *   allowed too, unless it is called, tagged or constructed, which hands the
  *   object over as `this` (SIG-730).
+ * @param written - Where to collect the static key of each member access that
+ *   `except` allowed **and that is written** -- the target of an assignment, an
+ *   update or a `for ... of`, or inside a destructuring one -- for the caller that
+ *   wants to know which keys the const was given (SIG-736). One scan, so what
+ *   counts as a use cannot differ between the two questions.
  * @returns Whether every use of it is a spread.
  */
 function onlySpread(
   parsed: ParsedModule,
   name: string,
   declarator: VariableDeclarator,
-  except?: string
+  except?: string,
+  written?: Set<string>
 ): boolean {
   // every occurrence of the name but its declaration and an object spread's
   // operand is a use that might write -- or might hand the object to something
@@ -651,10 +755,19 @@ function onlySpread(
   // with `with` or a direct `eval` can bind or write any name without saying so
   const allowed = new Set<unknown>([declarator.id]);
   const called = new Set<unknown>();
+  const targets = new Set<unknown>();
   let used = false;
   walk(parsed.program, (node) => {
     if (node.type === 'WithStatement') {
       used = true;
+    } else if (written && ASSIGNING.has(node.type)) {
+      // the member that is the target, or a leaf of a destructuring one, and not
+      // what is read to reach it: `cache[shared.id] = x` writes `cache`. The parent
+      // is visited before its members
+      writeTargets(
+        node.type === 'UpdateExpression' ? node.argument : (node as { left: Node }).left,
+        targets
+      );
     } else if (node.type === 'ObjectExpression') {
       for (const property of node.properties) {
         if (property.type === 'SpreadElement') {
@@ -695,6 +808,9 @@ function onlySpread(
       otherKey(node, except)
     ) {
       allowed.add(node.object);
+      if (targets.has(node)) {
+        written?.add(staticKey(node)!);
+      }
     } else if (
       (node.type === 'Identifier' || node.type === 'JSXIdentifier') &&
       (node.name === 'eval' || (node.name === name && !allowed.has(node)))
@@ -708,16 +824,71 @@ function onlySpread(
   return !used;
 }
 
+/**
+ * The member expressions an assignment target writes: the target itself, and each
+ * leaf of an array or object pattern, a rest element or a default.
+ */
+function writeTargets(node: Node, into: Set<unknown>): void {
+  const target = node as unknown as Record<string, unknown> & { type: string };
+  switch (target.type) {
+    case 'MemberExpression':
+      into.add(node);
+      return;
+    case 'ArrayPattern':
+      for (const element of target.elements as (Node | null)[]) {
+        if (element) {
+          writeTargets(element, into);
+        }
+      }
+      return;
+    case 'ObjectPattern':
+      for (const property of target.properties as (Node & { value?: Node })[]) {
+        writeTargets(property.value ?? property, into);
+      }
+      return;
+    case 'RestElement':
+      writeTargets(target.argument as Node, into);
+      return;
+    case 'AssignmentPattern':
+      writeTargets(target.left as Node, into);
+      return;
+    case 'ParenthesizedExpression':
+    case 'TSAsExpression':
+    case 'TSNonNullExpression':
+    case 'TSSatisfiesExpression':
+    case 'TSTypeAssertion':
+      if (target.expression) {
+        writeTargets(target.expression as Node, into);
+      }
+      return;
+    default:
+      return;
+  }
+}
+
+/** The nodes that write to what is on their left, or in their argument. */
+const ASSIGNING: ReadonlySet<string> = new Set([
+  'AssignmentExpression',
+  'ForInStatement',
+  'ForOfStatement',
+  'UpdateExpression',
+]);
+
 /** Whether a member access names a static key that is neither `key` nor `__proto__`. */
 function otherKey(node: Node & { computed: boolean; property: Node }, key: string): boolean {
-  const name = node.computed
+  const name = staticKey(node);
+  return name !== undefined && name !== key && name !== '__proto__';
+}
+
+/** The key a member access names where it is written out: `.x` and `['x']`, and no other. */
+function staticKey(node: { computed: boolean; property: Node }): string | undefined {
+  return node.computed
     ? node.property.type === 'Literal' && typeof node.property.value === 'string'
       ? node.property.value
       : undefined
     : node.property.type === 'Identifier'
       ? node.property.name
       : undefined;
-  return name !== undefined && name !== key && name !== '__proto__';
 }
 
 /**
