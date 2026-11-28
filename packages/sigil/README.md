@@ -9479,7 +9479,11 @@ import { spawn } from 'node:child_process';
 if (await compiledHost()) {
   // no runtime to start: do the work in this process
 } else {
-  spawn(process.execPath, ['-e', script], { detached: true, stdio: 'ignore' }).unref();
+  const child = spawn(process.execPath, ['-e', script], { detached: true, stdio: 'ignore' });
+  // a runtime that will not start is an `error` event, and an unhandled one
+  // crashes the app after its command has already succeeded
+  child.on('error', () => {});
+  child.unref();
 }
 ```
 

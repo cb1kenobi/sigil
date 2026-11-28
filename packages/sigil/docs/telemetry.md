@@ -358,9 +358,11 @@ sender. `compiledHost()` is what tells `send()` it is in one: the build bakes
 the answer into what `sigil package` produces, and for a binary something else
 compiled it probes the runtime, `node:sea` on Node and `Bun.main` on Bun.
 
-So in a binary `send()` posts the event itself and waits for it, for at most
-half a second, on a run the user opted into. That is the cost of having no
-runtime to hand the request to. If half a second is too much, defer instead:
+So in a binary `send()` posts the event itself and waits for it, for about
+half a second, on a run the user opted into. The timeout cancels the request,
+but a DNS lookup that is slow to fail can keep the process alive a little
+longer, until the lookup gives up. That is the cost of having no runtime to
+hand the request to. If it is too much, defer instead:
 write the event to a file and send the file's events at the start of the next
 run, while that run's own command is working.
 
@@ -368,6 +370,11 @@ A binary built some way `compiledHost()` cannot recognise would still be
 spawned, and would relaunch the app instead of sending. That is why `send()`
 leaves `MY_CLI_TELEMETRY` out of the child's environment: the relaunched copy
 then records nothing, rather than spawning again.
+
+That backstop covers only consent read from the environment. If your app
+remembers the user's answer in a file and `consent()` reads it, a relaunched
+copy reads the same yes. Give the child a variable of its own as well, such as
+`MY_CLI_TELEMETRY_SENDER=1`, and have `consent()` answer no whenever it is set.
 
 ## Test it
 
@@ -460,5 +467,5 @@ leaves it out. [Testing](testing.md) covers `runCommand()` and the other helpers
 - An event holds declared names, codes and numbers, and nothing from argv, an
   error message, or the file system.
 - No hook waits on the network, except in a binary built by `sigil package`,
-  which waits half a second at most rather than spawning itself.
+  which waits about half a second rather than spawning itself.
 - A test fails if a typed value reaches an event.
