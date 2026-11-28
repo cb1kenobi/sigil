@@ -45,6 +45,7 @@ import {
   installComment,
   shQuote,
 } from './install.js';
+import { SAFE_PUNCTUATION } from './quote.js';
 import type { CompletionCommand, CompletionSpec } from './spec.js';
 
 /**
@@ -298,7 +299,7 @@ ${pre}_put() {
       ;;
     *)
       case "$__v" in
-        *[![:alnum:]_@%+=:,./-]*)
+        *[![:alnum:]${SAFE_PUNCTUATION}]*)
           printf -v __o '%q' "$__v"
           ${pre}_tilde
           ;;

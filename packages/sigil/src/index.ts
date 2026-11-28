@@ -23,6 +23,8 @@ export { command } from './command.js';
 export { options } from './options.js';
 export { errorExitCode, errorHandler, errorMessage, renderError } from './error-handler.js';
 export { UsageError, type UsageErrorCode } from './util/usage-error.js';
+export { quoteWord, splitWords, wordAt } from './completion/words.js';
+export type { Split, Unfinished, Word, WordAt, WordQuote } from './completion/words.js';
 
 const { log } = debug('sigil');
 
