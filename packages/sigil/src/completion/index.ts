@@ -78,6 +78,8 @@ export type {
   CompletionTarget,
 } from './spec.js';
 export { zshPair, zshQuote } from './zsh.js';
+export { quoteWord, splitWords, wordAt } from './words.js';
+export type { Split, Unfinished, Word, WordAt, WordQuote } from './words.js';
 
 /**
  * The emitter for each shell.

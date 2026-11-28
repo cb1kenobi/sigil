@@ -1863,3 +1863,93 @@ dispatches between the printer and the installer.
   run the two recipes in a throwaway directory, and by
   `packages/cli/test/completion-install-tty.test.ts`, which spawns the real
   binary over a faked terminal with `HOME` pointed at a box.
+
+### A shell-word splitter, on the root entry, with no expansion (SIG-711)
+
+`src/completion/words.ts` is `splitWords()`, `wordAt()` and `quoteWord()`: a typed
+line into the words a shell would split it into, each with the range it came from,
+and a value back into text that splits to it. A REPL that runs commands through
+the parser needs the first, and completing the word under a cursor needs the
+other two. The grammar is written out under "A typed line, split like a shell
+would" in `docs/parser.md`; what follows is why it is that grammar.
+
+- **POSIX `sh`, and nothing is expanded, on every platform.** A prompt is the
+  app's own rather than the platform's shell, so `cmd.exe` and PowerShell quoting
+  is not a thing to follow on Windows, and `$HOME`, `~`, a glob, a substitution,
+  `#` and `| ; & < >` are ordinary characters of a word: expanding any of them
+  would make a line mean one thing at the prompt and another in a terminal. It
+  follows that `quoteWord()` quotes a word holding one, which is what keeps what
+  it inserts meaning the same in both places. Decided in SIG-711's comment.
+- **`$'...'` is read, which the decision did not list, because `quoteWord()`
+  has to write it.** A control character, a format character and the rest of
+  what `escapeControls()` names must not come out raw: a candidate that is a file
+  name holding `ESC` is a terminal sequence the moment a line editor draws it,
+  and a U+202E inside a quote reorders what the reader sees. POSIX single quotes
+  can hold one only raw, so there is no way to say it inside the decided grammar.
+  `$'...'` is the way every shell has of saying it, POSIX.1-2024 adopted it, and
+  it is a quote and not an expansion -- the line means the same in bash and zsh,
+  which is the property the no-expansion rule is for. It is also what
+  `shDisplay()` already printed a path in for the installer, so the escaping is
+  `ansiCBody()` in `quote.ts` and both call it. The reader takes `\xNN` and
+  `\NNN` as **bytes** and decodes a run of them as UTF-8, because that is what a
+  shell in a UTF-8 locale does and what `quoteWord()` writes -- one spelling that
+  names the same string in bash 3.2, which has no `\u`, and in zsh; `\u` and `\U`
+  are read too, since they are common to type. An escape it does not know stays
+  as typed, as bash does, and `$"..."` is a `$` and a double-quoted part rather
+  than a translated string.
+- **The `TextDecoder` keeps a byte order mark.** `new TextDecoder()` drops a
+  leading U+FEFF, which is itself a format character that `quoteWord()` writes as
+  `\xEF\xBB\xBF`: a random string starting with one came back one character
+  short, found by the round-trip property and by nothing written by hand.
+  `ignoreBOM: true` is what makes the escape and the read agree.
+- **One definition of a safe character, and a measurement of where it differs.**
+  `quote.ts` holds `SAFE_PUNCTUATION`, which the bash script's `__x_put` tests a
+  candidate against (`[![:alnum:]_@%+=:,./-]`, generated from the constant, so the
+  script is byte for byte what it was) and `quoteWord()` reads for a bare word.
+  `bashQuote()` has no safe class -- it always quotes -- so the shared thing is
+  the class the script already had. The one difference is letters and digits:
+  bash's `[:alnum:]` is whatever the locale says, and `quoteWord()` takes the
+  Unicode letters, marks and digits, so `caf\u00E9` is bare. A character
+  `escapeControls()` would change is never bare even where it is a letter or a
+  mark (U+3164, U+034F, U+FE0F), because the check for that goes first.
+  `shQuote()` moved here from `install.ts`, which re-exports it, because
+  `install.ts` is the installer's graph and `quoteWord()` is on the root entry.
+- **A word's `quote` is how it began, and the line's `open` is what it ends
+  inside.** The two are different questions: `a'b'"c d` began bare and ends in a
+  double quote, and a caller that wants to preserve the user's quoting needs the
+  second at the cursor rather than at the end of the word. `wordAt()` answers it
+  per cursor: `quote` is set only when the cursor is inside the quote the word
+  **opened with**, and then `from` is just after it, so
+  `quoteWord(candidate, quote)` replaces `[from, cursor)` and keeps the user's
+  quote. In any other position `from` is the word's start and `quoteWord(candidate)`
+  replaces the whole of it, which changes the quoting of `foo"bar` but can never
+  produce a word that splits to something other than the candidate. A replacement
+  stops at the cursor and text after it stays, as readline does.
+- **A context leaves its quote open.** `quoteWord(value, "'")` is what goes
+  after an opening `'`, and it ends **inside** it, so the caller appends the
+  closing quote when the completion is final and not when it is a common prefix.
+  Inside `'` the one thing that cannot be said is `'`, written `'\''`; inside `"`
+  it is `\`, `"`, `$` and a backtick; and anything unsafe steps out into its own
+  `$'...'` and back, so the quote is open again at the end in every case.
+- **An unterminated quote is a state and not an error.** `splitWords()` reports
+  `open` -- `'`, `"`, `$'`, or `\` for a backslash with nothing after it -- and
+  the last word holds what was typed of it. Whether that is an error or a
+  continuation line is the REPL's `isContinued()` (SIG-712), because a splitter
+  that decided would decide for every prompt. A backslash before a newline is a
+  continuation inside and outside double quotes, as in `sh`, and reads as nothing.
+- **A cursor outside the line throws.** `wordAt()` raises a `RangeError` for a
+  cursor that is not an integer from `0` to `line.length`, and does not clamp:
+  an editor that passes one is wrong about its own buffer, and a clamp hides it.
+  Positions are indices into the string, as `slice()` reads them, so a character
+  outside the BMP is two; a caller moving by grapheme converts at its own edge.
+- **It is on the root entry, and that costs 3,474 B.** Decided in SIG-711 -- no
+  subpath, since the REPL and `commandRepl()` load the parser anyway. The root
+  entry's static graph was **17,911 B over twelve modules** before and **21,385 B**
+  after, which crossed the 20 KiB ceiling in `dist.test.ts`; it moved to 26 KiB.
+  Re-derive with `staticGraph()` rather than reading these.
+- **Proved against the shells, and against itself.** The round trip is a
+  property over random strings from an alphabet weighted towards what goes wrong
+  -- quotes, backslashes, newlines, controls, format characters, surrogates --
+  through every context, and `quoteWord()`'s output is also run through bash and
+  zsh when they are installed, since the model and the diff share an author and
+  an assumption wrong in both would pass.
