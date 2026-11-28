@@ -160,6 +160,44 @@ function sleep(ms: number): void {
 }
 
 /**
+ * Whether a file system error is somebody else being in the way rather than a fault.
+ *
+ * `EEXIST` is, everywhere: the lock is held. On Windows so are `EPERM`, `EBUSY` and
+ * `EACCES`, which is what creating a file that another process has just unlinked and
+ * not yet finished letting go of answers (delete-pending: the name is still there and
+ * cannot be opened), and what opening a file for a moment under a virus scanner or a
+ * rename answers -- where POSIX says `EEXIST` or nothing at all. `renameWithRetry()`
+ * records the same set for its target (SIG-415). Read per call, for the reason that one
+ * is, so the Windows half can be tested on the machine it is written on.
+ */
+function contended(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return (
+    code === 'EEXIST' ||
+    (process.platform === 'win32' && (code === 'EPERM' || code === 'EBUSY' || code === 'EACCES'))
+  );
+}
+
+/**
+ * Runs `fn`, again after a moment while the system says somebody is in the way.
+ *
+ * @param fn - A single file system call, safe to repeat.
+ */
+function untilFree(fn: () => void): void {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      fn();
+      return;
+    } catch (error) {
+      if (attempt >= 100 || !contended(error)) {
+        throw error;
+      }
+      sleep(1);
+    }
+  }
+}
+
+/**
  * Runs `fn` holding the file's lock, or says it could not get it.
  *
  * @param file - The history file.
@@ -175,7 +213,7 @@ function locked(file: string, wait: number, fn: () => void): boolean {
     try {
       fd = openSync(lock, 'wx', 0o600);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+      if (!contended(error)) {
         throw error;
       }
     }
@@ -185,7 +223,9 @@ function locked(file: string, wait: number, fn: () => void): boolean {
         fn();
       } finally {
         try {
-          unlinkSync(lock);
+          // retried: on Windows a file another process is opening at that instant
+          // cannot be deleted, and a lock left standing is everybody else's ten seconds
+          untilFree(() => unlinkSync(lock));
         } catch {
           // a lock somebody else already took over is theirs to remove
         }
@@ -225,6 +265,8 @@ export function createHistory(opts: HistoryOptions = {}): History {
   let offset = 0;
   let identity: string | undefined;
   const reported = new Set<string>();
+  /** How long an append waits for the lock, which is nothing once it has not come. */
+  let lockWait = LOCK_WAIT;
 
   function report(kind: string, error: unknown): void {
     if (!reported.has(kind)) {
@@ -309,6 +351,7 @@ export function createHistory(opts: HistoryOptions = {}): History {
       if (file !== undefined) {
         try {
           mkdirSync(dirname(file), { mode: 0o700, recursive: true });
+          let wrote = false;
           const write = (): void => {
             // a file whose last line was cut short -- hand-edited, or a full disk --
             // has bytes past what was read as whole lines, and appending to them
@@ -321,13 +364,26 @@ export function createHistory(opts: HistoryOptions = {}): History {
             } catch {
               // not there yet: nothing to end
             }
-            appendFileSync(file, `${lead}${JSON.stringify(line)}\n`, { mode: 0o600 });
+            untilFree(() =>
+              appendFileSync(file, `${lead}${JSON.stringify(line)}\n`, { mode: 0o600 })
+            );
+            wrote = true;
           };
           // behind a trim, which is the one thing that rewrites; and after the wait
           // anyway, because an entry that may be lost is better than a prompt that
-          // hangs on a lock nobody is going to release
-          if (!locked(file, LOCK_WAIT, write)) {
-            report('lock', new Error(`Could not lock ${file}.lock to append to the history`));
+          // hangs on a lock nobody is going to release. A lock that cannot be made at
+          // all -- not held, but refused -- is the same answer: the line is written
+          try {
+            if (!locked(file, lockWait, write)) {
+              report('lock', new Error(`Could not lock ${file}.lock to append to the history`));
+              // the next entry does not wait again for what did not come in five seconds
+              lockWait = 0;
+            }
+          } catch (error) {
+            report('lock', error);
+            lockWait = 0;
+          }
+          if (!wrote) {
             write();
           }
           // read back rather than pushed: whatever another writer appended between

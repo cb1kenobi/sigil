@@ -17153,6 +17153,26 @@ is where a schema meets it.
   typed because the disk was busy is worse than one that cannot save it. Proved
   across real processes in `packages/cli/test/repl-history.test.ts`: four writers
   appending 600 lines, and four appending while one trims, lose none.
+- **On Windows a lock that is refused is a lock that is held.** The first CI run lost
+  one to three lines of 600 and then two to a dozen of each writer's 150, on all three
+  Windows jobs and nowhere else. The lock's exclusive create answered `EPERM` where
+  POSIX answers `EEXIST` -- the name of a file another process has just unlinked is
+  still there, delete-pending, and cannot be opened -- and `locked()` threw anything
+  that was not `EEXIST`, so the append was never made and the line lived only in
+  memory. The same answers come from an append opened under a virus scanner (`EBUSY`)
+  and from unlinking a lock somebody is opening (`EPERM`), which left the lock standing
+  for ten seconds. So `contended()` reads `EEXIST` everywhere and `EPERM`, `EBUSY` and
+  `EACCES` on Windows as "somebody is in the way" -- the set `renameWithRetry()`
+  records for its target -- and the create, the unlink and the append each wait it out
+  (`untilFree()`, a hundred tries a millisecond apart). A lock that cannot be made at
+  all is reported and the line is written without it, and the next entry stops waiting
+  for what did not come in five seconds. Not reproduced on the machine it is written on,
+  which has no delete-pending: reasoned from those semantics and from the shape of the
+  loss (lines gone from the **middle** of a writer's run, which is an append that was
+  skipped, not one that was overwritten, which would lose neighbours in pairs), and
+  pinned by `repl-history-windows.test.ts`, which forces `win32` and the three answers
+  over a mocked `node:fs`. `packages/cli/test/repl-history.test.ts` is the proof and
+  runs on every platform, unweakened.
 - **`writeAtomicSync()` is imported from `../config/atomic.js`, not the `config`
   entry.** The entry made the config module a chunk of its own under a 656-byte
   stub, which was a fourteenth module on `config.mjs`'s graph for a function that
