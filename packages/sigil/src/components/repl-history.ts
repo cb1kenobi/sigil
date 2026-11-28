@@ -309,8 +309,20 @@ export function createHistory(opts: HistoryOptions = {}): History {
       if (file !== undefined) {
         try {
           mkdirSync(dirname(file), { mode: 0o700, recursive: true });
-          const write = (): void =>
-            appendFileSync(file, `${JSON.stringify(line)}\n`, { mode: 0o600 });
+          const write = (): void => {
+            // a file whose last line was cut short -- hand-edited, or a full disk --
+            // has bytes past what was read as whole lines, and appending to them
+            // would make this entry the rest of that one. A line break first ends it;
+            // when what is past `offset` is whole lines another writer just
+            // appended, it is a blank line, which a read skips
+            let lead = '';
+            try {
+              lead = statSync(file).size > offset ? '\n' : '';
+            } catch {
+              // not there yet: nothing to end
+            }
+            appendFileSync(file, `${lead}${JSON.stringify(line)}\n`, { mode: 0o600 });
+          };
           // behind a trim, which is the one thing that rewrites; and after the wait
           // anyway, because an entry that may be lost is better than a prompt that
           // hangs on a lock nobody is going to release

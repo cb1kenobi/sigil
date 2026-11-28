@@ -248,6 +248,41 @@ describe('repl() on a terminal', () => {
   });
 });
 
+describe('type-ahead', () => {
+  it('should run two lines that arrive in one read, and lose neither', async () => {
+    const { term, ran } = await start();
+
+    await term.press('one\rtwo\r');
+    await until(() => expect(ran).toEqual(['one', 'two']));
+
+    expect(screen(term)).toEqual(['> one', '> two', '>']);
+  });
+
+  it('should keep the rest of a read held behind a continued line', async () => {
+    const { term, ran } = await start({ isContinued: (line) => line.endsWith('{') });
+
+    await term.press('x{\ra}\r');
+    await until(() => expect(ran).toEqual(['x{\na}']));
+  });
+
+  it('should hold what is typed while a command runs and type it into the next prompt', async () => {
+    const gate = deferred<void>();
+    const { term, ran } = await start({
+      onSubmit: async (line) => {
+        ran.push(line);
+        if (line === 'slow') {
+          await gate.promise;
+        }
+      },
+    });
+
+    await term.press(...'slow', KEYS.enter);
+    await term.press(...'next');
+    gate.resolve();
+    await until(() => expect(screen(term).at(-1)).toBe('> next'));
+  });
+});
+
 describe('a line wider than the screen', () => {
   it('should scroll sideways to keep the caret in view, and keep the prompt', async () => {
     const { term, ran } = await start({}, createTestTerminal({ columns: 20, rows: 6 }));
@@ -314,7 +349,21 @@ describe('history', () => {
     await term.press(KEYS.up, KEYS.up, KEYS.up);
 
     expect(screen(term).at(-1)).toBe('> same');
-    expect(history.entries).toEqual([]);
+    expect(history.entries).toEqual(['same', 'other']);
+  });
+
+  it('should use the history it is given, and not make one of its own', async () => {
+    const history = createHistory();
+    history.add('from the caller');
+    const { term } = await start({ history });
+
+    await term.press(KEYS.up);
+    expect(screen(term).at(-1)).toBe('> from the caller');
+    await term.press(KEYS.enter);
+    expect(history.entries).toEqual(['from the caller']);
+    await term.press(...'more', KEYS.enter);
+
+    expect(history.entries).toEqual(['from the caller', 'more']);
   });
 
   it('should keep a file of it that the next session reads', async () => {
@@ -361,6 +410,18 @@ describe('history', () => {
       await term.press(CTRL_R, 'g', 'i', 't');
 
       expect(screen(term).at(-1)).toBe('(search: git) git stash');
+    });
+
+    it('should put back the line, and not throw, when Ctrl-R has no query to match', async () => {
+      const { term, errors } = await seeded();
+      await term.press(...'draft');
+
+      await term.press(CTRL_R, KEYS.enter);
+
+      expect(screen(term).at(-1)).toBe('> draft');
+      await term.press(CTRL_R, KEYS.left);
+      expect(screen(term).at(-1)).toBe('> draft');
+      expect(errors).toEqual([]);
     });
 
     it('should find the next older match on a second Ctrl-R', async () => {
@@ -1098,6 +1159,26 @@ describe('where nobody is typing', () => {
     expect(createHistory({ file: historyFile }).entries).toEqual([]);
   });
 
+  it('should not run a half-typed command when the session is given up', async () => {
+    const term = piped();
+    const ran: string[] = [];
+    const control = new AbortController();
+    const done = repl({
+      isContinued: (line) => line.endsWith('{'),
+      onSubmit: (line) => void ran.push(line),
+      signal: control.signal,
+      terminal: term.terminal,
+    });
+    const rejection = expect(done).rejects.toThrow('stop');
+
+    term.stdin.write('rm -rf {\n');
+    await tick(3);
+    control.abort(new Error('stop'));
+
+    await rejection;
+    expect(ran).toEqual([]);
+  });
+
   it('should read lines when accessible is asked for, on a terminal', async () => {
     const term = createTestTerminal({ columns: 40, rows: 8 });
     const ran: string[] = [];
@@ -1212,7 +1293,7 @@ describe('Repl() in a layout', () => {
     expect(picture().filter(Boolean)).toEqual(['>', 'shouting:']);
   });
 
-  it('should hold keys while an async command runs, then take them again', async () => {
+  it('should hold keys while an async command runs, then type them in', async () => {
     const gate = deferred<void>();
     const { term, picture, submitted } = layout({
       onSubmit: async (line) => {
@@ -1230,7 +1311,8 @@ describe('Repl() in a layout', () => {
     await settle();
     await term.press('c');
 
-    expect(picture().filter(Boolean)).toEqual(['> c']);
+    // what was typed while it ran is not lost: it is typed in once the command is done
+    expect(picture().filter(Boolean)).toEqual(['> bc']);
   });
 
   it('should never draw an answer to a line that has since changed', async () => {

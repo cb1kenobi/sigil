@@ -17098,6 +17098,27 @@ is where a schema meets it.
   that ran what it found would run it unread. Escape, Ctrl-G and Ctrl-C put back what
   was typed, and any other key ends the search and is then read as the ordinary key
   it is, which is how an arrow edits what was found.
+- **What is typed while a line cannot take it is kept, and typed into the next.** A
+  terminal delivers type-ahead -- or a paste with no bracketing -- as one read, and
+  the router dispatches every key of it before the first one's work has finished:
+  `one\rtwo\r` is eight keys with the first Enter's `isContinued()` or `onSubmit()`
+  still out. The line queues what arrives while it is busy or settled
+  (`QUEUE_LIMIT`, 10,000) and `drain()` replays it once it is free, so a command that
+  runs for a second does not eat what the user typed behind it. The facade carries it
+  over: `settle()` happens at once, the router is stopped in a **microtask** rather than
+  from inside the key's handler -- a router stopped there drops the rest of the read --
+  and `takeTypeAhead()` / `typeAhead()` hand the queue to the next mount. Found by the
+  first review round, which pressed `x{\ra}\r` and lost `a}\r`.
+- **Ctrl-R with nothing to match puts the line back.** An empty query, or one nothing
+  matches, ended by Enter or any other key is `cancelSearch()` and not an accept: there
+  is no entry to take, and accepting one read `undefined` out of the history and threw
+  from the key handler. (Review round 1.)
+- **A history that is given is the one used.** `repl({ history })` takes a `History`
+  over `historyFile`; it was overwritten by the facade's own, so a caller's shared
+  history type-checked and did nothing. A file whose last line was cut short gets a
+  line break before the next append, or the new entry would be the end of that one; and
+  a file deleted from under a session is started again from what is appended next,
+  which is the one case where what a session holds is not kept.
 - **Ctrl-C and Ctrl-D are `node`'s.** Ctrl-C clears the line and arms nothing; on an
   empty line it says `(To exit, press Ctrl+C again or Ctrl+D)` and a second one, with
   nothing pressed between, leaves. Ctrl-D leaves on an empty line and deletes under
@@ -17146,7 +17167,7 @@ is where a schema meets it.
   that is not, or `accessible` -- `echo 'deploy prod' | mycli repl` -- reads stdin
   through `node:readline` with no editing, popup or footer and no prompt written to a
   stdin that is not a terminal, runs each line through `onSubmit`, skips blank ones
-  and ends when the input does. It differs from the prompts' accessible mode on one
+  and ends when the input does -- running a last line still open, unless it ended because `signal` aborted, when a half-typed command is not one anybody asked to run. It differs from the prompts' accessible mode on one
   point on purpose: a prompt refuses a stdin that is not a terminal, because a line
   form over a pipe would read whatever the pipe carries as an answer, and a REPL over
   a pipe is the feature. Lines are not lost while a command is awaited -- the

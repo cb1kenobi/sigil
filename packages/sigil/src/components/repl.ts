@@ -198,7 +198,17 @@ export interface ReplController {
    * caret, no popup, no footer, and no key taken. Called once a line is over.
    */
   settle(): void;
+  /**
+   * Hands over what was typed after the line ended, once, for the next line to take.
+   * A runner that mounts one line at a time carries it from one to the next.
+   */
+  takeTypeAhead(): ReplTypeAhead;
+  /** Types what the line before it was handed. */
+  typeAhead(items: ReplTypeAhead): void;
 }
+
+/** Keys and pastes that came in while a line could not take them. */
+export type ReplTypeAhead = readonly ({ key: Key; pasted: boolean } | { paste: string })[];
 
 /** A completion on offer, as it is listed and as it is inserted. */
 interface Offer {
@@ -211,6 +221,9 @@ interface Offer {
 
 /** A control character, which the keys cannot type but an app can write. */
 const CONTROL = /\p{Cc}/gu;
+
+/** How much type-ahead is kept while a line cannot take it. */
+const QUEUE_LIMIT = 10_000;
 
 /** The columns a popup row's pointer takes, in front of its label. */
 const POINTER = 2;
@@ -851,6 +864,7 @@ export function createRepl(props: ReplProps): ReplController {
       } finally {
         busy = false;
         draw();
+        drain();
       }
     };
     void finish();
@@ -1035,12 +1049,17 @@ export function createRepl(props: ReplProps): ReplController {
   function acceptSearch(): void {
     const s = search as Search;
     const { at } = shownLine();
-    search = undefined;
-    if (s.at >= 0) {
-      browsing = s.at;
-      draft = { held: [...s.saved.held], value: s.saved.value };
-      load(history.entries[s.at] as string, at);
+    const match = s.at >= 0 ? history.entries[s.at] : undefined;
+    if (match === undefined) {
+      // an empty query, or one that found nothing: there is no match to take, and
+      // the line is what it was before the search
+      cancelSearch();
+      return;
     }
+    search = undefined;
+    browsing = s.at;
+    draft = { held: [...s.saved.held], value: s.saved.value };
+    load(match, at);
   }
 
   /** Leaves the search with the line as it was. */
@@ -1152,8 +1171,49 @@ export function createRepl(props: ReplProps): ReplController {
     return true;
   }
 
+  /** Puts pasted text in the line, flattened to one. */
+  function pasteText(text: string): void {
+    armed = false;
+    notice = undefined;
+    if (search !== undefined) {
+      acceptSearch();
+    }
+    const flat = pastedLine(text);
+    if (flat !== '') {
+      put(insertAt(value.get(), cursor, flat));
+      edited();
+    }
+  }
+
+  /**
+   * What was typed while the line could not take it, in order: a command running, or
+   * a line being judged by `isContinued()`. A terminal delivers type-ahead -- or an
+   * unbracketed paste -- as one read, and the router dispatches every key of it before
+   * the first one's work has finished, so dropping what arrives meanwhile loses the
+   * rest of `one\rtwo\r`.
+   */
+  let queued: ReplTypeAhead = [];
+
+  /** Runs the keys that came in while busy, until one of them makes it busy again. */
+  function drain(): void {
+    while (queued.length > 0 && !busy && !settled) {
+      const next = queued[0] as ReplTypeAhead[number];
+      queued = queued.slice(1);
+      if ('paste' in next) {
+        pasteText(next.paste);
+      } else {
+        key(next.key, next.pasted);
+      }
+      draw();
+    }
+  }
+
   host.onKey = (event: KeyEvent): void => {
     if (settled || busy) {
+      if (queued.length < QUEUE_LIMIT) {
+        queued = [...queued, { key: event.key, pasted: event.paste }];
+      }
+      event.stop();
       return;
     }
     if (key(event.key, event.paste)) {
@@ -1164,16 +1224,13 @@ export function createRepl(props: ReplProps): ReplController {
 
   host.onPaste = (event: PasteEvent): void => {
     if (settled || busy) {
+      if (queued.length < QUEUE_LIMIT) {
+        queued = [...queued, { paste: event.text }];
+      }
+      event.stop();
       return;
     }
-    if (search !== undefined) {
-      acceptSearch();
-    }
-    const flat = pastedLine(event.text);
-    if (flat !== '') {
-      put(insertAt(value.get(), cursor, flat));
-      edited();
-    }
+    pasteText(event.text);
     draw();
     event.stop();
   };
@@ -1248,6 +1305,15 @@ export function createRepl(props: ReplProps): ReplController {
     element: host,
     history,
     line: value,
+    takeTypeAhead(): ReplTypeAhead {
+      const taken = queued;
+      queued = [];
+      return taken;
+    },
+    typeAhead(items: ReplTypeAhead): void {
+      queued = [...queued, ...items];
+      drain();
+    },
     settle(): void {
       if (settled) {
         return;
@@ -1403,18 +1469,23 @@ export async function repl(opts: ReplOptions): Promise<void> {
     return;
   }
 
-  const history = createHistory({
-    file: opts.historyFile,
-    max: opts.historySize,
-    onError: report,
-  });
+  // a history the caller holds is the one used, and `historyFile` is ignored beside it
+  const history =
+    opts.history ??
+    createHistory({
+      file: opts.historyFile,
+      max: opts.historySize,
+      onError: report,
+    });
+  let ahead: ReplTypeAhead = [];
 
   for (;;) {
     history.sync();
-    const read = await readLine(opts, terminal, stdin as InputStream, history);
+    const read = await readLine(opts, terminal, stdin as InputStream, history, ahead);
     if (read.exit !== undefined) {
       return;
     }
+    ahead = read.ahead;
     if (read.line.trim() === '') {
       continue;
     }
@@ -1429,8 +1500,12 @@ async function readLine(
   opts: ReplOptions,
   terminal: NonNullable<ReplOptions['terminal']>,
   stdin: InputStream,
-  history: History
-): Promise<{ exit: ReplExit; line?: undefined } | { exit?: undefined; line: string }> {
+  history: History,
+  ahead: ReplTypeAhead
+): Promise<
+  | { ahead?: undefined; exit: ReplExit; line?: undefined }
+  | { ahead: ReplTypeAhead; exit?: undefined; line: string }
+> {
   return new Promise((resolve, reject) => {
     let done = false;
     let mounted: Mounted | undefined;
@@ -1456,21 +1531,37 @@ async function readLine(
         return;
       }
       done = true;
-      if ('line' in value) {
-        controller?.settle();
-        mounted?.frame();
-      }
+      // what is still being asked of a completer is not wanted once the line is over,
+      // whichever way it ended
       try {
-        giveBack('exit' in value);
+        controller?.settle();
+        if ('line' in value) {
+          mounted?.frame();
+        }
       } catch (error) {
-        reject(error);
+        fail(error, true);
         return;
       }
-      resolve(value as never);
+      // after the rest of this read has been dispatched. A router stopped from inside
+      // a key's handler drops the keys that arrived behind it in the same read, and
+      // the line is settled by now, so they are queued on it for the next line
+      queueMicrotask(() => {
+        try {
+          giveBack('exit' in value);
+        } catch (error) {
+          reject(error);
+          return;
+        }
+        resolve(
+          ('line' in value
+            ? { ahead: controller?.takeTypeAhead() ?? [], line: value.line }
+            : value) as never
+        );
+      });
     }
 
-    function fail(error: unknown): void {
-      if (done) {
+    function fail(error: unknown, already = false): void {
+      if (done && !already) {
         return;
       }
       done = true;
@@ -1547,7 +1638,14 @@ async function readLine(
         mounted?.backend.write(entry.text, to);
       },
     });
-    console_ = captureConsole(ring);
+    try {
+      console_ = captureConsole(ring);
+    } catch (error) {
+      // a console that cannot be patched: the line is not drawn without it, and what
+      // was taken -- the router, the screen, raw mode -- is given back
+      fail(error);
+      return;
+    }
 
     const { signal } = opts;
     let offAbort: (() => void) | undefined;
@@ -1560,6 +1658,13 @@ async function readLine(
       offEnd();
       offAbort?.();
     };
+
+    // what was typed behind the last line's Enter, which that line could not take
+    try {
+      (controller as ReplController).typeAhead(ahead);
+    } catch (error) {
+      fail(error);
+    }
   });
 }
 
@@ -1619,8 +1724,10 @@ async function lines(
         terminal.write(prompt);
       }
     }
-    // the input ended with a line still open: it is what there is, so it runs
-    if (pending.length > 0) {
+    // the input ended with a line still open: it is what there is, so it runs -- unless
+    // it ended because the session was given up, when a half-typed command is not one
+    // anybody asked to run
+    if (pending.length > 0 && !signal?.aborted) {
       await run(pending.join('\n'));
     }
   } finally {

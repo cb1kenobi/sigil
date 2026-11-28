@@ -90,6 +90,19 @@ describe('createHistory() over a file', () => {
     expect(createHistory({ file }).entries).toEqual(['one', 'two']);
   });
 
+  it('should not run an entry on to the last line of a file whose end was cut short', () => {
+    const file = fileIn('sigil-history-cut-');
+    writeFileSync(file, '"one"\n"two"');
+
+    const history = createHistory({ file });
+    expect(history.entries).toEqual(['one']);
+    history.add('three');
+
+    // the cut line ends where it was cut, and the new one is its own
+    expect(readFileSync(file, 'utf8')).toBe('"one"\n"two"\n"three"\n');
+    expect(createHistory({ file }).entries).toEqual(['one', 'two', 'three']);
+  });
+
   it('should create the directory it lives in', () => {
     const file = join(tempDir('sigil-history-mkdir-'), 'a', 'b', 'history');
 
