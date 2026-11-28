@@ -82,6 +82,7 @@ const SKIPPED: Readonly<Record<string, readonly string[]>> = {
     'node dist/my-cli.mjs --version',
   ],
   'testing.md': [],
+  'telemetry.md': [],
 };
 
 for (const guide of GUIDES) {

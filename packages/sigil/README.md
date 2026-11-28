@@ -58,6 +58,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 
 - [Getting started](docs/getting-started.md) — a new app, from `sigil new` to a build
 - [Building a full-screen app](docs/full-screen-apps.md) — the whole terminal, in JSX and in the `ui` tag
+- [Telemetry](docs/telemetry.md) — usage data from `afterRun` and `beforeError`, asked for first and sent without waiting
 - [The root entry](#the-root-entry) — `main()`, `command()`, `options()`, errors
 - [Declaring options](#declaring-options)
 - [Declaring arguments](#declaring-arguments)
@@ -939,6 +940,11 @@ had:
 
 There is no `catch`-as-recovery hook, and that is a decision rather than a gap.
 See `AGENTS.md`.
+
+**Telemetry** is this hook on the schema, with `beforeError` for the runs that
+never reached a command. **[docs/telemetry.md](docs/telemetry.md)** builds it:
+asking first and honouring `DO_NOT_TRACK`, sending from a detached process so no
+run waits on the network, and keeping everything the user typed out of the event.
 
 ### `beforeError`
 

@@ -62,6 +62,7 @@ export interface Guide {
 export const GUIDES: readonly Guide[] = [
   { file: 'getting-started.md', scaffold: 'my-cli' },
   { file: 'testing.md', scaffold: 'my-cli' },
+  { file: 'telemetry.md', scaffold: 'my-cli' },
 ];
 
 export interface Block {
